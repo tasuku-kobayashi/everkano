@@ -7,6 +7,14 @@
  * - Tailwind のユーティリティは @theme inline で変数を参照するため、`bg-ig-bg text-ig-text` のように
  *   書くだけでライト/ダーク両対応になる（dark: バリアントは基本不要）。
  * - Web フォントは読み込まない（システムフォントのみ）。
+ *
+ * 色のコントラスト（WCAG 2.1 AA: 本文 4.5:1 以上）:
+ * - Instagram の #0095f6（青）と #ff3040（赤）は白地で 3.2:1 / 3.7:1 しかないため、「塗り」と「アイコン」専用にする
+ *   （プライマリボタンの塗り・いいねのハート・未読バッジ）。プライマリボタンの白文字 × #0095f6 は Instagram の
+ *   見た目を優先した意図的な例外（ADR-0021。太字 15px のボタンラベル）。
+ * - 読ませる文字（エラー文言・送信失敗の案内・破壊的操作のラベル・テキストボタン・リンク）は
+ *   --ig-red-text / --ig-blue-text（text-ig-red-text / text-ig-blue-text）を使う。ライト / ダークとも
+ *   bg・elevated・sheet の上で 4.5:1 以上になる値にしてある。
  */
 
 :root {
@@ -22,12 +30,15 @@
   --ig-sheet-separator: #dbdbdb; /* シート・モーダル内の区切り線 */
   --ig-input-bg: #fafafa; /* 入力欄の背景 */
   --ig-input-border: #dbdbdb; /* 入力欄の枠 */
-  --ig-blue: #0095f6; /* アクセント（プライマリボタン・リンク） */
+  --ig-blue: #0095f6; /* アクセント（プライマリボタンの塗り・未読の点・フォーカス枠）。文字色には使わない */
   --ig-blue-hover: #1877f2;
-  --ig-red: #ff3040; /* いいね・エラー・破壊的操作 */
+  --ig-blue-text: #0064d1; /* 青い文字（テキストボタン・リンク）。白地 5.6:1 / グレー面 4.9:1 */
+  --ig-red: #ff3040; /* いいね・未読バッジなどの塗り・アイコン。文字色には使わない */
+  --ig-red-text: #d6001c; /* エラー文言・送信失敗・破壊的操作の文字。白地 5.4:1 */
   --ig-link: #00376b; /* ハッシュタグ・メンション */
   --ig-toast: #262626; /* トースト背景 */
   --ig-toast-text: #ffffff;
+  --ig-toast-action: #4cb5f9; /* トーストの操作ボタン（暗い面の上。#262626 で 6.7:1） */
   --ig-overlay: rgb(0 0 0 / 0.65); /* モーダル背景 */
   --ig-badge: #ff3040; /* 未読バッジ */
 
@@ -52,10 +63,13 @@
     --ig-input-border: #363636;
     --ig-blue: #0095f6;
     --ig-blue-hover: #1877f2;
+    --ig-blue-text: #4cb5f9; /* 黒地 9.3:1 / #262626 6.7:1 */
     --ig-red: #ff3040;
+    --ig-red-text: #ff6b77; /* 黒地 7.6:1 / #262626 5.5:1 */
     --ig-link: #e0f1ff;
     --ig-toast: #363636;
     --ig-toast-text: #f5f5f5;
+    --ig-toast-action: #4cb5f9; /* #363636 で 5.3:1 */
     --ig-overlay: rgb(0 0 0 / 0.65);
     --ig-badge: #ff3040;
   }
@@ -74,10 +88,13 @@
   --color-ig-input-border: var(--ig-input-border);
   --color-ig-blue: var(--ig-blue);
   --color-ig-blue-hover: var(--ig-blue-hover);
+  --color-ig-blue-text: var(--ig-blue-text);
   --color-ig-red: var(--ig-red);
+  --color-ig-red-text: var(--ig-red-text);
   --color-ig-link: var(--ig-link);
   --color-ig-toast: var(--ig-toast);
   --color-ig-toast-text: var(--ig-toast-text);
+  --color-ig-toast-action: var(--ig-toast-action);
   --color-ig-overlay: var(--ig-overlay);
   --color-ig-badge: var(--ig-badge);
 }

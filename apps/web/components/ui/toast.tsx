@@ -110,7 +110,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {toast.action ? (
               <button
                 type="button"
-                className="shrink-0 font-semibold text-ig-blue"
+                className="shrink-0 font-semibold text-ig-toast-action"
                 onClick={() => {
                   toast.action?.onClick();
                   dismiss();

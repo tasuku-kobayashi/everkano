@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatResponse, CreateCommentResponse, MemoryDTO } from "@everkano/shared";
-import { ApiError, CHAT_TIMEOUT_MS, createApiClient, DEFAULT_TIMEOUT_MS } from "./client";
+import {
+  ApiError,
+  CHAT_TIMEOUT_MS,
+  createApiClient,
+  DEFAULT_TIMEOUT_MS,
+  readAccessToken,
+  type SessionReader,
+} from "./client";
 import { API_ERROR_MESSAGES, parseRetryAfter } from "./errors";
 
 type FetchArgs = [input: RequestInfo | URL, init?: RequestInit];
@@ -114,7 +121,7 @@ describe("createApiClient: 正常系", () => {
     });
   });
 
-  it("createConversation / createComment / generateCommentReply のパス", async () => {
+  it("createConversation / createComment のパス", async () => {
     const commentRes: CreateCommentResponse = {
       comment: {
         id: "cm1",
@@ -133,7 +140,6 @@ describe("createApiClient: 正常系", () => {
       if (url.endsWith("/conversations")) {
         return jsonResponse(200, { conversation: {}, created: true, greeting_message: null });
       }
-      if (url.endsWith("/comments/generate")) return jsonResponse(200, { comment: null });
       return jsonResponse(201, commentRes);
     });
 
@@ -143,13 +149,6 @@ describe("createApiClient: 正常系", () => {
     const created = await client.createComment({ post_id: "p1", body: "かわいい" });
     expect(created.reply_scheduled).toBe(true);
     expect(lastCall(fetchMock).url).toBe("http://api.test/comments");
-
-    const generated = await client.generateCommentReply({
-      post_id: "p1",
-      parent_comment_id: "cm1",
-    });
-    expect(generated.comment).toBeNull();
-    expect(lastCall(fetchMock).url).toBe("http://api.test/comments/generate");
   });
 
   it("メモリの CRUD（クエリ・PATCH・204）", async () => {
@@ -260,7 +259,7 @@ describe("createApiClient: エラー処理", () => {
     const error = (await client.health().catch((e: unknown) => e)) as ApiError;
     expect(error.status).toBe(0);
     expect(error.code).toBe("network_error");
-    expect(error.message).toBe("通信できませんでした。電波の良い場所で再度お試しください");
+    expect(error.message).toBe(API_ERROR_MESSAGES.network_error);
   });
 
   it("2xx だが本文が JSON でない場合は internal_error", async () => {
@@ -325,6 +324,59 @@ describe("createApiClient: タイムアウトと中断", () => {
       .health({ signal: controller.signal })
       .catch((e: unknown) => e)) as ApiError;
     expect(error.code).toBe("aborted");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("readAccessToken（既定クライアントのトークン取得）", () => {
+  function reader(result: Awaited<ReturnType<SessionReader["getSession"]>>): SessionReader {
+    return { getSession: async () => result };
+  }
+
+  it("セッションがあればアクセストークン、無ければ null", async () => {
+    await expect(
+      readAccessToken(reader({ data: { session: { access_token: "tok" } }, error: null })),
+    ).resolves.toBe("tok");
+    await expect(readAccessToken(reader({ data: { session: null }, error: null }))).resolves.toBe(
+      null,
+    );
+  });
+
+  it("リフレッシュトークンが無効（4xx）なら null（= 401 → ログイン画面へ）", async () => {
+    const error = { name: "AuthApiError", status: 400, message: "Invalid Refresh Token" };
+    await expect(readAccessToken(reader({ data: { session: null }, error }))).resolves.toBeNull();
+  });
+
+  it("リフレッシュの通信失敗・Auth の 5xx は network_error（ログアウトさせない）", async () => {
+    // auth-js は期限切れのトークンをリフレッシュできないと { session: null, error: AuthRetryableFetchError } を返す
+    for (const error of [
+      { name: "AuthRetryableFetchError", status: 0, message: "Failed to fetch" },
+      { name: "AuthRetryableFetchError", status: 503, message: "Service Unavailable" },
+      { name: "AuthUnknownError", status: 502, message: "Bad Gateway" },
+    ]) {
+      const thrown = await readAccessToken(reader({ data: { session: null }, error })).catch(
+        (e: unknown) => e,
+      );
+      expect(thrown, error.name).toBeInstanceOf(ApiError);
+      expect(thrown).toMatchObject({ status: 0, code: "network_error" });
+      expect((thrown as ApiError).message).toBe(API_ERROR_MESSAGES.network_error);
+    }
+  });
+
+  it("API 呼び出しでは、リフレッシュの通信失敗を 401 ではなく network_error として投げる（fetch しない）", async () => {
+    const fetchMock = vi.fn();
+    const client = createApiClient({
+      baseUrl: "http://api.test",
+      getAccessToken: () =>
+        readAccessToken(
+          reader({
+            data: { session: null },
+            error: { name: "AuthRetryableFetchError", status: 0, message: "Failed to fetch" },
+          }),
+        ),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await expect(client.listMemories("c1")).rejects.toMatchObject({ code: "network_error" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

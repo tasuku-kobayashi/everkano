@@ -11,7 +11,11 @@ export interface EmptyStateProps {
   className?: string;
 }
 
-/** Instagram の「投稿はまだありません」形式の空状態（丸枠アイコン + 太字見出し + 補足） */
+/**
+ * Instagram の「投稿はまだありません」形式の空状態（丸枠アイコン + 太字見出し + 補足）。
+ * 見出し・補足は行の長さをそろえ（text-balance）、日本語は文節の途中で折り返さない（word-break: auto-phrase。
+ * 対応ブラウザのみ）。スマホ幅で最後の 1 文字だけが次の行に落ちる（「…ありませ / ん」）のを防ぐ。
+ */
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div className={cn("flex flex-col items-center px-8 py-14 text-center", className)}>
@@ -20,9 +24,11 @@ export function EmptyState({ icon, title, description, action, className }: Empt
           {icon}
         </div>
       ) : null}
-      <h2 className="text-[22px] leading-7 font-extrabold">{title}</h2>
+      <h2 className="text-[22px] leading-7 font-extrabold text-balance [word-break:auto-phrase]">
+        {title}
+      </h2>
       {description ? (
-        <p className="mt-2 max-w-[320px] text-[14px] leading-[18px] text-balance text-ig-secondary">
+        <p className="mt-2 max-w-[320px] text-[14px] leading-[18px] text-balance [word-break:auto-phrase] text-ig-secondary">
           {description}
         </p>
       ) : null}

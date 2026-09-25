@@ -16,10 +16,10 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: "bg-ig-blue text-white enabled:active:bg-ig-blue-hover disabled:opacity-40",
   // グレーボタン（プロフィールを編集・メッセージ等）
   secondary: "bg-ig-elevated text-ig-text enabled:active:bg-ig-elevated-hover disabled:opacity-50",
-  // 背景なしの青テキスト（「再送信」「すべて見る」等）
-  ghost: "bg-transparent text-ig-blue enabled:active:opacity-50 disabled:opacity-40",
-  // 背景なしの赤テキスト（退会・削除などの破壊的操作）
-  danger: "bg-transparent text-ig-red enabled:active:opacity-50 disabled:opacity-40",
+  // 背景なしの青テキスト（「再送信」「すべて見る」等）。文字なので --ig-blue-text（4.5:1 以上）
+  ghost: "bg-transparent text-ig-blue-text enabled:active:opacity-50 disabled:opacity-40",
+  // 背景なしの赤テキスト（退会・削除などの破壊的操作）。文字なので --ig-red-text（4.5:1 以上）
+  danger: "bg-transparent text-ig-red-text enabled:active:opacity-50 disabled:opacity-40",
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

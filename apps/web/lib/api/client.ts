@@ -1,3 +1,4 @@
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import type {
   ChatRequest,
   ChatResponse,
@@ -6,8 +7,6 @@ import type {
   CreateConversationRequest,
   CreateConversationResponse,
   CreateMemoryRequest,
-  GenerateCommentRequest,
-  GenerateCommentResponse,
   HealthResponse,
   ListMemoriesResponse,
   MemoryDTO,
@@ -50,7 +49,7 @@ export interface RequestOptions {
 export interface ApiClientConfig {
   /** 例: http://localhost:8000（末尾スラッシュ不要） */
   baseUrl: string;
-  /** 現在のアクセストークン。未ログインなら null */
+  /** 現在のアクセストークン。未ログインなら null（一時的な失敗は ApiError を投げてよい） */
   getAccessToken: () => Promise<string | null>;
   /** テスト用に差し替え可能な fetch */
   fetch?: typeof fetch;
@@ -303,19 +302,8 @@ export function createApiClient(config: ApiClientConfig) {
       });
     },
 
-    /** POST /comments/generate — 投稿者キャラがコメントに返信（LLM 生成のため 45 秒） */
-    generateCommentReply(
-      body: GenerateCommentRequest,
-      options: RequestOptions = {},
-    ): Promise<GenerateCommentResponse> {
-      return call<GenerateCommentResponse>({
-        ...options,
-        method: "POST",
-        path: "/comments/generate",
-        body,
-        defaultTimeoutMs: chatTimeoutMs,
-      });
-    },
+    // POST /comments/generate（投稿者キャラの返信を即時生成）は Web からは使わない。
+    // 自動返信は POST /comments がサーバー側でスケジュールする（ADR-0014）。必要になったらここに追加する。
   };
 }
 
@@ -326,20 +314,46 @@ export type ApiClient = ReturnType<typeof createApiClient>;
 // import しただけでは環境変数を読まず、初回呼び出し時に生成する。
 // ---------------------------------------------------------------------------
 
+/** getSession() の結果（テストで差し替えるため最小限の形） */
+export interface SessionReader {
+  getSession(): Promise<{
+    data: { session: { access_token: string } | null };
+    error: { name?: string; status?: number | undefined; message: string } | null;
+  }>;
+}
+
+/**
+ * Supabase のセッションから API に付けるアクセストークンを読む（期限切れ間近ならリフレッシュしてから返す）。
+ * - セッションが無い・リフレッシュトークンが無効（4xx）→ null（呼び出し側は 401 unauthorized → ログイン画面へ）
+ * - リフレッシュが通信失敗・Auth の 5xx で失敗した → network_error を投げる。
+ *   アクセストークンの期限が切れた状態で圏外から復帰した直後などに起きる一時的な失敗で、セッション自体は
+ *   端末に残っている。null にすると「ログインの有効期限が切れました」と表示してログアウトさせてしまう。
+ */
+export async function readAccessToken(auth: SessionReader): Promise<string | null> {
+  const { data, error } = await auth.getSession();
+  if (error) {
+    const status = typeof error.status === "number" ? error.status : 0;
+    if (isAuthRetryableFetchError(error) || status === 0 || status >= 500) {
+      console.warn("[api] session refresh failed (transient):", error.message);
+      throw new ApiError({
+        status: 0,
+        code: "network_error",
+        message: API_ERROR_MESSAGES.network_error,
+        cause: error,
+      });
+    }
+    console.warn("[api] failed to read session:", error.message);
+    return null;
+  }
+  return data.session?.access_token ?? null;
+}
+
 let defaultClient: ApiClient | undefined;
 
 export function getApiClient(): ApiClient {
   defaultClient ??= createApiClient({
     baseUrl: getPublicEnv().apiBaseUrl,
-    async getAccessToken() {
-      // getSession() は期限切れ間近ならリフレッシュしてから返す
-      const { data, error } = await getSupabaseBrowserClient().auth.getSession();
-      if (error) {
-        console.warn("[api] failed to read session:", error.message);
-        return null;
-      }
-      return data.session?.access_token ?? null;
-    },
+    getAccessToken: () => readAccessToken(getSupabaseBrowserClient().auth),
   });
   return defaultClient;
 }
@@ -354,8 +368,7 @@ export const api: ApiClient = {
   updateMemory: (...args) => getApiClient().updateMemory(...args),
   deleteMemory: (...args) => getApiClient().deleteMemory(...args),
   createComment: (...args) => getApiClient().createComment(...args),
-  generateCommentReply: (...args) => getApiClient().generateCommentReply(...args),
 };
 
-export { ApiError, isApiError, getErrorMessage, API_ERROR_MESSAGES } from "./errors";
+export { ApiError, isApiError, getErrorMessage, toAppError, API_ERROR_MESSAGES } from "./errors";
 export type { ApiErrorKind } from "./errors";

@@ -16,7 +16,8 @@ function toDate(input: DateInput): Date {
   return input instanceof Date ? input : new Date(input);
 }
 
-interface YmdParts {
+/** Asia/Tokyo での日時の各部分（weekday: 0 = 日曜） */
+export interface ZonedParts {
   year: number;
   month: number;
   day: number;
@@ -38,7 +39,11 @@ const partsFormatter = new Intl.DateTimeFormat("en-US", {
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function zonedParts(date: Date): YmdParts {
+/**
+ * 日時を Asia/Tokyo の年月日・時分・曜日に分解する（端末のタイムゾーンに依存しない）。
+ * 日付の表示を組み立てるときはこれを使い、Intl.DateTimeFormat を個別に作らないこと。
+ */
+export function zonedParts(date: Date): ZonedParts {
   const map: Record<string, string> = {};
   for (const part of partsFormatter.formatToParts(date)) map[part.type] = part.value;
   return {
@@ -51,20 +56,18 @@ function zonedParts(date: Date): YmdParts {
   };
 }
 
-/** 暦日の差（Asia/Tokyo 基準）。同日 0 / 昨日 1 */
-function calendarDayDiff(a: YmdParts, b: YmdParts): number {
+/** 暦日の差 b − a（Asia/Tokyo 基準）。同日 0 / a が昨日なら 1 */
+export function calendarDayDiff(a: ZonedParts, b: ZonedParts): number {
   const ua = Date.UTC(a.year, a.month - 1, a.day);
   const ub = Date.UTC(b.year, b.month - 1, b.day);
   return Math.round((ub - ua) / DAY);
 }
 
-function formatMonthDay(parts: YmdParts, now: YmdParts): string {
+function formatMonthDay(parts: ZonedParts, now: ZonedParts): string {
   return parts.year === now.year
     ? `${parts.month}月${parts.day}日`
     : `${parts.year}年${parts.month}月${parts.day}日`;
 }
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
 
 /**
  * 投稿・コメントの相対時刻。
@@ -102,22 +105,6 @@ export function formatRelativeTimeShort(input: DateInput, now: DateInput = new D
   return formatMonthDay(zonedParts(date), zonedParts(current));
 }
 
-/**
- * DM 会話内のタイムスタンプ（区切り表示用）。
- * 今日「14:05」/ 昨日「昨日 14:05」/ 今年「9月3日 14:05」/ それ以前「2025年9月3日 14:05」
- */
-export function formatChatTimestamp(input: DateInput, now: DateInput = new Date()): string {
-  const date = toDate(input);
-  if (Number.isNaN(date.getTime())) return "";
-  const parts = zonedParts(date);
-  const current = zonedParts(toDate(now));
-  const time = `${parts.hour}:${pad2(parts.minute)}`;
-  const dayDiff = calendarDayDiff(parts, current);
-  if (dayDiff <= 0) return time;
-  if (dayDiff === 1) return `昨日 ${time}`;
-  return `${formatMonthDay(parts, current)} ${time}`;
-}
-
 /** 小数第1位で切り捨て、末尾の .0 を除く */
 function truncate1(value: number): string {
   const truncated = Math.floor(value * 10) / 10;
@@ -136,11 +123,6 @@ export function formatCount(value: number): string {
   if (n < 100_000_000) return `${Math.floor(n / 10_000).toLocaleString("ja-JP")}万`;
   if (n < 1_000_000_000) return `${truncate1(n / 100_000_000)}億`;
   return `${Math.floor(n / 100_000_000).toLocaleString("ja-JP")}億`;
-}
-
-/** 「いいね！1,234件」 */
-export function formatLikeCount(value: number): string {
-  return `「いいね！」${formatCount(value)}件`;
 }
 
 /**

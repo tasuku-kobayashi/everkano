@@ -4,7 +4,13 @@ import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { Spinner } from "./spinner";
-import { useFocusTrap, useIsClient, usePresence, useScrollLock } from "./overlay";
+import {
+  useFocusTrap,
+  useHistoryDismiss,
+  useIsClient,
+  usePresence,
+  useScrollLock,
+} from "./overlay";
 
 export interface ModalAction {
   label: string;
@@ -33,13 +39,26 @@ export interface ModalProps {
 
 const ACTION_CLASSES: Record<NonNullable<ModalAction["variant"]>, string> = {
   default: "font-normal text-ig-text",
-  primary: "font-bold text-ig-blue",
-  destructive: "font-bold text-ig-red",
+  // 文字色なので塗り用の --ig-blue / --ig-red ではなく、コントラストを確保した *-text を使う
+  primary: "font-bold text-ig-blue-text",
+  destructive: "font-bold text-ig-red-text",
 };
 
 /**
+ * 破壊的な操作（退会・削除）を含むダイアログの初期フォーカス先:
+ * 最初の「破壊的でない・押せる」操作ボタン（キャンセル等）。無ければダイアログ自体。
+ * 表示順（破壊的な操作が上）は Instagram に合わせたまま、Enter の連打で取り消せない操作が実行されないようにする。
+ */
+function safeInitialFocus(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>(
+    'button[data-modal-action]:not([data-modal-action="destructive"]):not(:disabled)',
+  );
+}
+
+/**
  * Instagram 風の中央ダイアログ（「退会しますか？」「有料コンテンツです」等）。
- * 背景タップ・Esc で閉じる（dismissible=false で無効化）。
+ * 背景タップ・Esc・端末の「戻る」で閉じる（dismissible=false で無効化）。
+ * 破壊的な操作（variant="destructive"）がある場合、初期フォーカスはキャンセル側に置く。
  */
 export function Modal({
   open,
@@ -61,8 +80,13 @@ export function Modal({
     if (dismissible) onClose();
   };
 
+  const hasDestructiveAction = actions?.some((action) => action.variant === "destructive") ?? false;
+
   useScrollLock(mounted);
-  useFocusTrap(dialogRef, open && mounted, close);
+  useFocusTrap(dialogRef, open && mounted, close, {
+    initialFocus: hasDestructiveAction ? safeInitialFocus : undefined,
+  });
+  useHistoryDismiss(open, close);
 
   if (!isClient || !mounted) return null;
 
@@ -114,6 +138,7 @@ export function Modal({
               <button
                 key={action.label}
                 type="button"
+                data-modal-action={action.variant ?? "default"}
                 onClick={action.onClick}
                 disabled={action.disabled || action.loading}
                 className={cn(

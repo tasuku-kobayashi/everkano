@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   anonymousUserName,
-  formatChatTimestamp,
+  calendarDayDiff,
   formatCount,
-  formatLikeCount,
   formatRelativeTime,
   formatRelativeTimeShort,
+  zonedParts,
 } from "./format";
 
 // 2026-09-25 12:00 JST
@@ -57,19 +57,27 @@ describe("formatRelativeTimeShort", () => {
   });
 });
 
-describe("formatChatTimestamp", () => {
-  it("今日・昨日・今年・過去年", () => {
-    expect(formatChatTimestamp("2026-09-25T00:05:00Z", NOW)).toBe("9:05");
-    expect(formatChatTimestamp("2026-09-24T05:30:00Z", NOW)).toBe("昨日 14:30");
-    expect(formatChatTimestamp("2026-09-03T05:30:00Z", NOW)).toBe("9月3日 14:30");
-    expect(formatChatTimestamp("2025-01-02T00:00:00Z", NOW)).toBe("2025年1月2日 9:00");
+describe("zonedParts / calendarDayDiff（Asia/Tokyo 固定）", () => {
+  it("端末のタイムゾーンに関係なく JST の年月日・時分・曜日に分解する", () => {
+    // 2026-09-24T15:30Z = 9/25（金）0:30 JST
+    expect(zonedParts(new Date("2026-09-24T15:30:00Z"))).toEqual({
+      year: 2026,
+      month: 9,
+      day: 25,
+      hour: 0,
+      minute: 30,
+      weekday: 5,
+    });
   });
 
-  it("JST の日付境界で判定する", () => {
-    // 2026-09-24T15:30Z = 9/25 0:30 JST（今日）
-    expect(formatChatTimestamp("2026-09-24T15:30:00Z", NOW)).toBe("0:30");
-    // 2026-09-24T14:59Z = 9/24 23:59 JST（昨日）
-    expect(formatChatTimestamp("2026-09-24T14:59:00Z", NOW)).toBe("昨日 23:59");
+  it("JST の日付境界で暦日の差を数える", () => {
+    const now = zonedParts(NOW);
+    // 9/25 0:30 JST（今日）
+    expect(calendarDayDiff(zonedParts(new Date("2026-09-24T15:30:00Z")), now)).toBe(0);
+    // 9/24 23:59 JST（昨日）
+    expect(calendarDayDiff(zonedParts(new Date("2026-09-24T14:59:00Z")), now)).toBe(1);
+    // 年をまたぐ
+    expect(calendarDayDiff(zonedParts(new Date("2025-12-31T03:00:00Z")), now)).toBe(268);
   });
 });
 
@@ -97,10 +105,6 @@ describe("formatCount", () => {
     expect(formatCount(-5)).toBe("0");
     expect(formatCount(Number.NaN)).toBe("0");
     expect(formatCount(3.7)).toBe("3");
-  });
-
-  it("formatLikeCount", () => {
-    expect(formatLikeCount(1234)).toBe("「いいね！」1,234件");
   });
 });
 

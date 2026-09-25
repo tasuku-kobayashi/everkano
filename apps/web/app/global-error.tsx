@@ -53,7 +53,7 @@ export default function GlobalError({
       >
         <h1 style={{ fontSize: 20, margin: 0 }}>問題が発生しました</h1>
         <p className="ge-sub" style={{ fontSize: 14, marginTop: 8 }}>
-          時間をおいて再度お試しください。
+          しばらくしてから再度お試しください。
         </p>
         <button
           type="button"

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useScrollTopOrRefreshFeed } from "@/lib/feed-refresh";
 import { useBackNavigation } from "@/lib/navigation";
 import { ChevronLeftIcon } from "./icons";
 import { Wordmark } from "./wordmark";
@@ -17,6 +19,8 @@ interface HeaderCommonProps {
 
 export interface LogoHeaderProps extends HeaderCommonProps {
   variant: "logo";
+  /** 画面の見出し（視覚的には非表示の h1。スクリーンリーダーの見出し移動用）。既定「ホーム」 */
+  heading?: string;
 }
 
 export interface BackHeaderProps extends HeaderCommonProps {
@@ -27,6 +31,11 @@ export interface BackHeaderProps extends HeaderCommonProps {
   subtitle?: ReactNode;
   /** title の代わりに任意の中身（DM ヘッダーのアバター + 名前など）。左揃えで表示 */
   children?: ReactNode;
+  /**
+   * children を使う場合の画面の見出し（視覚的には非表示の h1。例: DM 会話ならキャラクター名）。
+   * title を指定した場合は title が h1 になるため不要
+   */
+  heading?: string;
   /** 既定 "center"。children 指定時は常に left */
   align?: "center" | "left";
   /** 戻り先（アプリ内履歴が無い場合）。既定 "/" */
@@ -51,6 +60,8 @@ export type AppHeaderProps = LogoHeaderProps | BackHeaderProps | TitleHeaderProp
  * - variant="logo" : ワードマーク + 右アクション（ホーム）
  * - variant="back" : 「<」戻る + 見出し（投稿詳細・キャラプロフィール・DM 会話）
  * - variant="title": 左寄せの太字見出し（DM 一覧・自分のプロフィール・検索）
+ *
+ * どの形式でも画面の h1 を 1 つ出す（logo は非表示の「ホーム」、back + children は heading を非表示で）。
  */
 export function AppHeader(props: AppHeaderProps) {
   return (
@@ -62,7 +73,7 @@ export function AppHeader(props: AppHeaderProps) {
       )}
     >
       <div className="relative flex h-[var(--header-h)] items-center gap-2 px-3">
-        {props.variant === "logo" ? <LogoContent /> : null}
+        {props.variant === "logo" ? <LogoContent heading={props.heading} /> : null}
         {props.variant === "back" ? <BackContent {...props} /> : null}
         {props.variant === "title" ? <TitleContent {...props} /> : null}
         {props.right ? (
@@ -73,11 +84,26 @@ export function AppHeader(props: AppHeaderProps) {
   );
 }
 
-function LogoContent() {
+function LogoContent({ heading = "ホーム" }: { heading?: string }) {
+  const pathname = usePathname();
+  const scrollTopOrRefreshFeed = useScrollTopOrRefreshFeed();
   return (
-    <Link href="/" aria-label="everkano ホーム" className="-mb-1 flex items-center pl-1 pressable">
-      <Wordmark height={30} />
-    </Link>
+    <>
+      <h1 className="sr-only">{heading}</h1>
+      <Link
+        href="/"
+        aria-label="everkano ホーム"
+        onClick={(event) => {
+          // ホーム表示中のロゴタップ: 先頭へ戻る / 先頭なら再読み込み（Home タブの再タップと同じ）
+          if (pathname !== "/") return;
+          event.preventDefault();
+          scrollTopOrRefreshFeed();
+        }}
+        className="-mb-1 flex items-center pl-1 pressable"
+      >
+        <Wordmark height={30} />
+      </Link>
+    </>
   );
 }
 
@@ -99,6 +125,7 @@ function BackContent({
   title,
   subtitle,
   children,
+  heading,
   align = "center",
   backHref,
   onBack,
@@ -108,7 +135,10 @@ function BackContent({
     <>
       <BackButton backHref={backHref} onBack={onBack} />
       {children ? (
-        <div className="flex min-w-0 flex-1 items-center">{children}</div>
+        <div className="flex min-w-0 flex-1 items-center">
+          {heading ? <h1 className="sr-only">{heading}</h1> : null}
+          {children}
+        </div>
       ) : (
         <div
           className={cn(

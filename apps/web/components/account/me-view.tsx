@@ -10,6 +10,7 @@ import { ChevronRightIcon } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { toAppError } from "@/lib/api/errors";
 import {
   accountDisplayName,
   signOutAndRedirect,
@@ -19,6 +20,7 @@ import {
 import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/queries/keys";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { codePointLength, firstGrapheme } from "@/lib/text";
 
 const DISPLAY_NAME_MAX = 30;
 const APP_VERSION = "0.1.0";
@@ -59,7 +61,7 @@ function MeContent({ account }: { account: MyAccount }) {
         .from("profiles")
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", account.userId);
-      if (error) throw error;
+      if (error) throw toAppError(error);
     },
     onSuccess: async () => {
       // 退会したら全端末のセッションを無効化してログイン画面へ
@@ -71,7 +73,7 @@ function MeContent({ account }: { account: MyAccount }) {
     },
     onError: (error) => {
       console.error("[me] withdraw failed:", error);
-      toast.error("退会できませんでした。通信状況を確認して再度お試しください");
+      toast.error("退会できませんでした。通信状況を確認して、再度お試しください。");
     },
   });
 
@@ -81,7 +83,7 @@ function MeContent({ account }: { account: MyAccount }) {
     const { error } = await signOutAndRedirect();
     if (error) {
       setLoggingOut(false);
-      toast.error("ログアウトできませんでした。通信状況を確認して再度お試しください");
+      toast.error("ログアウトできませんでした。通信状況を確認して、再度お試しください。");
     }
   }
 
@@ -89,7 +91,7 @@ function MeContent({ account }: { account: MyAccount }) {
     <div className="flex flex-col">
       <section className="flex items-center gap-6 px-4 pt-3 pb-4">
         <span className="flex size-[86px] shrink-0 items-center justify-center rounded-full brand-gradient text-[36px] font-bold text-white">
-          {displayName.charAt(0).toUpperCase()}
+          {firstGrapheme(displayName).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] leading-5 font-semibold">{displayName}</p>
@@ -118,7 +120,7 @@ function MeContent({ account }: { account: MyAccount }) {
             type="button"
             onClick={() => void logout()}
             disabled={loggingOut}
-            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-blue enabled:active:bg-ig-elevated disabled:opacity-50"
+            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-blue-text enabled:active:bg-ig-elevated disabled:opacity-50"
           >
             {loggingOut ? "ログアウト中…" : "ログアウト"}
           </button>
@@ -127,7 +129,7 @@ function MeContent({ account }: { account: MyAccount }) {
           <button
             type="button"
             onClick={() => setWithdrawOpen(true)}
-            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-red active:bg-ig-elevated"
+            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-red-text active:bg-ig-elevated"
           >
             退会する
           </button>
@@ -210,7 +212,9 @@ function EditDisplayNameSheet({
   const queryClient = useQueryClient();
   const [value, setValue] = useState(account.displayName ?? "");
   const trimmed = value.trim();
-  const invalid = trimmed.length === 0 || trimmed.length > DISPLAY_NAME_MAX;
+  // 絵文字 1 つを 1 文字と数える（UTF-16 の length だと 2 になる）
+  const length = codePointLength(trimmed);
+  const invalid = length === 0 || length > DISPLAY_NAME_MAX;
 
   const save = useMutation({
     mutationFn: async (name: string) => {
@@ -218,7 +222,7 @@ function EditDisplayNameSheet({
         .from("profiles")
         .update({ display_name: name })
         .eq("id", account.userId);
-      if (error) throw error;
+      if (error) throw toAppError(error);
       return name;
     },
     onSuccess: (name) => {
@@ -230,7 +234,7 @@ function EditDisplayNameSheet({
     },
     onError: (error) => {
       console.error("[me] update display_name failed:", error);
-      toast.error("保存できませんでした。通信状況を確認して再度お試しください");
+      toast.error("保存できませんでした。通信状況を確認して、再度お試しください。");
     },
   });
 
@@ -250,17 +254,19 @@ function EditDisplayNameSheet({
           id="display-name"
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          maxLength={DISPLAY_NAME_MAX + 10}
+          // maxLength は UTF-16 単位で数えられるため、絵文字だけの名前でも上限まで入力できる余裕を持たせる
+          // （上限の判定はカウンターと保存ボタンで行う）
+          maxLength={DISPLAY_NAME_MAX * 2 + 10}
           autoComplete="nickname"
           className="mt-2 h-12 w-full rounded-xl border border-ig-input-border bg-ig-input-bg px-4 text-[16px] outline-none focus:border-ig-secondary"
         />
         <p
           className={cn(
             "mt-1 text-right text-[12px]",
-            trimmed.length > DISPLAY_NAME_MAX ? "text-ig-red" : "text-ig-secondary",
+            length > DISPLAY_NAME_MAX ? "text-ig-red-text" : "text-ig-secondary",
           )}
         >
-          {trimmed.length}/{DISPLAY_NAME_MAX}
+          {length}/{DISPLAY_NAME_MAX}
         </p>
         <Button
           type="submit"

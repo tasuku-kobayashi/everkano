@@ -9,8 +9,16 @@ export function redirectTo(request: NextRequest, path: string): NextResponse {
   return NextResponse.redirect(new URL(path, request.nextUrl.origin), { status: 303 });
 }
 
-export function redirectToLogin(request: NextRequest, error: LoginErrorReason): NextResponse {
-  return redirectTo(request, loginPath({ error }));
+/**
+ * ログイン画面へ（エラー表示付き）。next（検証済みの相対パス）を渡すと、ログインし直した後にそのページへ戻す
+ * （期限切れのリンクを開いた場合など）。
+ */
+export function redirectToLogin(
+  request: NextRequest,
+  error: LoginErrorReason,
+  next?: string,
+): NextResponse {
+  return redirectTo(request, loginPath({ error, next }));
 }
 
 /**

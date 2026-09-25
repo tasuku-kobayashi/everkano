@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { cn } from "@/lib/cn";
 import { getStorageAdapter } from "@/lib/storage";
+import { firstGrapheme } from "@/lib/text";
 import { UserIcon } from "./icons";
 
 export type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
@@ -49,7 +50,8 @@ export function Avatar({
   // 高解像度端末向けに 3 倍幅でリクエスト（CDN 変換対応時のみ効く）
   const resolved = src ? getStorageAdapter().resolveImageUrl(src, { width: px * 3 }) : "";
   const showImage = resolved !== "" && failedSrc !== resolved;
-  const initial = (fallbackText ?? alt).trim().charAt(0).toUpperCase();
+  // 絵文字で始まる名前でもサロゲートペアを分割しない（charAt(0) だと「�」になる）
+  const initial = firstGrapheme(fallbackText ?? alt).toUpperCase();
 
   // ハイドレーション前に読み込みに失敗した <img> は onError が発火しないため、ref で状態を確認する
   const imgRef = useCallback(

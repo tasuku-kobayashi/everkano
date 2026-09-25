@@ -45,10 +45,24 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   // 環境変数の検証（不正ならここで分かりやすいエラーになる = fail fast）
-  getPublicEnv();
+  const env = getPublicEnv();
 
   return (
     <html lang="ja">
+      <head>
+        {/*
+          初回表示のデータ・画像はすべて別オリジン（Supabase / CDN / Python API）から、JS の読み込み後に取得する。
+          HTML の <head> で DNS・TCP・TLS の接続確立を先に始め、JS のダウンロードと並行させる
+          （モバイルの冷えた起動で数百 ms 短縮）。react-dom の preconnect() は RSC のヒントとして送られ、
+          HTML には出力されない（ハイドレーション後に挿入されて間に合わない）ため、<link> を直接書いている。
+          - Supabase: supabase-js の fetch は資格情報なし（CORS）なので crossOrigin="anonymous" の接続を用意する
+          - CDN: <img> は資格情報ありの接続を使うため crossOrigin を付けない
+          - Python API: 初回表示では使わない画面が多いため DNS の先引きだけ
+        */}
+        <link rel="preconnect" href={env.supabaseUrl} crossOrigin="anonymous" />
+        {env.cdnBaseUrl ? <link rel="preconnect" href={env.cdnBaseUrl} /> : null}
+        <link rel="dns-prefetch" href={env.apiBaseUrl} />
+      </head>
       <body className="bg-ig-bg text-ig-text antialiased">
         <Providers>{children}</Providers>
       </body>

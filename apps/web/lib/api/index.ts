@@ -14,5 +14,6 @@ export {
   apiErrorFromResponse,
   getErrorMessage,
   isApiError,
+  toAppError,
   type ApiErrorKind,
 } from "./errors";

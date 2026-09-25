@@ -7,6 +7,8 @@ import { getPublicEnv } from "@/lib/env";
  * Service Worker（public/sw.js）の登録。
  * - 本番ビルド、または NEXT_PUBLIC_ENABLE_SW=1 のときのみ登録する
  * - 開発中は古い SW がキャッシュを返して混乱しないよう、登録済みの SW を解除する
+ * - 登録 URL にビルド ID を付ける（/sw.js?v=<ビルドID>）。sw.js 自体はデプロイ間で同一でも新しい SW が入り、
+ *   オフラインページの取り直しと前のビルドのキャッシュ削除が行われる
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
@@ -23,7 +25,8 @@ export function ServiceWorkerRegister() {
 
     const register = () => {
       navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
+        // ビルドごとに URL が変わるので、デプロイのたびに新しい SW がインストールされる（public/sw.js の「バージョン」）
+        .register(`/sw.js?v=${encodeURIComponent(getPublicEnv().buildId)}`, { scope: "/" })
         .catch((error: unknown) => console.error("[sw] registration failed:", error));
     };
     if (document.readyState === "complete") {

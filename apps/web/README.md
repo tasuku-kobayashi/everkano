@@ -53,7 +53,8 @@ app/
   providers.tsx         React Query / Toast / SW 登録 / 戻る履歴の追跡
   globals.css           デザイントークン（--ig-*）・ユーティリティ
   (auth)/login/         ログイン（メール → マジックリンク / 6 桁コード）
-  auth/confirm/         マジックリンクの着地点（token_hash → verifyOtp）
+  auth/confirm/         マジックリンクの着地点（確認画面。GET ではログインしない）
+  auth/confirm/verify/  確認画面の「ログインする」の送信先（POST・同一オリジンのみ → verifyOtp）
   auth/callback/        PKCE コード交換（exchangeCodeForSession）
   media/[...key]/       Bunny Token Authentication の署名 URL へ 302（サーバー専用キー）
   offline/              Service Worker のオフラインページ
@@ -65,21 +66,25 @@ app/
     dm/                 DM 一覧（C-1）
     dm/[characterId]/   DM 会話（C-2）※タブバー非表示
     me/                 自分のプロフィール（§5.7）
-    dev/ui/             開発用 UI カタログ（本番は 404）+ Python API 疎通確認
+    dev/ui/             開発用 UI カタログ + Python API 疎通確認（page.dev.tsx: `next dev` のときだけ存在。本番ビルドに含まれない）
 components/
   ui/                   汎用 UI（下記）
   auth/ account/ pwa/   基盤の画面部品
   feed/ post/ profile/ search/ dm/ memory/   各機能
 lib/
-  env.ts env.server.ts  環境変数の検証
+  env.ts env.server.ts  環境変数の検証（env.ts は全画面のバンドルに入るため zod を使わない）
   supabase/             client（ブラウザ）/ server（RSC・Route Handler）/ middleware（セッション更新）
   api/                  Python API の型付きクライアント
   storage/              StorageAdapter（passthrough / bunny）+ サーバー専用の署名
   auth/                 アカウント取得・サインアウト・リダイレクト・エラー文言
   queries/keys.ts       TanStack Query のクエリキー
+  query-client.ts       TanStack Query の既定設定（networkMode: always・再試行の判定は query-retry.ts）
+  feed-refresh.ts       ホームフィードの再読み込み（Home タブ / ロゴの再タップ・プルリフレッシュ・復帰時）
+  home-scroll.ts        ホームのスクロール位置（別のタブから Home タブで戻ったときに復元）
   format.ts             相対時刻・件数の日本語表記
-  navigation.ts         アプリ内の「戻る」
-middleware.ts           セッション更新 + 未ログインは /login へ
+  text.ts               絵文字を壊さない先頭文字・文字数
+  navigation.ts         アプリ内の「戻る」+ 端末の「戻る」でシート・モーダルを閉じる履歴管理
+middleware.ts           セッション更新 + 未ログインは /login へ（判定は lib/auth/route-gate.ts）
 public/                 manifest.json / sw.js / icons（生成物）/ favicon.ico
 ```
 
@@ -91,30 +96,69 @@ public/                 manifest.json / sw.js / icons（生成物）/ favicon.ic
   いいね（`likes`）と既読（RPC `mark_conversation_read`）のみ Supabase へ直接書いてよい。
 - **エラー**: `api.*` は失敗時に `ApiError { status, code, message, retryAfterSeconds? }` を投げる。`message` は
   そのまま表示できる日本語。`useToast().error(getErrorMessage(error))` のように使う。401 / 403 account_deleted は
-  React Query のグローバル onError がログイン画面へ遷移させる。
+  React Query のグローバル onError がログイン画面へ遷移させる。supabase-js の `{ error }`（プレーンなオブジェクト）は
+  `if (error) throw toAppError(error);` で ApiError にそろえる（通信失敗は network_error になり、表示と再試行の判定が
+  Python API と同じになる）。
+- **先読み**: 画面の `useQuery` は `xxxQueryOptions()`（`postQueryOptions` / `commentsQueryOptions` / `characterQueryOptions` など）を使い、
+  リンクの `onPointerDown` から同じ設定で先読みする（`lib/queries/prefetch.ts` の `prefetchPostDetail` / `prefetchCharacterProfile`、
+  DM は `lib/queries/dm.ts` の `prefetchDmConversation`）。先読みは読み取りだけにし、副作用のある API（会話の作成など）は呼ばない。
 - **画像**: `next/image` は使わない。`<CdnImage>` / `<Avatar>`（内部で StorageAdapter を使用）を使う。
 - **ヘッダー**: 各ページの先頭に `<AppHeader variant="logo|back|title" />` を置く（sticky・safe-area 込み）。
 - **固定フッター**: `/posts/[postId]` と `/dm/[characterId]` はタブバーが消える。入力欄は
   `fixed bottom-0 inset-x-0 mx-auto max-w-[480px] pb-safe` で配置し、`useBottomBarHeight(高さ)` でトースト位置を合わせる。
 - **色**: `bg-ig-bg` `text-ig-text` `text-ig-secondary` `border-ig-separator` などのトークンを使えばダークモードは自動。
-- **UI 文言は日本語**、コードの識別子は英語。
-- `/dev/ui` に全 UI 部品の見本がある。
+  Instagram の青 `ig-blue`（#0095f6）と赤 `ig-red`（#ff3040）は **塗り・アイコン専用**（白地で 3.2:1 / 3.7:1 しかない）。
+  エラー文言・送信失敗の案内・破壊的操作のラベル・テキストボタン・リンクなど **読ませる文字** は
+  `text-ig-red-text` / `text-ig-blue-text`（ライト / ダークとも 4.5:1 以上）を使う。プライマリボタンの白文字 × 青の塗りは
+  Instagram の見た目を優先した意図的な例外（ADR-0021）。
+- **ランドマーク・見出し**: (main) 配下の本文は `MainShell` の `<main>` の中。ページで `<main>` を出さない。
+  各画面に h1 を 1 つ（`AppHeader` の title。logo は非表示の「ホーム」、back + children は `heading` で指定）。
+- **ボトムシート**: title 付きのシートには右上に「閉じる」が出る（スクリーンリーダーには Esc も背景タップも無いため）。
+  最下段に「キャンセル」行を持つシートだけ `showClose={false}` にしてよい。
+- **UI 文言は日本語**、コードの識別子は英語。エラー・案内の文は句点「。」で終え（Python API の message と同じ）、
+  時間をおいた再試行は「しばらくしてから再度お試しください。」にそろえる。通信失敗（fetch の失敗）は API の停止でも
+  起きるので、原因を端末の電波と決めつけない。既定の文言は `lib/api/errors.ts` の `API_ERROR_MESSAGES`（単体テストで検査）。
+- **ホームのスクロール位置**: 別のタブからタブバーの Home タブで戻ると、前に読んでいた位置から表示する
+  （`lib/home-scroll.ts`。ブラウザの「戻る」はブラウザが復元）。`app/(main)/loading.tsx` の `data-route-loading` は
+  「まだフィードが無い」印なので外さない。
+- `/dev/ui` に全 UI 部品の見本がある（`next dev` のときだけ。開発専用のページは `page.dev.tsx` と名付ける）。
 
 ## 認証フロー
 
-1. `/login` でメールアドレス → `signInWithOtp`（`emailRedirectTo = SITE_URL/auth/callback`）
-2. メール（`infra/supabase/templates/magic_link.html`）に `/auth/confirm?token_hash=…` のリンクと 6 桁コード
-3. リンク → `/auth/confirm` が `verifyOtp` → Cookie 発行 → `next` へ
-   コード → `/login` 画面で `verifyOtp({ email, token, type: "email" })`（iOS のホーム画面 PWA は Safari と Cookie を共有しないため）
+1. `/login` でメールアドレス → `signInWithOtp`（`emailRedirectTo = SITE_URL/auth/callback?next=<ログイン前に開こうとしていたページ>`。
+   `lib/auth/redirect.ts` の `emailRedirectUrl`）
+2. メール（`infra/supabase/templates/magic_link.html`）に `/auth/confirm?token_hash=…&type=email&redirect_to=<emailRedirectTo>` のリンクと 6 桁コード。
+   `/auth/confirm` は `redirect_to` の中の `next` を取り出し（`lib/auth/confirm-params.ts`。同一オリジンの相対パスだけ）、ログイン後にそのページへ戻す
+3. リンク → `/auth/confirm` は確認画面（「everkano にログインしますか？」）を表示するだけ。「ログインする」で
+   `POST /auth/confirm/verify`（同一オリジンのフォーム送信のみ受け付ける）が `verifyOtp` → Cookie 発行 → `next` へ。
+   GET でログインしないのは、メールのセキュリティスキャナーの先読みでトークンが消費されるのと、他人のリンクを
+   踏まされて黙ってその人のアカウントに切り替わる（ログイン CSRF）のを防ぐため。別のアカウントでログイン中なら
+   確認画面で切り替わることを表示する。
+   コード → `/login` 画面で `verifyOtp({ email, token, type: "email" })`（iOS のホーム画面 PWA は Safari と Cookie を共有しないため）。
+   コード入力待ちの状態（メールアドレス・送信時刻。コードは保存しない）は localStorage に 15 分（= otp_expiry）保存し
+   （`lib/auth/pending-login.ts`）、メールアプリへ切り替えている間に iOS がアプリを再起動しても入力画面から続けられる。
+   送信間隔の制限（`over_email_send_rate_limit`）に当たった場合も、送信済みのコードの入力画面へ進める
 4. どちらも `profiles.deleted_at` を確認し、退会済みならサインアウトして `/login?error=withdrawn`
 5. `middleware.ts` が全リクエストでセッションを更新し、未ログインは `/login?next=…` へ
+6. ログイン後に使えなくなったセッション（ユーザー削除・利用停止 = Supabase Auth の ban・退会）は AccountGuard が
+   **この端末のセッションを破棄してから** `/login?error=session|banned|withdrawn` へ送る。middleware はこれらの
+   `?error=` のときはログイン済みでも `/` へ戻さない（Cookie の JWT は期限まで有効に見えるため、戻すと
+   `/` ⇄ `/login` のリダイレクトが無限に続く）
+7. ログアウト（`signOutAndRedirect`）: supabase-js はサーバーへの失効要求（`/auth/v1/logout`）が通信失敗でも
+   この端末のセッションを消す。その場合は失敗と表示せずにログイン画面へ進む（この端末からはログアウト済み）。
+   セッションが残っているときだけ「ログアウトできませんでした」と表示する。退会（`scope: "global"`）の失敗は呼び出し元へ返す
 
 ## PWA
 
 - `public/manifest.json`（standalone / アイコン 192・512・maskable）と `public/sw.js`（手書き）。
-- SW: ページ遷移はネットワーク優先（失敗時 `/offline`）、`/_next/static`・`/icons` はキャッシュ優先。
-  Supabase / API / CDN（他オリジン）と `/auth/*`・`/media/*` は一切キャッシュしない。キャッシュ方針を変えたら
-  `sw.js` の `VERSION` を上げる。
+- SW: ページ遷移はネットワーク優先（失敗時 `/offline`）、`/_next/static` はキャッシュ優先（200 件を超えたら古い順に削除）、
+  `/icons`・`manifest.json` はキャッシュを返しつつ裏で取り直す。Supabase / API / CDN（他オリジン）と `/auth/*`・`/media/*` は
+  一切キャッシュしない。
+- SW は `/sw.js?v=<ビルドID>` で登録する（`NEXT_PUBLIC_BUILD_ID`。next.config.ts が Vercel のデプロイ ID 等から導出）。
+  デプロイのたびに新しい SW が入り、`/offline` を取り直して前のビルドのオフライン用キャッシュを消す。
+  キャッシュの構成（名前・方針）を変えたときだけ `sw.js` の `CACHE_POLICY` を上げる。
+- オフライン時、SW は開こうとした画面の URL のまま `/offline` の内容を返す。「再読み込み」と通信の復帰（`online` イベント）は
+  その URL を読み込み直す（`/offline` を直接開いた場合だけホームへ）。
 - アイコンは `pnpm --filter @everkano/web icons` で生成（依存なしの PNG エンコーダー）。
 - ワードマーク（`components/ui/wordmark.tsx`）は Grand Hotel（SIL OFL 1.1）のグリフを opentype.js で輪郭化した
   インライン SVG。Web フォントは読み込まない。

@@ -24,7 +24,11 @@ export interface CdnImageProps extends Omit<
   quality?: number;
   /** 有料投稿: CDN ぼかし + 強い CSS ぼかし */
   blurred?: boolean;
-  /** 読み込み後にフェードイン（既定 true） */
+  /**
+   * 読み込み後にフェードイン。既定: priority でなければ true。
+   * priority（ファーストビュー = LCP 要素）の画像はフェードさせない（opacity 0 の間は LCP にならず、
+   * フェードの 300ms だけ LCP が遅れるため）。
+   */
   fadeIn?: boolean;
   /** ファーストビューの画像（lazy を無効化し fetchpriority=high） */
   priority?: boolean;
@@ -33,7 +37,7 @@ export interface CdnImageProps extends Omit<
 /**
  * CDN 画像ラッパー（next/image は使わない方針）。
  * - StorageAdapter で URL を解決し、変換対応ドライバーなら srcSet（320/640/1080w）を付ける
- * - loading="lazy" / decoding="async"、読み込み完了でフェードイン
+ * - loading="lazy" / decoding="async"、読み込み完了でフェードイン（priority の画像はフェードしない）
  * - 読み込み失敗時はグレーのプレースホルダー（画像アイコン）を表示
  * - 箱いっぱいに object-cover で表示する。箱のサイズは className で指定
  */
@@ -46,7 +50,7 @@ export function CdnImage({
   sizes = "(max-width: 480px) 100vw, 480px",
   quality,
   blurred = false,
-  fadeIn = true,
+  fadeIn,
   priority = false,
   onLoad,
   onError,
@@ -54,6 +58,7 @@ export function CdnImage({
 }: CdnImageProps) {
   const [loaded, setLoaded] = useState(false);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const fade = fadeIn ?? !priority;
 
   const storage = getStorageAdapter();
   const blur = blurred ? 60 : undefined;
@@ -112,8 +117,8 @@ export function CdnImage({
           }}
           className={cn(
             "absolute inset-0 h-full w-full object-cover",
-            fadeIn && "transition-opacity duration-300",
-            fadeIn && !loaded && "opacity-0",
+            fade && "transition-opacity duration-300",
+            fade && !loaded && "opacity-0",
             blurred && "scale-110 blur-2xl",
             imgClassName,
           )}

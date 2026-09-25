@@ -18,10 +18,10 @@ export default function MainError({
 
   return (
     <>
-      <AppHeader variant="logo" />
+      <AppHeader variant="logo" heading="エラー" />
       <ErrorState
         title="問題が発生しました"
-        message="画面を表示できませんでした。時間をおいて再度お試しください。"
+        message="画面を表示できませんでした。しばらくしてから再度お試しください。"
         onRetry={reset}
       />
     </>

@@ -16,7 +16,7 @@ export default function OfflinePage() {
       <p className="mt-2 text-[14px] leading-[18px] text-ig-secondary">
         インターネットに接続されていません。
         <br />
-        接続を確認して、もう一度お試しください。
+        接続を確認して、再度お試しください。
       </p>
       <ReloadButton />
     </main>

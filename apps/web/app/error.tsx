@@ -19,7 +19,7 @@ export default function RootError({
     <main className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col justify-center pt-safe">
       <ErrorState
         title="問題が発生しました"
-        message="画面を表示できませんでした。時間をおいて再度お試しください。"
+        message="画面を表示できませんでした。しばらくしてから再度お試しください。"
         onRetry={reset}
       />
     </main>

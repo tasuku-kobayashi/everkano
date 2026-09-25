@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /**
  * 公開環境変数（NEXT_PUBLIC_*）の検証。
  *
@@ -7,47 +5,10 @@ import { z } from "zod";
  *   readRawPublicEnv() では 1 つずつ明示的に参照している（動的アクセスにしないこと）。
  * - 不正・未設定の場合は分かりやすいメッセージで即座に例外を投げる（fail fast）。
  *   ルートレイアウトで getPublicEnv() を呼んでいるため、設定ミスはビルド/初回表示で必ず検知される。
- * - サーバー専用の値（BUNNY_*）は lib/env.server.ts を使う。
+ * - このモジュールはルートレイアウト配下のほぼ全画面のクライアントバンドルに入るため、検証ライブラリ（zod）を
+ *   使わず手書きで検証している（zod を入れると全画面の初回 JS が約 24KB gzip 増える）。
+ *   サーバー専用の値（BUNNY_*）は lib/env.server.ts（サーバー専用なので zod を使ってよい）。
  */
-
-const emptyToUndefined = (value: unknown): unknown =>
-  typeof value === "string" && value.trim() === "" ? undefined : value;
-
-const flag = z.preprocess(emptyToUndefined, z.enum(["0", "1"]).default("0"));
-
-const publicEnvSchema = z
-  .object({
-    NEXT_PUBLIC_SUPABASE_URL: z.url({
-      error: "Supabase プロジェクトのURLを設定してください（ローカル: http://127.0.0.1:54321）",
-    }),
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: z
-      .string({ error: "Supabase の anon key（または publishable key）を設定してください" })
-      .min(1, { error: "Supabase の anon key（または publishable key）を設定してください" }),
-    NEXT_PUBLIC_API_BASE_URL: z.url({
-      error: "Python API のベースURLを設定してください（ローカル: http://localhost:8000）",
-    }),
-    NEXT_PUBLIC_SITE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
-    NEXT_PUBLIC_STORAGE_DRIVER: z.preprocess(
-      emptyToUndefined,
-      z
-        .enum(["passthrough", "bunny"], {
-          error: "NEXT_PUBLIC_STORAGE_DRIVER は passthrough / bunny のいずれかです",
-        })
-        .default("passthrough"),
-    ),
-    NEXT_PUBLIC_CDN_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
-    NEXT_PUBLIC_MEDIA_SIGNED: flag,
-    NEXT_PUBLIC_ENABLE_SW: flag,
-  })
-  .superRefine((env, ctx) => {
-    if (env.NEXT_PUBLIC_STORAGE_DRIVER === "bunny" && !env.NEXT_PUBLIC_CDN_BASE_URL) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["NEXT_PUBLIC_CDN_BASE_URL"],
-        message: "NEXT_PUBLIC_STORAGE_DRIVER=bunny の場合は Bunny.net Pull Zone のURLが必須です",
-      });
-    }
-  });
 
 export type StorageDriver = "passthrough" | "bunny";
 
@@ -65,9 +26,25 @@ export interface PublicEnv {
   mediaSigned: boolean;
   /** 開発環境でも Service Worker を登録する（NEXT_PUBLIC_ENABLE_SW=1） */
   enableServiceWorker: boolean;
+  /**
+   * ビルド（デプロイ）ごとの ID。next.config.ts が導出する。Service Worker の登録 URL（/sw.js?v=）に付け、
+   * デプロイのたびに新しい SW をインストールさせる（public/sw.js）。未設定なら "dev"
+   */
+  buildId: string;
 }
 
-export type RawPublicEnv = Partial<Record<keyof z.input<typeof publicEnvSchema>, string>>;
+export type PublicEnvKey =
+  | "NEXT_PUBLIC_SUPABASE_URL"
+  | "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  | "NEXT_PUBLIC_API_BASE_URL"
+  | "NEXT_PUBLIC_SITE_URL"
+  | "NEXT_PUBLIC_STORAGE_DRIVER"
+  | "NEXT_PUBLIC_CDN_BASE_URL"
+  | "NEXT_PUBLIC_MEDIA_SIGNED"
+  | "NEXT_PUBLIC_ENABLE_SW"
+  | "NEXT_PUBLIC_BUILD_ID";
+
+export type RawPublicEnv = Partial<Record<PublicEnvKey, string>>;
 
 export class EnvValidationError extends Error {
   constructor(message: string) {
@@ -76,36 +53,109 @@ export class EnvValidationError extends Error {
   }
 }
 
+const STORAGE_DRIVERS: readonly StorageDriver[] = ["passthrough", "bunny"];
+
 const stripTrailingSlash = (url: string): string => url.replace(/\/+$/, "");
+
+/** 空文字・空白のみは未設定として扱う */
+function present(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/** http(s) の絶対 URL か */
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "";
+  } catch {
+    return false;
+  }
+}
 
 /** 生の環境変数を検証して PublicEnv に変換する（テスト可能な純粋関数）。 */
 export function parsePublicEnv(raw: RawPublicEnv): PublicEnv {
-  const result = publicEnvSchema.safeParse(raw);
-  if (!result.success) {
-    const lines = result.error.issues.map((issue) => {
-      const key = issue.path.join(".") || "(env)";
-      return `  - ${key}: ${issue.message}`;
-    });
+  const issues: string[] = [];
+  const issue = (key: PublicEnvKey, message: string) => issues.push(`  - ${key}: ${message}`);
+
+  const url = (key: PublicEnvKey, requiredMessage?: string): string | undefined => {
+    const value = present(raw[key]);
+    if (value === undefined) {
+      if (requiredMessage) issue(key, requiredMessage);
+      return undefined;
+    }
+    if (!isHttpUrl(value)) {
+      issue(key, requiredMessage ?? "http(s) の URL を設定してください");
+      return undefined;
+    }
+    return stripTrailingSlash(value);
+  };
+
+  const flag = (key: PublicEnvKey): boolean => {
+    const value = present(raw[key]) ?? "0";
+    if (value !== "0" && value !== "1") issue(key, "0 または 1 を設定してください");
+    return value === "1";
+  };
+
+  const supabaseUrl = url(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "Supabase プロジェクトのURLを設定してください（ローカル: http://127.0.0.1:54321）",
+  );
+  const supabaseAnonKey = present(raw.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  if (!supabaseAnonKey) {
+    issue(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "Supabase の anon key（または publishable key）を設定してください",
+    );
+  }
+  const apiBaseUrl = url(
+    "NEXT_PUBLIC_API_BASE_URL",
+    "Python API のベースURLを設定してください（ローカル: http://localhost:8000）",
+  );
+  const siteUrl = url("NEXT_PUBLIC_SITE_URL");
+
+  const driverValue = present(raw.NEXT_PUBLIC_STORAGE_DRIVER) ?? "passthrough";
+  const storageDriver = STORAGE_DRIVERS.find((driver) => driver === driverValue);
+  if (!storageDriver) {
+    issue(
+      "NEXT_PUBLIC_STORAGE_DRIVER",
+      "NEXT_PUBLIC_STORAGE_DRIVER は passthrough / bunny のいずれかです",
+    );
+  }
+  const cdnBaseUrl = url("NEXT_PUBLIC_CDN_BASE_URL");
+  if (storageDriver === "bunny" && present(raw.NEXT_PUBLIC_CDN_BASE_URL) === undefined) {
+    issue(
+      "NEXT_PUBLIC_CDN_BASE_URL",
+      "NEXT_PUBLIC_STORAGE_DRIVER=bunny の場合は Bunny.net Pull Zone のURLが必須です",
+    );
+  }
+  const mediaSigned = flag("NEXT_PUBLIC_MEDIA_SIGNED");
+  const enableServiceWorker = flag("NEXT_PUBLIC_ENABLE_SW");
+  // URL のクエリに入れるため英数字・_・- だけにする（next.config.ts でも同じ正規化をしている）
+  const buildId = (present(raw.NEXT_PUBLIC_BUILD_ID) ?? "")
+    .replace(/[^A-Za-z0-9_-]/g, "")
+    .slice(0, 64);
+
+  if (issues.length > 0 || !supabaseUrl || !supabaseAnonKey || !apiBaseUrl || !storageDriver) {
     throw new EnvValidationError(
       [
         "[everkano] Web の環境変数が不正です。apps/web/.env.local（本番は Vercel の Environment Variables）を確認してください。",
-        ...lines,
+        ...issues,
         "  参考: リポジトリ直下の .env.example",
       ].join("\n"),
     );
   }
-  const env = result.data;
+
   return {
-    supabaseUrl: stripTrailingSlash(env.NEXT_PUBLIC_SUPABASE_URL),
-    supabaseAnonKey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    apiBaseUrl: stripTrailingSlash(env.NEXT_PUBLIC_API_BASE_URL),
-    siteUrl: env.NEXT_PUBLIC_SITE_URL ? stripTrailingSlash(env.NEXT_PUBLIC_SITE_URL) : undefined,
-    storageDriver: env.NEXT_PUBLIC_STORAGE_DRIVER,
-    cdnBaseUrl: env.NEXT_PUBLIC_CDN_BASE_URL
-      ? stripTrailingSlash(env.NEXT_PUBLIC_CDN_BASE_URL)
-      : undefined,
-    mediaSigned: env.NEXT_PUBLIC_MEDIA_SIGNED === "1",
-    enableServiceWorker: env.NEXT_PUBLIC_ENABLE_SW === "1",
+    supabaseUrl,
+    supabaseAnonKey,
+    apiBaseUrl,
+    siteUrl,
+    storageDriver,
+    cdnBaseUrl,
+    mediaSigned,
+    enableServiceWorker,
+    buildId: buildId || "dev",
   };
 }
 
@@ -119,6 +169,7 @@ function readRawPublicEnv(): RawPublicEnv {
     NEXT_PUBLIC_CDN_BASE_URL: process.env.NEXT_PUBLIC_CDN_BASE_URL,
     NEXT_PUBLIC_MEDIA_SIGNED: process.env.NEXT_PUBLIC_MEDIA_SIGNED,
     NEXT_PUBLIC_ENABLE_SW: process.env.NEXT_PUBLIC_ENABLE_SW,
+    NEXT_PUBLIC_BUILD_ID: process.env.NEXT_PUBLIC_BUILD_ID,
   };
 }
 
