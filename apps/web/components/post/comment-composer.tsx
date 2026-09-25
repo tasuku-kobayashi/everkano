@@ -84,7 +84,7 @@ export function CommentComposer({
       className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[480px] border-t border-ig-separator bg-ig-bg pb-safe"
     >
       {replyingTo ? (
-        <div className="flex h-10 items-center justify-between bg-ig-elevated pr-2 pl-4 text-[13px] text-ig-secondary">
+        <div className="flex h-10 items-center justify-between bg-ig-elevated pr-2 pl-4 text-[13px] text-ig-text">
           <span className="truncate">{replyingTo}さんに返信中</span>
           <button
             type="button"
@@ -128,7 +128,7 @@ export function CommentComposer({
           <button
             type="submit"
             disabled={!canSubmit}
-            className="flex h-9 shrink-0 items-center px-3 text-[14px] font-semibold text-ig-blue disabled:opacity-40"
+            className="flex h-9 shrink-0 items-center px-3 text-[14px] font-semibold text-ig-blue-text disabled:opacity-40"
             data-testid="comment-submit"
           >
             {submitting ? <Spinner size={18} label="投稿中" /> : "投稿する"}

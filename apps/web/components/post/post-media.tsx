@@ -5,6 +5,7 @@ import { HeartFilledIcon } from "@/components/ui/icons";
 import { CdnImage } from "@/components/ui/image";
 import type { Post } from "@/lib/queries/posts";
 import { PaidImage } from "./paid-image";
+import { captionExcerpt } from "./post-labels";
 
 /** この時間内の 2 回目のタップをダブルタップとみなす（ms） */
 export const DOUBLE_TAP_MS = 250;
@@ -66,9 +67,8 @@ export function PostMedia({
     }
   };
 
-  const alt = post.caption
-    ? `${post.character.name}の投稿: ${post.caption.slice(0, 60)}`
-    : `${post.character.name}の投稿`;
+  const excerpt = captionExcerpt(post.caption, 60);
+  const alt = excerpt ? `${post.character.name}の投稿: ${excerpt}` : `${post.character.name}の投稿`;
 
   return (
     <div

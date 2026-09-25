@@ -1,18 +1,26 @@
-import type { CommentDTO, Database } from "@everkano/shared";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import type { AuthorType, CommentDTO, Database } from "@everkano/shared";
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { toAppError } from "@/lib/api/errors";
 import { api } from "@/lib/api";
 import type { MyAccount } from "@/lib/auth/account";
 import { anonymousUserName } from "@/lib/format";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { queryKeys } from "./keys";
+import { uniqueSuffix } from "./messages";
 import { isUuid, updatePostInCaches, type Post, type PostAuthor } from "./posts";
 
 /**
  * 投稿のコメント。
  *
- * - 読み取り: Supabase 直結（RLS: 公開投稿のコメントのみ）。時系列昇順。
+ * - 読み取り: Supabase 直結（RLS: 公開投稿のコメントのみ）。最新 COMMENTS_LIMIT 件を時系列昇順で表示する。
  * - 作成: Python API `POST /comments`（Gate #1 モデレーション + 監査ログ）。クライアントに insert 権限は無い。
  * - 削除: 本人のコメントのみ Supabase へ直接 delete（RLS で許可。監査ログは DB トリガーが記録）。
  * - 同期: Supabase Realtime（postgres_changes）で INSERT / DELETE を受け取り、キャッシュへ重複なくマージする。
@@ -24,10 +32,15 @@ export type CommentRow = Database["public"]["Tables"]["comments"]["Row"];
 export const COMMENT_SELECT =
   "id, post_id, parent_comment_id, author_type, author_user_id, author_character_id, body, created_at, character:characters!comments_author_character_id_fkey(id, handle, name, avatar_url)" as const;
 
-/** 1 投稿あたりに読み込むコメントの上限（MVP ではページングしない） */
+/**
+ * 1 投稿あたりに読み込むコメントの上限（MVP ではページングしない）。
+ * 上限を超える投稿では「最新の」COMMENTS_LIMIT 件を表示する（古い方を残すと、自分が投稿したばかりの
+ * コメントやキャラの返信が再読み込みで消えてしまうため）。
+ */
 export const COMMENTS_LIMIT = 500;
 
-export type CommentAuthorType = "user" | "character";
+/** コメントの作成者の種別（API の AuthorType と同じ） */
+export type CommentAuthorType = AuthorType;
 
 export interface PostComment {
   id: string;
@@ -166,30 +179,41 @@ export function buildCommentThreads(comments: readonly PostComment[]): CommentTh
   const sorted = [...comments].sort(compareComments);
   const byId = new Map(sorted.map((comment) => [comment.id, comment]));
 
-  const rootIdOf = (comment: PostComment): string => {
-    let current = comment;
-    const seen = new Set<string>([current.id]);
-    while (current.parent_comment_id) {
-      const parent = byId.get(current.parent_comment_id);
-      if (!parent || seen.has(parent.id)) break; // 親が見えない / 循環（あり得ないが念のため）
-      seen.add(parent.id);
-      current = parent;
-    }
-    return current.id;
-  };
-
   const threads = new Map<string, CommentThread>();
   for (const comment of sorted) {
-    const rootId = rootIdOf(comment);
+    const rootId = threadRootId(byId, comment);
     if (rootId === comment.id) {
       threads.set(comment.id, { root: comment, replies: [] });
     }
   }
   for (const comment of sorted) {
-    const rootId = rootIdOf(comment);
+    const rootId = threadRootId(byId, comment);
     if (rootId !== comment.id) threads.get(rootId)?.replies.push(comment);
   }
   return [...threads.values()];
+}
+
+/**
+ * コメントが属するトップレベルのコメント ID（祖先をたどる。buildCommentThreads と同じ規則）。
+ * 親が見えない返信はそれ自身がトップレベル。byId は id → コメントの Map か、コメントの配列。
+ */
+export function threadRootId(
+  comments: ReadonlyMap<string, PostComment> | readonly PostComment[],
+  comment: PostComment,
+): string {
+  const byId =
+    comments instanceof Map
+      ? (comments as ReadonlyMap<string, PostComment>)
+      : new Map((comments as readonly PostComment[]).map((c) => [c.id, c]));
+  let current = comment;
+  const seen = new Set<string>([current.id]);
+  while (current.parent_comment_id) {
+    const parent = byId.get(current.parent_comment_id);
+    if (!parent || seen.has(parent.id)) break; // 親が見えない / 循環（あり得ないが念のため）
+    seen.add(parent.id);
+    current = parent;
+  }
+  return current.id;
 }
 
 /**
@@ -197,6 +221,9 @@ export function buildCommentThreads(comments: readonly PostComment[]): CommentTh
  * - キャラ: handle
  * - 自分: 自分の display_name（未設定ならメールのローカル部）
  * - 他ユーザー: profiles は本人しか読めないため `user_` + ID 先頭 6 桁で匿名表示
+ *
+ * 自分の名前（display_name / メールのローカル部）を含み得るので、本人の画面の表示にだけ使うこと。
+ * コメント本文（返信の @メンション）など他ユーザーに見える所には commentMentionLabel を使う。
  */
 export function commentAuthorLabel(
   comment: Pick<PostComment, "author_type" | "author_user_id" | "character">,
@@ -208,6 +235,34 @@ export function commentAuthorLabel(
     return me.displayName?.trim() || me.email?.split("@")[0] || anonymousUserName(me.userId);
   }
   return anonymousUserName(comment.author_user_id);
+}
+
+/**
+ * 返信の @メンションに使う公開用の名前（コメント本文として保存され、全ユーザーに表示される）。
+ * - キャラ: handle
+ * - ユーザー: 自分のコメントでも常に `user_` + ID 先頭 6 桁（他ユーザーからの見え方と同じ）
+ *
+ * commentAuthorLabel と違い、自分の display_name やメールアドレスは絶対に使わない
+ * （display_name の既定値はメールの @ より前なので、本文に入ると他ユーザーへ漏れる）。
+ */
+export function commentMentionLabel(
+  comment: Pick<PostComment, "author_type" | "author_user_id" | "character">,
+): string {
+  if (comment.author_type === "character") return comment.character?.handle ?? "unknown";
+  if (!comment.author_user_id) return "user";
+  return anonymousUserName(comment.author_user_id);
+}
+
+/**
+ * 「返信する」で入力欄の先頭に入れるメンション（例: `misaki_ol`）。
+ * 自分のコメントへの返信ではメンションを入れない（自分宛ての匿名名は本人には意味が無い）ため null。
+ */
+export function replyMentionFor(
+  comment: Pick<PostComment, "author_type" | "author_user_id" | "character">,
+  myUserId: string | null | undefined,
+): string | null {
+  if (isOwnComment(comment, myUserId)) return null;
+  return commentMentionLabel(comment);
 }
 
 /** 自分のコメントか */
@@ -222,6 +277,10 @@ export function isOwnComment(
 // 取得・キャッシュ
 // ---------------------------------------------------------------------------
 
+/**
+ * 投稿のコメント（最新 COMMENTS_LIMIT 件）を時系列昇順で返す。
+ * 新しい順に上限まで取り、画面の並び（昇順）に並べ直す。
+ */
 export async function fetchComments(
   supabase: TypedSupabaseClient,
   postId: string,
@@ -232,22 +291,38 @@ export async function fetchComments(
     .from("comments")
     .select(COMMENT_SELECT)
     .eq("post_id", postId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(COMMENTS_LIMIT);
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []).map((row) => commentFromRow(row, row.character ?? null));
+  if (error) throw toAppError(error);
+  return (data ?? []).map((row) => commentFromRow(row, row.character ?? null)).reverse();
+}
+
+/** 投稿のコメント一覧のクエリ設定（useComments とプリフェッチで共通） */
+export function commentsQueryOptions(postId: string) {
+  return queryOptions({
+    queryKey: queryKeys.comments(postId),
+    queryFn: ({ signal }) => fetchComments(getSupabaseBrowserClient(), postId, signal),
+  });
 }
 
 /** 投稿のコメント一覧（キー: queryKeys.comments(postId)） */
 export function useComments(postId: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.comments(postId),
-    queryFn: ({ signal }) => fetchComments(getSupabaseBrowserClient(), postId, signal),
-    enabled,
-  });
+  return useQuery({ ...commentsQueryOptions(postId), enabled });
+}
+
+/**
+ * コメント一覧の取得を投稿本体の取得と並行して始める（投稿詳細を直接開いたとき、
+ * 投稿の取得を待ってからコメントを取りに行く直列の待ちをなくす）。取得済み・取得中なら何もしない。
+ */
+export function usePrefetchComments(postId: string) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!isUuid(postId)) return;
+    void queryClient.prefetchQuery(commentsQueryOptions(postId));
+  }, [queryClient, postId]);
 }
 
 /** コメントをキャッシュへ追加し、実際に増えた件数だけ投稿の comment_count を増やす */
@@ -343,7 +418,7 @@ export function useCommentsRealtime(
     if (!enabled || !isUuid(postId)) return;
     const supabase = getSupabaseBrowserClient();
     // 同名トピックは既存チャンネルが再利用されるため、購読ごとに一意な名前にする（StrictMode の二重実行対策）
-    const topic = `post-comments:${postId}:${Math.random().toString(36).slice(2, 10)}`;
+    const topic = `post-comments:${postId}:${uniqueSuffix()}`;
     let subscribedOnce = false;
     let disposed = false;
 
@@ -419,7 +494,7 @@ export function useDeleteComment(postId: string) {
         .delete()
         .eq("id", commentId)
         .select("id");
-      if (error) throw error;
+      if (error) throw toAppError(error);
       // RLS で対象外（他人のコメント・既に削除済み）の場合はエラーにならず 0 件になる
       if (!data || data.length === 0) {
         throw new Error("コメントを削除できませんでした");

@@ -1,8 +1,9 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import {
   BookmarkIcon,
@@ -17,8 +18,10 @@ import { cn } from "@/lib/cn";
 import { formatCount, formatRelativeTime } from "@/lib/format";
 import { usePostLike } from "@/lib/queries/likes";
 import type { Post } from "@/lib/queries/posts";
+import { prefetchCharacterProfile, prefetchPostDetail } from "@/lib/queries/prefetch";
 import { PaidLockModal } from "./paid-lock-modal";
 import { PostCaption } from "./post-caption";
+import { postOpenLabel } from "./post-labels";
 import { PostMedia } from "./post-media";
 import { PostOptionsSheet } from "./post-options-sheet";
 import { useCopyLink, useShareLink } from "./use-share";
@@ -42,9 +45,19 @@ export function formatExactLikeCount(value: number): string {
   return `「いいね！」${n.toLocaleString("ja-JP")}件`;
 }
 
-/** Instagram 準拠の投稿カード（仕様 §4.3） */
-export function PostCard({ post, variant = "feed", priority, onCommentClick }: PostCardProps) {
+/**
+ * Instagram 準拠の投稿カード（仕様 §4.3）。
+ * memo 化している: いいね等で 1 件の投稿が変わっても、フィードの他のカードは再描画しない
+ * （キャッシュ更新は変わっていない投稿の参照を保つ。呼び出し側は安定した props を渡すこと）。
+ */
+export const PostCard = memo(function PostCard({
+  post,
+  variant = "feed",
+  priority,
+  onCommentClick,
+}: PostCardProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const toast = useToast();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
@@ -52,12 +65,15 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
   const copyLink = useCopyLink();
   const share = useShareLink();
   const like = usePostLike(post.id, {
-    onError: () => toast.error("「いいね！」できませんでした。通信状況を確認してください"),
+    onError: () => toast.error("「いいね！」できませんでした。通信状況を確認してください。"),
   });
 
   const postPath = `/posts/${post.id}`;
   const profilePath = `/c/${post.character.handle}`;
   const isFeed = variant === "feed";
+  // リンクに触れた時点で遷移先のデータを取りに行く（lib/queries/prefetch.ts）
+  const prefetchProfile = () => prefetchCharacterProfile(queryClient, post.character.handle);
+  const prefetchDetail = () => prefetchPostDetail(queryClient, post.id);
 
   const toggleLike = () => {
     const next = !post.liked;
@@ -89,6 +105,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
       <header className="flex h-[54px] items-center gap-2.5 pr-1 pl-3">
         <Link
           href={profilePath}
+          onPointerDown={prefetchProfile}
           aria-label={`${post.character.name}のプロフィール`}
           className="shrink-0 pressable"
         >
@@ -97,6 +114,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
         <div className="min-w-0 flex-1">
           <Link
             href={profilePath}
+            onPointerDown={prefetchProfile}
             className="block truncate text-[14px] leading-[18px] font-semibold"
           >
             {post.character.handle}
@@ -117,7 +135,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
         priority={priority}
         onDoubleTap={likeByDoubleTap}
         onSingleTap={singleTap}
-        singleTapLabel={post.is_paid ? "有料コンテンツの詳細を見る" : "投稿を開く"}
+        singleTapLabel={postOpenLabel(post)}
       />
 
       {/* アクション: いいね / コメント / シェア（左）・保存（右） */}
@@ -143,6 +161,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
         {isFeed ? (
           <Link
             href={postPath}
+            onPointerDown={prefetchDetail}
             aria-label="コメントを見る"
             className="flex size-10 items-center justify-center pressable"
           >
@@ -189,6 +208,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
       {isFeed && post.comment_count > 0 ? (
         <Link
           href={postPath}
+          onPointerDown={prefetchDetail}
           className="mt-1 block px-3 text-[14px] leading-[18px] text-ig-secondary"
         >
           コメント{formatCount(post.comment_count)}件をすべて見る
@@ -219,4 +239,4 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
       ) : null}
     </article>
   );
-}
+});

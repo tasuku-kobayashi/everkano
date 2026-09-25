@@ -1,11 +1,14 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/cn";
 import { formatRelativeTimeShort } from "@/lib/format";
 import type { PostComment } from "@/lib/queries/comments";
+import { prefetchCharacterProfile } from "@/lib/queries/prefetch";
+import { RichText } from "./rich-text";
 
 export interface CommentItemProps {
   comment: PostComment;
@@ -16,8 +19,10 @@ export interface CommentItemProps {
   isOwn: boolean;
   /** 返信（1 段インデント・小さいアバター） */
   isReply?: boolean;
-  onReply: () => void;
-  onDelete?: () => void;
+  /** 「返信する」。対象のコメントを渡す（コールバックを全件で共有し、memo を効かせるため） */
+  onReply: (comment: PostComment) => void;
+  /** 「削除」（自分のコメントのみ表示） */
+  onDelete?: (comment: PostComment) => void;
 }
 
 /**
@@ -29,8 +34,11 @@ export const COMMENT_SCROLL_MARGIN: CSSProperties = {
   scrollMarginBottom: "calc(var(--composer-h, 0px) + env(safe-area-inset-bottom) + 12px)",
 };
 
-/** コメント 1 件（Instagram: アバター / 名前 + 時刻 / 本文 / 「返信する」） */
-export function CommentItem({
+/**
+ * コメント 1 件（Instagram: アバター / 名前 + 時刻 / 本文 / 「返信する」）。
+ * memo 化している: 入力欄への入力や新着コメントで、変わっていないコメントは再描画しない。
+ */
+export const CommentItem = memo(function CommentItem({
   comment,
   label,
   isPostAuthor,
@@ -42,6 +50,7 @@ export function CommentItem({
   const character = comment.author_type === "character" ? comment.character : null;
   const avatarSize = isReply ? "xs" : "sm";
   const profilePath = character ? `/c/${character.handle}` : null;
+  const queryClient = useQueryClient();
 
   const avatar = (
     <Avatar
@@ -55,7 +64,14 @@ export function CommentItem({
 
   const linkTo = (children: ReactNode, className?: string, ariaLabel?: string) =>
     profilePath ? (
-      <Link href={profilePath} className={className} aria-label={ariaLabel}>
+      <Link
+        href={profilePath}
+        onPointerDown={() => {
+          if (character) prefetchCharacterProfile(queryClient, character.handle);
+        }}
+        className={className}
+        aria-label={ariaLabel}
+      >
         {children}
       </Link>
     ) : (
@@ -85,16 +101,16 @@ export function CommentItem({
           </time>
         </p>
         <p className="text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line">
-          {comment.body}
+          <RichText text={comment.body} />
         </p>
         <div className="mt-1 flex items-center gap-4 text-[12px] leading-4 font-semibold text-ig-secondary">
-          <button type="button" onClick={onReply} className="pressable">
+          <button type="button" onClick={() => onReply(comment)} className="pressable">
             返信する
           </button>
           {isOwn && onDelete ? (
             <button
               type="button"
-              onClick={onDelete}
+              onClick={() => onDelete(comment)}
               className="pressable"
               aria-label="このコメントを削除"
             >
@@ -105,12 +121,17 @@ export function CommentItem({
       </div>
     </div>
   );
-}
+});
 
-/** キャラが返信を書いている間の表示（reply_scheduled） */
+/**
+ * キャラが返信を書いている間の表示（reply_scheduled）。
+ * 表示されたら自分で見える位置へスクロールする（投稿直後はこの行が一番下なので、
+ * 呼び出し側は投稿したコメントへのスクロールを重ねないこと。後から始めたスクロールが優先され、
+ * この行が入力欄の裏に隠れたままになる）。
+ */
 export function CommentTypingRow({ name, avatarUrl }: { name: string; avatarUrl: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  // 表示されたら見える位置へ（入力欄の裏に隠れないように）
+  // 表示されたら見える位置へ（scroll-margin で入力欄の裏に隠れないように）
   useEffect(() => {
     ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, []);

@@ -1,9 +1,11 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { queryOptions, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { toAppError } from "@/lib/api/errors";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { queryKeys } from "./keys";
 import {
   POST_SELECT,
+  POST_SELECT_CHARACTER_INNER,
   toPosts,
   type PostAuthor,
   type PostCursor,
@@ -56,8 +58,10 @@ export function cursorOrFilter(cursor: PostCursor): string {
 export interface FetchPostPageOptions {
   cursor?: PostCursor | null;
   limit?: number;
-  /** 特定キャラの投稿のみ（プロフィールのグリッド） */
+  /** 特定キャラの投稿のみ（キャラの ID で絞り込む） */
   characterId?: string;
+  /** 特定キャラの投稿のみ（キャラの handle で絞り込む。プロフィールのグリッド） */
+  characterHandle?: string;
   /** true: 有料のみ / false: 無料のみ / 未指定: 両方 */
   isPaid?: boolean;
   signal?: AbortSignal;
@@ -66,9 +70,20 @@ export interface FetchPostPageOptions {
 /** 公開済み投稿を (published_at DESC, id DESC) で 1 ページ取得する（フィード・グリッド・発見タブ共通） */
 export async function fetchPostPage(
   supabase: TypedSupabaseClient,
-  { cursor, limit = FEED_PAGE_SIZE, characterId, isPaid, signal }: FetchPostPageOptions = {},
+  {
+    cursor,
+    limit = FEED_PAGE_SIZE,
+    characterId,
+    characterHandle,
+    isPaid,
+    signal,
+  }: FetchPostPageOptions = {},
 ): Promise<PostPage> {
-  let query = supabase.from("posts").select(POST_SELECT);
+  // handle で絞り込むときはキャラを inner join にする（埋め込み先の条件で投稿の行自体を絞り込むため）
+  let query = supabase
+    .from("posts")
+    .select(characterHandle ? POST_SELECT_CHARACTER_INNER : POST_SELECT);
+  if (characterHandle) query = query.eq("character.handle", characterHandle);
   if (characterId) query = query.eq("character_id", characterId);
   if (isPaid !== undefined) query = query.eq("is_paid", isPaid);
   if (cursor) query = query.or(cursorOrFilter(cursor));
@@ -79,7 +94,7 @@ export async function fetchPostPage(
   if (signal) query = query.abortSignal(signal);
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw toAppError(error);
   const rows: PostRowWithRelations[] = data ?? [];
   return { posts: toPosts(rows), nextCursor: buildNextCursor(rows, limit) };
 }
@@ -146,15 +161,20 @@ export async function fetchStories(
     .limit(50);
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw toAppError(error);
   return toStoryItems(data ?? []);
 }
 
-/** ストーリーズ行（キー: queryKeys.stories()） */
-export function useStories() {
-  return useQuery({
+/** ストーリーズ行のクエリ設定（useStories とプリフェッチで共通） */
+export function storiesQueryOptions() {
+  return queryOptions({
     queryKey: queryKeys.stories(),
     queryFn: ({ signal }) => fetchStories(getSupabaseBrowserClient(), signal),
     staleTime: 60_000,
   });
+}
+
+/** ストーリーズ行（キー: queryKeys.stories()） */
+export function useStories() {
+  return useQuery(storiesQueryOptions());
 }

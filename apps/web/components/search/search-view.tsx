@@ -1,6 +1,7 @@
 "use client";
 
 import type { PublicCharacter } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { InfiniteScrollSentinel } from "@/components/ui/infinite-scroll-sentinel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCount } from "@/lib/format";
+import { prefetchCharacterProfile } from "@/lib/queries/prefetch";
 import { normalizeSearchQuery, useCharacterSearch, useExplorePosts } from "@/lib/queries/search";
 import { SearchBar } from "./search-bar";
 import { useDebouncedValue } from "./use-debounced-value";
@@ -38,6 +40,7 @@ export function SearchView() {
 
   return (
     <>
+      <h1 className="sr-only">キャラクター検索</h1>
       <SearchBar
         ref={inputRef}
         value={input}
@@ -91,9 +94,11 @@ function SearchResults({ query }: { query: string }) {
 }
 
 function SearchResultRow({ character }: { character: PublicCharacter }) {
+  const queryClient = useQueryClient();
   return (
     <Link
       href={`/c/${character.handle}`}
+      onPointerDown={() => prefetchCharacterProfile(queryClient, character.handle)}
       className="flex items-center gap-3 px-4 py-2 active:bg-ig-elevated"
       data-testid="search-result"
     >

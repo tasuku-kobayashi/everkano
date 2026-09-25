@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { anonymousUserName } from "@/lib/format";
+import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import {
   buildCommentThreads,
   commentAuthorLabel,
   commentFromDto,
+  commentMentionLabel,
+  COMMENTS_LIMIT,
+  fetchComments,
   isOwnComment,
   mergeComments,
   removeComments,
+  replyMentionFor,
+  threadRootId,
   type PostComment,
 } from "./comments";
 
@@ -69,6 +76,27 @@ describe("buildCommentThreads", () => {
   it("同時刻は id 順で安定して並ぶ", () => {
     const threads = buildCommentThreads([comment("b", { minute: 1 }), comment("a", { minute: 1 })]);
     expect(threads.map((t) => t.root.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("threadRootId", () => {
+  const root = comment("root", { minute: 1 });
+  const reply = comment("r1", { minute: 2, parent_comment_id: "root" });
+  const nested = comment("r1-1", { minute: 3, parent_comment_id: "r1" });
+  const all = [root, reply, nested];
+
+  it("祖先をたどってトップレベルの ID を返す（配列・Map のどちらでも同じ）", () => {
+    expect(threadRootId(all, nested)).toBe("root");
+    expect(threadRootId(new Map(all.map((c) => [c.id, c])), nested)).toBe("root");
+    expect(threadRootId(all, root)).toBe("root");
+  });
+
+  it("親が見えない返信・循環はそこで打ち切る", () => {
+    const orphan = comment("orphan", { parent_comment_id: "deleted" });
+    expect(threadRootId(all, orphan)).toBe("orphan");
+    const a = comment("a", { parent_comment_id: "b" });
+    const b = comment("b", { parent_comment_id: "a" });
+    expect(threadRootId([a, b], a)).toBe("b");
   });
 });
 
@@ -179,5 +207,86 @@ describe("isOwnComment / commentFromDto", () => {
       created_at: "2026-09-25T00:00:00Z",
     });
     expect(converted).toMatchObject({ id: "n", author_type: "user", character: null });
+  });
+});
+
+describe("commentMentionLabel / replyMentionFor（返信の @メンション = 本文として全員に公開される）", () => {
+  const me = { userId: ME, displayName: "山田たろう", email: "taro.yamada@example.com" };
+  const mine = comment("m", { author_user_id: ME });
+  const others = comment("o", { author_user_id: OTHER });
+  const misaki = comment("k", {
+    author_type: "character",
+    author_user_id: null,
+    author_character_id: "c1",
+    character: MISAKI,
+  });
+
+  it("自分のコメントでも公開名（user_ + ID 先頭 6 桁）で、表示名やメールのローカル部を含まない", () => {
+    const mention = commentMentionLabel(mine);
+    expect(mention).toBe(anonymousUserName(ME));
+    expect(mention).not.toContain("山田");
+    expect(mention).not.toContain("taro");
+    // 本人の画面の表示名（commentAuthorLabel）とは別物
+    expect(commentAuthorLabel(mine, me)).toBe("山田たろう");
+  });
+
+  it("キャラは handle、他ユーザーは匿名名", () => {
+    expect(commentMentionLabel(misaki)).toBe("misaki_ol");
+    expect(commentMentionLabel(others)).toBe("user_ffeedd");
+  });
+
+  it("自分のコメントへの返信ではメンションを入れない", () => {
+    expect(replyMentionFor(mine, ME)).toBeNull();
+    expect(replyMentionFor(others, ME)).toBe("user_ffeedd");
+    expect(replyMentionFor(misaki, ME)).toBe("misaki_ol");
+  });
+
+  it("ログイン情報が未取得でも、自分の名前は出さない", () => {
+    expect(replyMentionFor(mine, null)).toBe(anonymousUserName(ME));
+  });
+});
+
+/** supabase-js のクエリビルダーの最小の偽物（呼び出しを記録し、await で rows を返す） */
+function fakeSupabase(rows: unknown[]) {
+  const calls: [string, ...unknown[]][] = [];
+  const builder: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "order", "limit", "abortSignal"]) {
+    builder[method] = (...args: unknown[]) => {
+      calls.push([method, ...args]);
+      return builder;
+    };
+  }
+  builder.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+    Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+  const client = {
+    from: (table: string) => {
+      calls.push(["from", table]);
+      return builder;
+    },
+  } as unknown as TypedSupabaseClient;
+  return { client, calls };
+}
+
+describe("fetchComments", () => {
+  const row = (id: string, minute: number) => ({
+    ...comment(id, { minute }),
+    character: null,
+  });
+
+  it("上限を超える投稿でも最新の COMMENTS_LIMIT 件を取り（新しい順に取得）、時系列昇順で返す", async () => {
+    // DB は新しい順に返す
+    const { client, calls } = fakeSupabase([row("c", 3), row("b", 2), row("a", 1)]);
+    const result = await fetchComments(client, POST_ID);
+    expect(result.map((c) => c.id)).toEqual(["a", "b", "c"]);
+    expect(calls).toContainEqual(["order", "created_at", { ascending: false }]);
+    expect(calls).toContainEqual(["order", "id", { ascending: false }]);
+    expect(calls).toContainEqual(["limit", COMMENTS_LIMIT]);
+    expect(calls).toContainEqual(["eq", "post_id", POST_ID]);
+  });
+
+  it("不正な投稿 ID では問い合わせない", async () => {
+    const { client, calls } = fakeSupabase([]);
+    expect(await fetchComments(client, "not-a-uuid")).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });

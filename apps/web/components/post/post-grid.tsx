@@ -1,18 +1,22 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 import { CdnImage } from "@/components/ui/image";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Post } from "@/lib/queries/posts";
+import { prefetchPostDetail } from "@/lib/queries/prefetch";
 import { PaidImage } from "./paid-image";
 import { PaidLockModal } from "./paid-lock-modal";
+import { captionExcerpt, paidTileLabel, postOpenLabel } from "./post-labels";
 
 /**
  * 3 列の正方形グリッド（プロフィールの無料/有料タブ・検索の発見タブ）。
  * 無料投稿はタップで投稿詳細へ、有料投稿は全面ぼかし + 鍵 + 価格で、タップするとロックモーダル（遷移しない）。
  */
 export function PostGrid({ posts }: { posts: readonly Post[] }) {
+  const queryClient = useQueryClient();
   // 閉じるアニメーション中も価格を表示し続けるため、対象の投稿と開閉を別々に持つ
   const [locked, setLocked] = useState<Post | null>(null);
   const [lockOpen, setLockOpen] = useState(false);
@@ -28,7 +32,7 @@ export function PostGrid({ posts }: { posts: readonly Post[] }) {
                   setLocked(post);
                   setLockOpen(true);
                 }}
-                aria-label={`有料コンテンツ（${post.price_tokens} tokens）`}
+                aria-label={paidTileLabel(post)}
                 className="block w-full active:opacity-80"
                 data-testid="grid-paid-tile"
               >
@@ -42,13 +46,16 @@ export function PostGrid({ posts }: { posts: readonly Post[] }) {
             ) : (
               <Link
                 href={`/posts/${post.id}`}
-                aria-label={`${post.character.name}の投稿を開く`}
+                // 触れた時点で投稿詳細のデータ（投稿・コメント）を取りに行く
+                onPointerDown={() => prefetchPostDetail(queryClient, post.id)}
+                // タイルごとに区別できる名前（キャラ名 + キャプションの冒頭）
+                aria-label={postOpenLabel(post)}
                 className="block active:opacity-80"
                 data-testid="grid-free-tile"
               >
                 <CdnImage
                   src={post.image_url}
-                  alt={post.caption ? post.caption.slice(0, 40) : `${post.character.name}の投稿`}
+                  alt={captionExcerpt(post.caption, 40) || `${post.character.name}の投稿`}
                   className="aspect-square w-full"
                   widths={[320]}
                   sizes="(max-width: 480px) 33vw, 160px"

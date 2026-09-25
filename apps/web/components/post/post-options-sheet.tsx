@@ -36,7 +36,7 @@ export function ActionSheet({
               onClick={action.onClick}
               className={cn(
                 "flex h-[52px] w-full items-center justify-center px-4 text-[16px] active:bg-ig-elevated",
-                action.destructive && "font-semibold text-ig-red",
+                action.destructive && "font-semibold text-ig-red-text",
               )}
             >
               {action.label}

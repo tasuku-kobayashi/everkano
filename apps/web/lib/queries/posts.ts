@@ -1,9 +1,11 @@
 import {
+  queryOptions,
   useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
+import { toAppError } from "@/lib/api/errors";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { queryKeys } from "./keys";
@@ -23,6 +25,14 @@ export const POST_AUTHOR_COLUMNS = "id, handle, name, avatar_url" as const;
 /** 投稿の select 文字列（フィード・投稿詳細・グリッドで共通） */
 export const POST_SELECT =
   "id, character_id, image_url, caption, is_paid, price_tokens, like_count, comment_count, published_at, character:characters!posts_character_id_fkey(id, handle, name, avatar_url), my_likes:likes(user_id)" as const;
+
+/**
+ * POST_SELECT のキャラの埋め込みを inner join にしたもの。キャラの handle で投稿を絞り込むときに使う
+ * （`.eq("character.handle", handle)`。キャラの ID の取得を待たずにプロフィールのグリッドを取れる）。
+ * 返る行の形は POST_SELECT と同じ。
+ */
+export const POST_SELECT_CHARACTER_INNER =
+  "id, character_id, image_url, caption, is_paid, price_tokens, like_count, comment_count, published_at, character:characters!posts_character_id_fkey!inner(id, handle, name, avatar_url), my_likes:likes(user_id)" as const;
 
 export interface PostAuthor {
   id: string;
@@ -120,7 +130,7 @@ export async function fetchPost(
   let query = supabase.from("posts").select(POST_SELECT).eq("id", postId);
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query.maybeSingle();
-  if (error) throw error;
+  if (error) throw toAppError(error);
   return data ? toPost(data) : null;
 }
 
@@ -205,11 +215,18 @@ export function findCachedPost(queryClient: QueryClient, postId: string): Post |
 }
 
 /** 投稿詳細（キー: queryKeys.post(postId)）。data が null なら「存在しない / 見られない」 */
-export function usePost(postId: string) {
-  const queryClient = useQueryClient();
-  return useQuery<Post | null, Error, Post | null, ReturnType<typeof queryKeys.post>>({
+/** 投稿 1 件のクエリ設定（usePost とプリフェッチ（lib/queries/prefetch.ts）で共通） */
+export function postQueryOptions(postId: string) {
+  return queryOptions<Post | null, Error, Post | null, ReturnType<typeof queryKeys.post>>({
     queryKey: queryKeys.post(postId),
     queryFn: ({ signal }) => fetchPost(getSupabaseBrowserClient(), postId, signal),
+  });
+}
+
+export function usePost(postId: string) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    ...postQueryOptions(postId),
     // フィード等から遷移した場合は、取得完了までキャッシュ済みの投稿を先に表示する
     placeholderData: () => findCachedPost(queryClient, postId),
   });

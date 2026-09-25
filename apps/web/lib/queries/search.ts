@@ -1,5 +1,6 @@
 import { PUBLIC_CHARACTER_COLUMNS, type PublicCharacter } from "@everkano/shared";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { toAppError } from "@/lib/api/errors";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { fetchPostPage, quotePostgrestValue } from "./feed";
@@ -89,7 +90,7 @@ export async function searchCharacters(
     .limit(SEARCH_RESULT_LIMIT);
   if (signal) request = request.abortSignal(signal);
   const { data, error } = await request;
-  if (error) throw error;
+  if (error) throw toAppError(error);
   return rankSearchResults(data ?? [], query);
 }
 

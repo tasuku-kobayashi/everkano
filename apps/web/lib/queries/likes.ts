@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { toAppError } from "@/lib/api/errors";
 import { fetchMyAccount, type MyAccount } from "@/lib/auth/account";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
@@ -30,7 +31,7 @@ export async function setPostLiked(
 ): Promise<void> {
   if (liked) {
     const { error } = await supabase.from("likes").insert({ user_id: userId, post_id: postId });
-    if (error && error.code !== UNIQUE_VIOLATION) throw error;
+    if (error && error.code !== UNIQUE_VIOLATION) throw toAppError(error);
     return;
   }
   const { error } = await supabase
@@ -38,7 +39,7 @@ export async function setPostLiked(
     .delete()
     .eq("user_id", userId)
     .eq("post_id", postId);
-  if (error) throw error;
+  if (error) throw toAppError(error);
 }
 
 /** ログイン中ユーザーの ID（キャッシュ済みの自分のアカウント情報を優先） */

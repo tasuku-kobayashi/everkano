@@ -1,6 +1,7 @@
 "use client";
 
 import type { PublicCharacter } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { OPAQUE_HEADER } from "@/components/post/opaque-header";
@@ -23,7 +24,9 @@ import {
   useCharacter,
   useCharacterPostCount,
   useCharacterPosts,
+  usePrefetchCharacterProfile,
 } from "@/lib/queries/characters";
+import { prefetchDmConversation } from "@/lib/queries/dm";
 import { useStories } from "@/lib/queries/feed";
 import type { CharacterPostsTab } from "@/lib/queries/keys";
 import { ProfileTabs } from "./profile-tabs";
@@ -32,6 +35,8 @@ import { ProfileTabs } from "./profile-tabs";
 export function CharacterProfileView({ handle: rawHandle }: { handle: string }) {
   const handle = useMemo(() => normalizeHandle(rawHandle), [rawHandle]);
   const { data: character, isPending, isError, refetch, isRefetching } = useCharacter(handle ?? "");
+  // 投稿数・グリッド・ストーリーズはキャラ本体の取得を待たずに並行して取りに行く
+  usePrefetchCharacterProfile(handle);
   const [sheetOpen, setSheetOpen] = useState(false);
   const copyLink = useCopyLink();
 
@@ -53,14 +58,14 @@ export function CharacterProfileView({ handle: rawHandle }: { handle: string }) 
         }
       />
       {invalid ? (
-        <PageUnavailable />
+        <PageUnavailable headingLevel={1} />
       ) : isPending ? (
         <ProfileSkeleton />
       ) : isError && character === undefined ? (
         // 再取得の失敗（data は残る）では読み込み済みのプロフィールを表示し続ける
         <ErrorState onRetry={() => void refetch()} retrying={isRefetching} />
       ) : !character ? (
-        <PageUnavailable />
+        <PageUnavailable headingLevel={1} />
       ) : (
         <ProfileContent character={character} />
       )}
@@ -91,7 +96,7 @@ function ProfileContent({ character }: { character: PublicCharacter }) {
       <ProfileHeader character={character} />
       <ProfileTabs value={tab} onChange={setTab} />
       <div role="tabpanel" id={`profile-panel-${tab}`} aria-labelledby={`profile-tab-${tab}`}>
-        <ProfilePosts key={tab} characterId={character.id} tab={tab} />
+        <ProfilePosts key={tab} handle={character.handle} tab={tab} />
       </div>
     </>
   );
@@ -99,7 +104,8 @@ function ProfileContent({ character }: { character: PublicCharacter }) {
 
 /** プロフィール上部（Instagram: 大きなアバター + 投稿数 / フォロワー数、名前、自己紹介、ボタン） */
 function ProfileHeader({ character }: { character: PublicCharacter }) {
-  const { data: postCount, isPending: countPending } = useCharacterPostCount(character.id);
+  const queryClient = useQueryClient();
+  const { data: postCount, isPending: countPending } = useCharacterPostCount(character.handle);
   const { data: stories } = useStories();
   const story = stories?.find((item) => item.character.id === character.id);
   const hasRecentPost = Boolean(story?.isRecent && story.latestPost);
@@ -144,6 +150,9 @@ function ProfileHeader({ character }: { character: PublicCharacter }) {
       ) : null}
       <Link
         href={`/dm/${character.id}`}
+        // 触れた時点で DM 画面のデータ（キャラ・既存の会話と最新のメッセージ）を取りに行く。
+        // 会話の作成（POST /conversations）は副作用があるため先読みしない
+        onPointerDown={() => prefetchDmConversation(queryClient, character.id)}
         className={cn(buttonClassName({ variant: "primary", size: "sm", fullWidth: true }), "mt-4")}
         data-testid="dm-button"
       >
@@ -165,7 +174,7 @@ function Stat({ label, value, testId }: { label: string; value: string | null; t
 }
 
 /** 無料 / 有料タブのグリッド（無限スクロール） */
-function ProfilePosts({ characterId, tab }: { characterId: string; tab: CharacterPostsTab }) {
+function ProfilePosts({ handle, tab }: { handle: string; tab: CharacterPostsTab }) {
   const {
     data,
     isPending,
@@ -176,7 +185,7 @@ function ProfilePosts({ characterId, tab }: { characterId: string; tab: Characte
     hasNextPage,
     isFetchingNextPage,
     isFetchNextPageError,
-  } = useCharacterPosts(characterId, tab);
+  } = useCharacterPosts(handle, tab);
   const posts = useMemo(() => data?.pages.flatMap((page) => page.posts) ?? [], [data]);
 
   if (isPending) return <PostGridSkeleton rows={2} />;
