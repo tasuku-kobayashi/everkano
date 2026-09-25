@@ -1,0 +1,20 @@
+# apps/api/pyproject.toml の ruff 設定に揃える（このパッケージは Python プロジェクトではないため ruff.toml に置く）
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "N", "S", "C4", "SIM", "RUF", "RET", "TID", "ARG", "PL"]
+ignore = [
+  "PLR0911", # too many return statements
+  "PLR0912", # too many branches
+  "PLR0913", # too many arguments
+  "PLR0915", # too many statements（生成・検証スクリプトは直線的に書く）
+  "PLR2004", # magic value comparison
+  "RUF001",  # 日本語の全角記号（「」（）など）を含む文字列
+  "RUF002",
+  "RUF003",
+]
+
+[lint.per-file-ignores]
+# seed.sql（静的なSQLファイル）を組み立てるスクリプト。値はすべて sql_str() でエスケープしており、DBへ直接投げる文字列ではない
+"scripts/generate_seed.py" = ["S608"]

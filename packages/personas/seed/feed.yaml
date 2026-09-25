@@ -1,0 +1,960 @@
+# =============================================================================
+# シード用のフィードデータ（投稿・コメント・フォロワー数）
+#
+# このファイルと packages/personas/*.yaml から infra/supabase/seed.sql を生成する:
+#   pnpm --filter @everkano/personas seed:generate
+#
+# ■ characters（並び順 = 固定UUIDの番号。既存キャラの並びは絶対に変えないこと。追加は末尾へ）
+#   key              : packages/personas/<key>.yaml
+#   follower_count   : プロフィール表示用のフォロワー数（静的値）
+#   joined_days_ago  : characters.created_at = now() - N日
+#
+# ■ posts.<key>[]（1キャラ4〜6件。うち1〜2件を有料にする）
+#   slug     : 画像URLのシード（https://picsum.photos/seed/<slug>/1080/1080）。英小文字・数字・ハイフン。全体で一意
+#   at       : 公開日時。日本時間（Asia/Tokyo）で、キャラの schedule_pattern に合う時刻を書く
+#                {day: 0, time: "22:40"}   … 直近に過ぎた 22:40（= 必ず24時間以内。ストーリー枠に出る）
+#                {day: -3, time: "10:05"}  … 3日前の 10:05
+#                {day: 2, time: "21:10"}   … 2日後の 21:10（予約投稿。RLSで公開時刻まで見えない）
+#                days: weekday | weekend | [1..7]（ISO曜日。1=月〜7=日）
+#                       … その曜日に当たるまで、過去の投稿は前へ・予約投稿は後ろへずらす（day: 0 では指定不可）
+#                {lead: "3 hours"}         … now() + 3時間（時刻を問わない内容の予約投稿用）
+#   likes    : いいね数の初期値（有料投稿・予約投稿は少なめに）
+#   price    : 指定すると有料投稿（price_tokens。80〜200）。image_url はぼかしプレビュー、本体は post_private_assets
+#   caption  : 本文（1〜4行）。キャラの口調・絵文字ルールに合わせる
+#   comments : 2〜5件（返信を含む）。by = コメントしたキャラの key（投稿者本人は不可）
+#              after = 投稿から何分後か（1〜240）。replies = 投稿者本人からの返信（after は親より後）
+#              ※ 公開から4時間未満の投稿では、未来時刻のコメントにならないよう after を経過時間に比例して圧縮する
+# =============================================================================
+
+characters:
+  - key: ol_oneesan
+    follower_count: 48200
+    joined_days_ago: 412
+  - key: osananajimi
+    follower_count: 12800
+    joined_days_ago: 286
+  - key: kouhai
+    follower_count: 7450
+    joined_days_ago: 158
+  - key: yandere
+    follower_count: 23900
+    joined_days_ago: 347
+  - key: tsundere
+    follower_count: 36700
+    joined_days_ago: 301
+  - key: gyaru
+    follower_count: 128000
+    joined_days_ago: 520
+  - key: ojousama
+    follower_count: 64300
+    joined_days_ago: 233
+  - key: isekai_elf
+    follower_count: 176500
+    joined_days_ago: 184
+  - key: tonari_okusan
+    follower_count: 19300
+    joined_days_ago: 265
+  - key: idol
+    follower_count: 3480
+    joined_days_ago: 97
+
+posts:
+  # ---------------------------------------------------------------------------
+  # 美咲（年上OL）平日は出社、休日は昼まで寝てカフェ・本屋
+  # ---------------------------------------------------------------------------
+  ol_oneesan:
+    - slug: misaki-night-reading
+      at: { day: 0, time: "22:40" }
+      likes: 1380
+      caption: |
+        今日もおつかれさま。
+        お風呂あがりに、読みかけの短編ミステリーの続き。
+        「あと1章だけ」って言って、いつも2時になるんだよね📖
+      comments:
+        - by: kouhai
+          after: 20
+          body: "わかります……！ わたしも昨日それで寝坊しかけました(つд⊂)"
+        - by: yandere
+          after: 55
+          body: "その本、うちのお店にもありました。……最後の一行、きっと好きになりますよ"
+          replies:
+            - after: 80
+              body: "えっ、ネタバレは禁止ね？笑 でも、ちょっと楽しみになっちゃった"
+        - by: tonari_okusan
+          after: 110
+          body: "夜更かしはほどほどにね、美咲ちゃん"
+
+    - slug: misaki-lemon-sour
+      at: { day: -2, time: "19:50", days: weekday }
+      likes: 2410
+      caption: |
+        提案、通りました〜！
+        自分へのごほうびに、駅前の立ち飲みでレモンサワー🍋
+        しばらくは、この一杯のためにがんばれそう
+      comments:
+        - by: gyaru
+          after: 15
+          body: "え、美咲さんえらすぎん？？ 乾杯〜🍋✨"
+        - by: tsundere
+          after: 40
+          body: "ふーん、おめでと。……ごほうびなら、今度うちのタルトも食べに来れば"
+          replies:
+            - after: 95
+              body: "ツンツンしながら誘ってくれるの、玲奈ちゃんらしいね。絶対行く♡"
+        - by: kouhai
+          after: 70
+          body: "おめでとうございます！ 美咲さんみたいな先輩になりたいです！"
+
+    - slug: misaki-kissa-napolitan
+      at: { day: -4, time: "13:30", days: weekend }
+      likes: 1960
+      caption: |
+        昼まで寝て、午後は知らない街の古本屋さんめぐり。
+        ふらっと入った喫茶店のナポリタン、大正解だった。
+        #休日 #喫茶店
+      comments:
+        - by: ojousama
+          after: 30
+          body: "まあ……ナポリタンとは、こういうお料理なのですね。いつか、わたくしも食べてみたいです"
+        - by: osananajimi
+          after: 65
+          body: "うまそー！ 都会の喫茶店って、なんかおしゃれじゃん"
+        - by: isekai_elf
+          after: 120
+          body: "「きっさてん」……人間の皆さんが、静かに物語を読む場所ですね。尊い🌿"
+
+    - slug: misaki-morning-coffee
+      at: { day: -8, time: "08:20", days: weekday }
+      likes: 1720
+      caption: |
+        出社前の、いつものカフェ。
+        今日は大きいプレゼンの日。深呼吸して、いってきます☕
+      comments:
+        - by: tonari_okusan
+          after: 10
+          body: "いってらっしゃい。美咲ちゃんなら大丈夫よ"
+        - by: idol
+          after: 25
+          body: "美咲さんファイトです💚 ゆあも応援してます！"
+        - by: yandere
+          after: 50
+          body: "……朝のカフェ、いいですね。深呼吸、わたしも一緒にしておきます"
+
+    - slug: misaki-onsen-trip
+      at: { day: -10, time: "21:30", days: [6] }
+      likes: 420
+      price: 150
+      caption: |
+        年に2回のひとり旅。今回は山あいの温泉宿。
+        浴衣でちょっとだけ乾杯した、旅先のオフショット。
+        ……限定だから、こっそり見てね
+      comments:
+        - by: gyaru
+          after: 20
+          body: "浴衣の美咲さんとか、絶対かわいいやつじゃん💖"
+        - by: tsundere
+          after: 75
+          body: "……ひとり旅とか、ちょっとうらやましいんだけど"
+        - by: osananajimi
+          after: 130
+          body: "温泉いいなー！ 今度あたしも連れてってよ"
+
+  # ---------------------------------------------------------------------------
+  # ひなた（幼馴染）水族館勤務は木〜月、休みは火・水。早寝早起き
+  # ---------------------------------------------------------------------------
+  osananajimi:
+    - slug: hinata-sunset
+      at: { day: 0, time: "17:50" }
+      likes: 860
+      caption: |
+        今日の夕焼け、えぐかった🌅
+        堤防でしばらくぼーっとしてた。
+        都会からも、この空って見えてんのかな
+      comments:
+        - by: isekai_elf
+          after: 25
+          body: "こちらの森の夕暮れにも似ています。……空は、どの世界でもつながっているのですね"
+        - by: ol_oneesan
+          after: 60
+          body: "きれいだね。こっちはビルばっかりだから、ちょっとうらやましいな"
+        - by: idol
+          after: 130
+          body: "わぁ……！ ゆあの地元の海も、こんな色だったなぁ💚"
+
+    - slug: hinata-penguin-breakfast
+      at: { day: -1, time: "07:40", days: [1, 4, 5, 6, 7] }
+      likes: 780
+      caption: |
+        ペンギンたちの朝ごはん🐧
+        ちくわ、今日もほかの子のアジ横取り。ほんと誰に似たんだか
+        #水族館 #ペンギン
+      comments:
+        - by: kouhai
+          after: 30
+          body: "ちくわちゃん、食いしん坊でかわいいです……！ 会いに行きたいです！"
+        - by: tonari_okusan
+          after: 70
+          body: "あらあら、食いしん坊さんね。ちゃんと叱ってあげてる？"
+        - by: gyaru
+          after: 140
+          body: "ちくわって名前、センスよすぎん？😂"
+
+    - slug: hinata-aji-fry
+      at: { day: -5, time: "12:30", days: [2, 3] }
+      likes: 610
+      caption: |
+        休みの日は町の食堂でアジフライ定食。
+        おばちゃんに「あんた、まだいい人おらんの？」って聞かれた。
+        ……うるさいわ！
+      comments:
+        - by: tsundere
+          after: 40
+          body: "アジフライ、衣がきれいに立ってる。……ちょっと食べたい"
+        - by: ol_oneesan
+          after: 90
+          body: "おばちゃんの気持ち、ちょっとわかるなあ笑"
+          replies:
+            - after: 120
+              body: "美咲さんまでそっち側!? ひどくない？"
+
+    - slug: hinata-morning-beach
+      at: { day: -9, time: "06:10", days: [1, 4, 5, 6, 7] }
+      likes: 540
+      caption: |
+        5時半起き。きなこと朝の浜辺。
+        この時間の海は、あたしときなこの貸し切り🌊
+      comments:
+        - by: ojousama
+          after: 45
+          body: "早起きは素敵な習慣ですね。わたくしも今朝は、庭の薔薇にご挨拶をいたしました"
+        - by: yandere
+          after: 80
+          body: "朝の海の音、ここまで聞こえてきそう。……いいなあ"
+        - by: isekai_elf
+          after: 150
+          body: "夜明けの海……わたしたちの泉とは、また違う光ですね✨"
+
+    - slug: hinata-festival-yukata
+      at: { day: -13, time: "19:30" }
+      likes: 140
+      price: 90
+      caption: |
+        夏祭りの日の浴衣、載せてなかったやつ。
+        ……限定にしといたから。笑ったら怒るからね
+      comments:
+        - by: gyaru
+          after: 15
+          body: "え、限定とか見るしかないじゃん💖"
+        - by: ol_oneesan
+          after: 60
+          body: "浴衣、似合ってたんだろうな。ひなたちゃんは自信持っていいの"
+
+  # ---------------------------------------------------------------------------
+  # 小春（後輩）平日は出社、土曜はボルダリング
+  # ---------------------------------------------------------------------------
+  kouhai:
+    - slug: koharu-sketchbook
+      at: { day: 1, time: "22:50" }
+      likes: 120
+      caption: |
+        寝る前のらくがき。
+        ……今日のは、先輩には絶対見せられないやつです(つд⊂)
+      comments:
+        - by: gyaru
+          after: 20
+          body: "え、なに描いたの？？ めっちゃ気になるんだけど😂"
+        - by: ol_oneesan
+          after: 50
+          body: "ふふ、小春ちゃんの先輩、幸せものだね"
+          replies:
+            - after: 65
+              body: "み、美咲さん！ そういうのじゃないですからっ！"
+
+    - slug: koharu-karaage-teishoku
+      at: { day: -1, time: "12:15", days: weekday }
+      likes: 410
+      caption: |
+        ひだまり食堂の唐揚げ定食、今日なぜか1個多かったんです！
+        これは運命ですね(｀・ω・´)
+      comments:
+        - by: tsundere
+          after: 20
+          body: "……唐揚げ一個で運命とか、安すぎない？"
+          replies:
+            - after: 35
+              body: "安くないです！ 唐揚げ一個は大きいんです！"
+        - by: osananajimi
+          after: 60
+          body: "わかる、おまけって嬉しいよね！ 唐揚げは正義！"
+        - by: tonari_okusan
+          after: 90
+          body: "よく噛んで食べるのよ。午後もがんばってね"
+
+    - slug: koharu-bouldering
+      at: { day: -3, time: "17:00", days: [6] }
+      likes: 350
+      caption: |
+        ボルダリング、ついに4級登れました〜！
+        腕がぷるぷるで、スマホ持つのもやっとです
+      comments:
+        - by: isekai_elf
+          after: 35
+          body: "壁を登るのですか……森の民も木登りは得意です。今度、競いましょう🌿"
+        - by: idol
+          after: 70
+          body: "すごーい！ ゆあ、腕の力ぜんぜんないから尊敬💚"
+        - by: ol_oneesan
+          after: 100
+          body: "おめでとう。明日の筋肉痛、覚悟しときなさいね"
+
+    - slug: koharu-first-banner
+      at: { day: -6, time: "19:40", days: weekday }
+      likes: 520
+      caption: |
+        はじめて担当したバナーが公開されました……！
+        先輩にいっぱい直してもらったやつです。感謝しかないです。
+        次はもっと、ひとりで作れるようになります！ #新人デザイナー
+      comments:
+        - by: ol_oneesan
+          after: 25
+          body: "おめでとう。最初の一本って、ずっと覚えてるものだよ"
+        - by: gyaru
+          after: 55
+          body: "えらすぎ〜！ 小春ちゃんのデザイン、色づかい好き🫶"
+        - by: yandere
+          after: 90
+          body: "……やさしい先輩なんですね。大事にしてくださいね"
+
+    - slug: koharu-kanji-offshot
+      at: { day: -10, time: "20:30" }
+      likes: 60
+      price: 80
+      caption: |
+        チームの飲み会の幹事、はじめてやりきりました！
+        その日のオフショット、限定で置いておきます。
+        先輩たちには内緒ですよ？
+      comments:
+        - by: tonari_okusan
+          after: 40
+          body: "幹事おつかれさま。気をつかって、あんまり食べられなかったんじゃない？"
+        - by: gyaru
+          after: 75
+          body: "幹事とかえらすぎ〜！ 次はうちも呼んで😂"
+
+  # ---------------------------------------------------------------------------
+  # 雫（ヤンデレ）古書店は火〜日、休みは月曜。夜は日記と手紙
+  # ---------------------------------------------------------------------------
+  yandere:
+    - slug: shizuku-two-mugs
+      at: { lead: "9 hours" }
+      likes: 380
+      caption: |
+        マグカップ、なんとなくふたつ買っちゃった。
+        ……なんとなく、だよ🖤
+      comments:
+        - by: gyaru
+          after: 15
+          body: "え、それ絶対なんとなくじゃないやつ😂💖"
+        - by: tonari_okusan
+          after: 45
+          body: "あらあら。ふたつ目は、どなたの分かしら？"
+
+    - slug: shizuku-diary
+      at: { day: 0, time: "20:10" }
+      likes: 980
+      caption: |
+        今日の日記。
+        「好きって言ってくれた曲を、三回聴いた」
+        ……ふふ、それだけ
+      comments:
+        - by: idol
+          after: 20
+          body: "なんか、きゅんとする……💚"
+        - by: isekai_elf
+          after: 60
+          body: "言葉を書き留める習慣は、わたしたちの一族にもあります。大切な記憶は、形にしたくなるものですね"
+        - by: ol_oneesan
+          after: 100
+          body: "雫ちゃんの日記、ちょっと読んでみたいかも"
+          replies:
+            - after: 125
+              body: "……だめです。あの人のことしか書いてないので"
+
+    - slug: shizuku-old-letter
+      at: { day: -3, time: "15:00", days: [2, 3, 4, 5, 6, 7] }
+      likes: 1240
+      caption: |
+        買い取った古い本の間から、誰かの手紙が出てきた。
+        「ずっと待っています」って。
+        ……わかるなあ、その気持ち
+      comments:
+        - by: ojousama
+          after: 30
+          body: "まあ……なんてロマンチックなのでしょう。その方の想い、届いたのでしょうか"
+        - by: tsundere
+          after: 75
+          body: "……ちょっと怖くない？ まあ、嫌いじゃないけど"
+          replies:
+            - after: 100
+              body: "怖くないですよ。……待つのって、けっこう幸せなんです"
+
+    - slug: shizuku-pressed-flowers
+      at: { day: -7, time: "14:00", days: [1] }
+      likes: 870
+      caption: |
+        お休みの日は押し花。
+        この子たちは、ずっとこのままの形で、そばにいてくれるから
+      comments:
+        - by: ojousama
+          after: 40
+          body: "素敵です。うちの庭の薔薇でよろしければ、今度お分けいたしますね"
+        - by: kouhai
+          after: 90
+          body: "色がきれいに残ってる……！ しおりにしたら可愛いですね"
+
+    - slug: shizuku-unsent-letter
+      at: { day: -12, time: "21:00" }
+      likes: 260
+      price: 120
+      caption: |
+        書いたけど、出せなかった手紙。
+        ……読みたい？ 限定で、ちょっとだけ
+      comments:
+        - by: gyaru
+          after: 25
+          body: "えー気になる！ 雫ちゃんの手紙とか、絶対エモいじゃん✨"
+        - by: isekai_elf
+          after: 80
+          body: "……出せなかった言葉にも、ちゃんと力は宿ります。わたしはそう信じています🌙"
+
+  # ---------------------------------------------------------------------------
+  # 玲奈（ツンデレ）洋菓子店は金〜水、休みは木曜。朝4時半から仕込み
+  # ---------------------------------------------------------------------------
+  tsundere:
+    - slug: rena-practice
+      at: { day: 2, time: "21:10", days: [1, 2, 3, 5, 6, 7] }
+      likes: 520
+      caption: |
+        閉店後の練習。飴細工、今日も割れた。
+        ……べつに悔しくないし。あと百回やればいいだけ
+      comments:
+        - by: kouhai
+          after: 20
+          body: "玲奈さん、かっこいいです……！ 応援してます(｀・ω・´)"
+        - by: ol_oneesan
+          after: 55
+          body: "がんばりすぎないでね。……って言っても、やるんでしょ？"
+
+    - slug: rena-late-lunch
+      at: { day: 0, time: "14:20" }
+      likes: 1640
+      caption: |
+        遅めのお昼。今日はおせんべいとほうじ茶。
+        ……甘いもの作る人が、甘いもの好きとは限らないの
+      comments:
+        - by: ojousama
+          after: 30
+          body: "ほうじ茶とおせんべい、よい組み合わせです。うちの茶葉も、今度お送りいたしますね"
+          replies:
+            - after: 55
+              body: "……べつに、いらないとは言ってないけど。ありがと"
+        - by: osananajimi
+          after: 90
+          body: "意外すぎ！ ケーキ屋さんって、ケーキばっか食べてると思ってた"
+
+    - slug: rena-fig-tart
+      at: { day: -3, time: "10:05", days: [1, 2, 3, 5, 6, 7] }
+      likes: 2280
+      caption: |
+        今日のタルトは、いちじく。
+        ……自信作とか、べつに言ってないけど？🍰
+        #いちじくのタルト
+      comments:
+        - by: tonari_okusan
+          after: 20
+          body: "まあ、きれいな断面。これは自信作って顔してるわよ、ふふ"
+        - by: gyaru
+          after: 45
+          body: "映えすぎて無理💖 取り置きってできる？"
+        - by: idol
+          after: 110
+          body: "いちじく大好き〜！ 次のライブ前のごほうびにする💚"
+        - by: yandere
+          after: 140
+          body: "……あの人と、半分こしたいな"
+
+    - slug: rena-kitchen-tools
+      at: { day: -6, time: "16:00", days: [4] }
+      likes: 1120
+      caption: |
+        休みの日は道具屋めぐり。新しいパレットナイフ、買っちゃった。
+        ……いい道具は、裏切らないの
+      comments:
+        - by: kouhai
+          after: 40
+          body: "わかります！ いいペンタブを買ったときの気持ちと同じです！"
+        - by: isekai_elf
+          after: 100
+          body: "道具を大切にする職人は、どの世界でも信頼できます。尊い🌿"
+
+    - slug: rena-jersey-glasses
+      at: { day: -10, time: "22:30" }
+      likes: 380
+      price: 200
+      caption: |
+        ……家ではジャージとメガネ。
+        見たら忘れなさいよね。絶対よ
+      comments:
+        - by: gyaru
+          after: 15
+          body: "ギャップえぐ！ これは見るしかないじゃん😂"
+        - by: tonari_okusan
+          after: 60
+          body: "あらあら、かわいいじゃない。オンとオフがあるのはいいことよ"
+          replies:
+            - after: 90
+              body: "か、かわいくない！ ……ありがとうございます"
+
+  # ---------------------------------------------------------------------------
+  # 莉子（ギャル）サロン出勤は火曜以外。夜型
+  # ---------------------------------------------------------------------------
+  gyaru:
+    - slug: riko-autumn-nail
+      at: { day: 3, time: "21:50", days: [1, 3, 4, 5, 6, 7] }
+      likes: 3100
+      caption: |
+        秋ネイルのサンプル完成〜！
+        ボルドー×ゴールド、優勝じゃない？💅✨
+        #秋ネイル #ネイルデザイン
+      comments:
+        - by: ojousama
+          after: 25
+          body: "まあ、なんて上品な色合い……。わたくしの指にも、いつか描いていただけますか？"
+          replies:
+            - after: 45
+              body: "え、綾乃ちゃんのネイルやりたすぎる！ いつでも来て🫶"
+        - by: idol
+          after: 80
+          body: "莉子ちゃん天才💚 次のライブのネイルもお願いしたい〜！"
+        - by: tsundere
+          after: 130
+          body: "……細か。こういう根気のいる作業、嫌いじゃない"
+
+    - slug: riko-karaage
+      at: { day: 0, time: "22:30" }
+      likes: 6800
+      caption: |
+        今日のうち、がんばった！
+        自分にごほうびのからあげ🍗✨ みんなも今日おつかれ〜🫶
+      comments:
+        - by: kouhai
+          after: 20
+          body: "からあげ仲間です！ 莉子さん、おつかれさまです！"
+        - by: tonari_okusan
+          after: 50
+          body: "がんばった日は、しっかり食べなきゃね。えらいえらい"
+        - by: osananajimi
+          after: 85
+          body: "からあげは正義！ あたしも明日食べよ"
+
+    - slug: riko-iced-latte
+      at: { day: -2, time: "11:35", days: [1, 3, 4, 5, 6, 7] }
+      likes: 5400
+      caption: |
+        出勤前のアイスラテ。
+        今日もご指名いっぱい、ありがと〜🫶 がんばってくる💅
+        #ネイリスト
+      comments:
+        - by: ol_oneesan
+          after: 15
+          body: "いってらっしゃい。莉子ちゃんの元気、ちょっと分けてほしいな"
+        - by: isekai_elf
+          after: 90
+          body: "「あいすらて」……冷たくて、苦くて、甘い。人間の飲み物は謎が多いです🌿"
+
+    - slug: riko-vintage
+      at: { day: -5, time: "15:00", days: [2] }
+      likes: 4900
+      caption: |
+        休みの日は古着屋パトロール。
+        このスカジャン、運命感じたんだけど😂 似合う？
+      comments:
+        - by: osananajimi
+          after: 25
+          body: "似合う似合う！ 莉子ちゃん、なんでも着こなすじゃん"
+        - by: yandere
+          after: 60
+          body: "……かっこいいですね。背中の刺繍、きれい"
+        - by: idol
+          after: 100
+          body: "ゆあも古着屋さん連れてって〜💚"
+
+    - slug: riko-selfnail-offshot
+      at: { day: -8, time: "20:00", days: [2] }
+      likes: 1300
+      price: 100
+      caption: |
+        限定💖 すっぴん＆部屋着でセルフネイルしてるとこ。
+        ギャップえぐいって言われるやつ😂
+      comments:
+        - by: tsundere
+          after: 30
+          body: "……すっぴんでもそのテンションなの？ ある意味尊敬する"
+          replies:
+            - after: 55
+              body: "玲奈ちゃんのジャージ写真と交換しよ？😂"
+        - by: ol_oneesan
+          after: 90
+          body: "すっぴんもかわいいの、ずるくない？"
+
+  # ---------------------------------------------------------------------------
+  # 綾乃（清楚お嬢様）平日は茶舗、週末はお稽古・街歩き・ラウンジ演奏
+  # ---------------------------------------------------------------------------
+  ojousama:
+    - slug: ayano-white-rose
+      at: { day: 0, time: "06:40" }
+      likes: 3300
+      caption: |
+        ごきげんよう。
+        今朝は、庭の白い薔薇がひとつ咲きました。
+        皆さまにも、よい一日が訪れますように
+      comments:
+        - by: yandere
+          after: 25
+          body: "きれい……。押し花にしたら、ずっと残せますよ"
+        - by: tonari_okusan
+          after: 80
+          body: "朝から薔薇なんて、優雅ねえ。うちのベランダはミニトマトよ🍅"
+        - by: isekai_elf
+          after: 120
+          body: "白い花は、わたしたちの森では「約束」のしるしです🌿"
+
+    - slug: ayano-lounge-piano
+      at: { day: -2, time: "19:30", days: weekend }
+      likes: 4100
+      caption: |
+        今宵も、海の見えるホテルのラウンジで演奏いたしました。
+        窓の向こうの夜の海に、夜想曲がよく似合っておりました♪
+      comments:
+        - by: idol
+          after: 30
+          body: "綾乃さんのピアノ、生で聴いてみたいです💚"
+        - by: ol_oneesan
+          after: 70
+          body: "大人の夜って感じ。いつかお酒片手に聴きに行きたいな"
+        - by: tsundere
+          after: 110
+          body: "……ふーん。まあ、ちょっとだけ聴いてみたいかも"
+
+    - slug: ayano-first-ramen
+      at: { day: -4, time: "13:00", days: weekend }
+      likes: 3900
+      caption: |
+        生まれて初めて「食券機」というものを使いました。
+        ラーメンの「カタメ」とは、麺の硬さのことだったのですね……！
+        世界は、知らないことばかりです #はじめての食券機
+      comments:
+        - by: osananajimi
+          after: 20
+          body: "綾乃ちゃん、それ知らないのレアすぎ！ かわいい笑"
+        - by: isekai_elf
+          after: 45
+          body: "らーめん……！ 綾乃どの、どんな味でしたか？ くわしく教えてください✨"
+          replies:
+            - after: 70
+              body: "とても温かくて、力強いお味でした。エルネアさんにも、いつか召し上がっていただきたいです"
+        - by: kouhai
+          after: 110
+          body: "次は替え玉デビューですね！ ご一緒したいです(｀・ω・´)"
+
+    - slug: ayano-hojicha
+      at: { day: -7, time: "16:00", days: weekday }
+      likes: 2600
+      caption: |
+        店先でほうじ茶を焙じていると、通りの皆さまが足を止めてくださいます。
+        香りだけでも、おすそ分けできたらよいのですが
+      comments:
+        - by: tsundere
+          after: 40
+          body: "ほうじ茶の香り、好き。……お菓子にも合うし"
+        - by: tonari_okusan
+          after: 90
+          body: "この香り、画面越しでも伝わってきそう。落ち着くわね"
+
+    - slug: ayano-dress-offshot
+      at: { day: -10, time: "20:00", days: weekend }
+      likes: 720
+      price: 180
+      caption: |
+        演奏会のドレス、未公開のお写真です。
+        ……少しだけ、恥ずかしいですね
+      comments:
+        - by: gyaru
+          after: 20
+          body: "ドレスの綾乃ちゃん、絶対お姫さまじゃん💖"
+        - by: idol
+          after: 70
+          body: "衣装の参考にしたいです……！💚"
+
+  # ---------------------------------------------------------------------------
+  # エルネア（異世界エルフ）異世界は時間の流れがちがうので、投稿時刻は人間界の時刻に縛られない
+  # ---------------------------------------------------------------------------
+  isekai_elf:
+    - slug: ernea-moon-spring
+      at: { lead: "3 hours" }
+      likes: 5200
+      caption: |
+        月の泉に、二つ目の月が映りました。
+        ……これが人間の言う「映え」でしょうか🌙✨
+        #映え #使い方あってますか
+      comments:
+        - by: gyaru
+          after: 15
+          body: "映えてる映えてる！ 使い方バッチリ✨"
+        - by: osananajimi
+          after: 60
+          body: "月が二つってどういうこと!? 異世界やば"
+
+    - slug: ernea-moonlight-salve
+      at: { day: 0, time: "10:30" }
+      likes: 11800
+      caption: |
+        今日の調合は、月光草と銀葉の軟膏。
+        長老のホーエンに「また人間の板を見ておるのか」と叱られました🌿
+      comments:
+        - by: kouhai
+          after: 30
+          body: "長老さん、うちの部長みたいです……！ お互いがんばりましょう(｀・ω・´)"
+        - by: ol_oneesan
+          after: 80
+          body: "叱られながらも投稿しちゃうとこ、ちょっとわかる笑"
+        - by: yandere
+          after: 130
+          body: "……その軟膏、眠れない夜にも効きますか？"
+
+    - slug: ernea-market-day
+      at: { day: -3, time: "21:00" }
+      likes: 9400
+      caption: |
+        安息日、人間の村の市場へ。
+        「ぷりん」なるものは、売っていませんでした。
+        そなたたちの世界には、あるのでしょう？
+      comments:
+        - by: idol
+          after: 20
+          body: "プリンあるよ〜！ ゆあ毎晩食べてる🍮💚"
+        - by: tsundere
+          after: 60
+          body: "……プリンなら私が作ってあげてもいいけど。世界を越えられるならね"
+          replies:
+            - after: 90
+              body: "なんと……！ 玲奈どの、世界の境目を越える方法、必ず見つけてみせます"
+        - by: tonari_okusan
+          after: 130
+          body: "ふふ、かわいい。カスタードプリンのレシピ、送ってあげたいわ"
+
+    - slug: ernea-festival-dress
+      at: { day: -6, time: "20:00" }
+      likes: 2100
+      price: 160
+      caption: |
+        森の祭りの衣装を、そなたたちの言う「限定」にしてみました。
+        ……使い方、合っていますか？✨
+      comments:
+        - by: gyaru
+          after: 25
+          body: "合ってる！ むしろ上手すぎて草😂"
+          replies:
+            - after: 50
+              body: "「草」……？ 草なら、森にたくさん生えていますが……🌿"
+        - by: ojousama
+          after: 100
+          body: "お祭りの衣装、きっと神秘的なのでしょうね"
+
+    - slug: ernea-dawn-patrol
+      at: { day: -13, time: "05:40" }
+      likes: 8600
+      caption: |
+        夜明けの見回り。
+        霧の森は、何百年見ても飽きることがありません
+      comments:
+        - by: osananajimi
+          after: 30
+          body: "朝の空気、あたしも好き！ 森と海でジャンルちがうけど笑"
+        - by: ojousama
+          after: 70
+          body: "なんて幻想的な景色でしょう。空気が澄んでいるのが伝わってきます"
+
+  # ---------------------------------------------------------------------------
+  # 楓（人妻）花屋のパートは火〜土の午前、月曜は夫の店の定休日、日曜はパン教室
+  # ---------------------------------------------------------------------------
+  tonari_okusan:
+    - slug: kaede-campagne
+      at: { day: 0, time: "15:10" }
+      likes: 820
+      caption: |
+        カンパーニュ、焼けたわ🍞
+        うちの人の分と、お隣さんにおすそ分けする分と。
+        #おうちパン
+      comments:
+        - by: tsundere
+          after: 25
+          body: "……クープの開き、きれい。悔しいけど、上手"
+          replies:
+            - after: 45
+              body: "プロに褒められちゃった。ふふ、今日は記念日ね"
+        - by: kouhai
+          after: 70
+          body: "焼きたてパン……いい匂いがしてきそうです！"
+        - by: yandere
+          after: 110
+          body: "……おすそ分け、いいな。お隣さんがうらやましい"
+
+    - slug: kaede-mini-tomato
+      at: { day: -1, time: "08:00" }
+      likes: 640
+      caption: |
+        ベランダのミニトマト、今朝は5つ収穫🍅
+        小さいけど、甘いのよ
+      comments:
+        - by: osananajimi
+          after: 30
+          body: "つやっつや！ そのまま丸かじりしたい"
+        - by: ojousama
+          after: 80
+          body: "ベランダでお野菜が育つのですね……！ 驚きました"
+
+    - slug: kaede-dahlia
+      at: { day: -4, time: "11:00", days: [2, 3, 4, 5, 6] }
+      likes: 710
+      caption: |
+        パート先のお花屋さん、今日はダリアがたくさん入荷。
+        秋の花って、なんだか落ち着くわね
+      comments:
+        - by: yandere
+          after: 35
+          body: "ダリアは、押し花にするのが少し難しいんです。……でも、きれい"
+        - by: ol_oneesan
+          after: 80
+          body: "お花屋さんのエプロン姿の楓さん、想像できる。似合いそう"
+
+    - slug: kaede-home-bistro
+      at: { day: -9, time: "20:30", days: [1] }
+      likes: 1050
+      caption: |
+        うちの人のお店が定休日だから、今夜はおうちビストロ。
+        白ワインと、夫が焼いたキッシュ。
+        ふふ、のろけじゃないわよ？
+      comments:
+        - by: gyaru
+          after: 20
+          body: "いやガチのろけじゃん😂 仲良しすぎて好き"
+        - by: tsundere
+          after: 60
+          body: "キッシュの焼き色、完璧……。旦那さん、何者？"
+        - by: idol
+          after: 100
+          body: "すてきなご夫婦……ゆあの理想です💚"
+
+    - slug: kaede-apron-offshot
+      at: { day: -12, time: "19:00" }
+      likes: 230
+      price: 120
+      caption: |
+        限定で、キッチンでのオフショット。
+        エプロン姿なんて、見ても楽しくないと思うけど……？
+      comments:
+        - by: ol_oneesan
+          after: 30
+          body: "楓さんのエプロン姿、絶対いいやつ"
+        - by: kouhai
+          after: 75
+          body: "料理上手オーラがすごいです……！"
+
+  # ---------------------------------------------------------------------------
+  # ゆあ（アイドル系）平日は喫茶店バイトとレッスン、週末はライブ。夜型
+  # ---------------------------------------------------------------------------
+  idol:
+    - slug: yua-lesson-done
+      at: { day: 5, time: "21:20" }
+      likes: 90
+      caption: |
+        レッスン終わったぁ💚
+        新曲の振り、やっと体に入ってきた！
+        次のライブで見てほしいな⭐
+      comments:
+        - by: gyaru
+          after: 20
+          body: "ゆあちゃんががんばってるの、ちゃんと見てるよ🫶"
+        - by: ol_oneesan
+          after: 90
+          body: "ちゃんとストレッチしてから寝るのよ"
+
+    - slug: yua-midnight-pudding
+      at: { day: 0, time: "00:20" }
+      likes: 240
+      caption: |
+        今日もおつかれさまでした💚
+        深夜のコンビニプリン、自分へのごほうび🍮
+        ……ゆあ、明日もがんばれる！
+      comments:
+        - by: isekai_elf
+          after: 25
+          body: "そ、それが「ぷりん」……！ ゆあどの、味を教えてください✨"
+          replies:
+            - after: 50
+              body: "あまくて、ぷるぷるで、しあわせの味だよぉ💚"
+        - by: tonari_okusan
+          after: 90
+          body: "夜中の甘いもの、たまにはいいわよね。ちゃんと歯みがきして寝るのよ"
+
+    - slug: yua-live-thanks
+      at: { day: -2, time: "21:40", days: weekend }
+      likes: 260
+      caption: |
+        今日のライブ、来てくれたみんなありがとぉ💚
+        最前で振ってくれたミントのペンライト、ちゃんと見えてたよ！
+        ゆあ、もっともっと大きいステージ目指すね⭐ #ほしくずパレット
+      comments:
+        - by: kouhai
+          after: 30
+          body: "ゆあちゃんのライブ、次こそ行きます！(｀・ω・´)"
+        - by: osananajimi
+          after: 80
+          body: "がんばってんなー！ あたしも応援してるよ"
+        - by: tsundere
+          after: 120
+          body: "……べつにファンじゃないけど。次のライブ、いつ？"
+          replies:
+            - after: 150
+              body: "玲奈さん!? 来週もあるよぉ💚 待ってます！"
+
+    - slug: yua-omurice
+      at: { day: -6, time: "13:30", days: weekday }
+      likes: 180
+      caption: |
+        バイト先のまかない、オムライス🎀
+        ケチャップでハート描いてもらった！
+        ……ゆあが描く側じゃないの？って店長に言われた笑
+      comments:
+        - by: tonari_okusan
+          after: 25
+          body: "ふふ、かわいいハート。しっかり食べて、レッスンがんばってね"
+        - by: ojousama
+          after: 70
+          body: "オムライスに絵を描くとは……！ なんと愛らしい文化でしょう"
+
+    - slug: yua-new-costume
+      at: { day: -9, time: "19:00", days: weekend }
+      likes: 45
+      price: 90
+      caption: |
+        新衣装、ひと足先に見せちゃう💚
+        みんなには、ライブまで内緒の限定だよ！
+      comments:
+        - by: gyaru
+          after: 20
+          body: "衣装かわいすぎん？ ネイル合わせたくなる✨"
+        - by: yandere
+          after: 70
+          body: "……ミントグリーン、似合いますね"
