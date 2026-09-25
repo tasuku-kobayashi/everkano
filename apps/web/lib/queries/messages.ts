@@ -4,6 +4,9 @@
  * - 読み取りは supabase-js で messages を直接参照（RLS: 自分の会話のみ）。created_at 降順・30 件ずつ
  *   useInfiniteQuery で過去に遡る。キャッシュの各ページは「新しい順」。
  * - 新着は Realtime（postgres_changes INSERT, filter conversation_id=eq.<id>）でキャッシュの先頭ページへ差し込む。
+ * - 取りこぼしの回収（購読開始・再接続・画面復帰・オンライン復帰）は「キャッシュの最新より新しいメッセージ」だけを
+ *   取りに行く差分取得（resyncMessages）。無限クエリの再取得は読み込み済みの全ページを 1 ページずつ順に取り直すため
+ *   （過去ログを遡った後だと N 往復）、invalidate / フォーカス時の再取得は使わない。
  * - 送信中 / 送信失敗の「ローカルメッセージ」はキャッシュに入れず、呼び出し側の state で持つ
  *   （再取得でキャッシュが置き換わっても消えないようにするため）。表示時に mergeTimeline() で合成する。
  *
@@ -13,12 +16,16 @@
 
 import type { MessageDTO, SenderType } from "@everkano/shared";
 import {
+  infiniteQueryOptions,
   useInfiniteQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { toAppError } from "@/lib/api/errors";
+import { quotePostgrestValue } from "@/lib/queries/feed";
 import { queryKeys } from "@/lib/queries/keys";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
@@ -28,6 +35,26 @@ export const MESSAGES_PAGE_SIZE = 30;
 
 /** messages の select 列 */
 export const MESSAGE_COLUMNS = "id, conversation_id, sender_type, body, created_at" as const;
+
+/**
+ * 差分取得（resyncMessages）で一度に取る最大件数。これ以上取りこぼしていたら差分では埋めず、
+ * 最新の 1 ページを取り直す（遡って読み込んだ古いページは捨てる）。
+ */
+export const CATCH_UP_LIMIT = 100;
+
+/**
+ * 差分取得の起点を「キャッシュの最新メッセージ」より少し前にずらす幅。
+ * created_at は INSERT 時刻（clock_timestamp()）でコミット時刻ではないため、ほぼ同時に走った 2 つの
+ * トランザクションでは「後からコミットされた方の created_at が既に見えている行より古い」ことがあり得る。
+ * 少し遡って取り、id で重複排除する（API の保存トランザクションはミリ秒単位なので 5 秒で十分）。
+ */
+export const CATCH_UP_LOOKBACK_MS = 5_000;
+
+/**
+ * 前回の表示で読み込んだキャッシュがこれより古ければ、画面を開いた時点で（購読の完了を待たずに）差分を取る。
+ * Realtime に接続できない環境でも、開き直せば最新になるようにするため（以前の staleTime 30 秒と同じ）。
+ */
+export const MESSAGES_CATCH_UP_ON_MOUNT_MS = 30_000;
 
 /** 過去ログのカーソル（このメッセージより古いものを取得する） */
 export interface MessagesCursor {
@@ -318,11 +345,6 @@ export function mergeTimeline(
 // 取得
 // ---------------------------------------------------------------------------
 
-/** PostgREST の or() 内で予約文字（. : , 括弧）を含む値をダブルクォートで囲む */
-function quoteFilterValue(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 /** messages を新しい順に 1 ページ取得する */
 export async function fetchMessagesPage(
   supabase: TypedSupabaseClient,
@@ -339,20 +361,31 @@ export async function fetchMessagesPage(
     .limit(MESSAGES_PAGE_SIZE);
   if (cursor) {
     // (created_at, id) < (cursor.createdAt, cursor.id) — 同時刻のメッセージを取りこぼさない
-    const at = quoteFilterValue(cursor.createdAt);
+    const at = quotePostgrestValue(cursor.createdAt);
     query = query.or(`created_at.lt.${at},and(created_at.eq.${at},id.lt.${cursor.id})`);
   }
   if (signal) query = query.abortSignal(signal);
 
   const { data, error } = await query;
-  if (error) throw error;
-  const messages = (data ?? []).map((row) => ({
+  if (error) throw toAppError(error);
+  return toMessagesPage(data ?? []);
+}
+
+type MessageRowLike = Omit<MessageDTO, "sender_type"> & { sender_type: string };
+
+function toMessageDTO(row: MessageRowLike): MessageDTO {
+  return {
     id: row.id,
     conversation_id: row.conversation_id,
     sender_type: toSenderType(row.sender_type),
     body: row.body,
     created_at: row.created_at,
-  }));
+  };
+}
+
+/** 新しい順に最大 MESSAGES_PAGE_SIZE 件の行 → 1 ページ（ちょうど 1 ページ分あれば、さらに古いページがあり得る） */
+export function toMessagesPage(rowsDesc: readonly MessageRowLike[]): MessagesPage {
+  const messages = rowsDesc.map(toMessageDTO);
   const oldest = messages[messages.length - 1];
   return {
     messages,
@@ -363,29 +396,101 @@ export async function fetchMessagesPage(
   };
 }
 
-/** 会話のメッセージ（過去ログは fetchNextPage で遡る） */
-export function useMessages(conversationId: string | undefined) {
-  return useInfiniteQuery<
+/** created_at が since 以降のメッセージを古い順に最大 limit 件取得する（差分取得） */
+export async function fetchMessagesSince(
+  supabase: TypedSupabaseClient,
+  conversationId: string,
+  since: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<MessageDTO[]> {
+  let query = supabase
+    .from("messages")
+    .select(MESSAGE_COLUMNS)
+    .eq("conversation_id", conversationId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(limit);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  if (error) throw toAppError(error);
+  return (data ?? []).map(toMessageDTO);
+}
+
+/**
+ * useMessages のクエリ設定（プリフェッチと共通にするため切り出している）。
+ *
+ * - staleTime: Infinity … 新着は Realtime と差分取得（resyncMessages）で追従する。無限クエリの再取得は
+ *   読み込み済みの全ページを順に取り直す（過去ログを遡った後だと N 往復）ため、自動の再取得はさせない。
+ * - 画面復帰・オンライン復帰時の取りこぼし回収も useMessagesRealtime の差分取得で行う。
+ */
+export function messagesQueryOptions(conversationId: string) {
+  return infiniteQueryOptions<
     MessagesPage,
     Error,
     MessagesData,
     ReturnType<typeof queryKeys.messages>,
     MessagesCursor | null
   >({
-    queryKey: queryKeys.messages(conversationId ?? ""),
+    queryKey: queryKeys.messages(conversationId),
     queryFn: ({ pageParam, signal }) =>
-      fetchMessagesPage(getSupabaseBrowserClient(), conversationId!, pageParam, signal),
+      fetchMessagesPage(getSupabaseBrowserClient(), conversationId, pageParam, signal),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+/** 会話のメッセージ（過去ログは fetchNextPage で遡る） */
+export function useMessages(conversationId: string | undefined) {
+  return useInfiniteQuery({
+    ...messagesQueryOptions(conversationId ?? ""),
     enabled: Boolean(conversationId),
-    // Realtime で追従するが、バックグラウンド復帰時は取りこぼし防止に再取得する
-    refetchOnWindowFocus: true,
-    staleTime: 30_000,
   });
 }
 
 function hasPages(data: MessagesData | undefined): data is MessagesData {
   return data !== undefined && data.pages.length > 0;
+}
+
+/**
+ * 進行中の取得（初回・過去ログの読み込み・取り直し）の Promise。無ければ undefined。
+ * 無限クエリの取得は「取得開始時点のページ + 新しいページ」でキャッシュを上書きするため、その途中に
+ * setQueryData で差し込んだメッセージは取得完了時に消える。終わるのを待って差し込み直すのに使う。
+ */
+function inFlightFetch(queryClient: QueryClient, queryKey: QueryKey): Promise<unknown> | undefined {
+  const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+  return query && query.state.fetchStatus !== "idle" ? query.promise : undefined;
+}
+
+/** キャッシュ（読み込み済みのページ）にこのメッセージがあるか */
+export function isMessageCached(
+  queryClient: QueryClient,
+  conversationId: string,
+  messageId: string,
+): boolean {
+  const data = queryClient.getQueryData<MessagesData>(queryKeys.messages(conversationId));
+  return Boolean(
+    data?.pages.some((page) => page.messages.some((message) => message.id === messageId)),
+  );
+}
+
+/**
+ * 別の取得で手に入った最新ページ（会話の取得と同時に読んだ 1 ページ目・作成時の挨拶）でキャッシュを埋める。
+ * 既にキャッシュがあれば何もしない（Realtime 等で追従している内容を古いスナップショットで戻さない）。
+ */
+export function seedMessagesCache(
+  queryClient: QueryClient,
+  conversationId: string,
+  firstPage: MessagesPage,
+): void {
+  queryClient.setQueryData<MessagesData>(
+    queryKeys.messages(conversationId),
+    (data) => data ?? { pages: [firstPage], pageParams: [null] },
+  );
 }
 
 /**
@@ -402,10 +507,16 @@ export function addMessagesToCache(
   messages: readonly MessageDTO[],
 ): boolean {
   const queryKey = queryKeys.messages(conversationId);
-  if (hasPages(queryClient.getQueryData<MessagesData>(queryKey))) {
+  const upsert = () =>
     queryClient.setQueryData<MessagesData>(queryKey, (data) =>
       upsertMessagesInPages(data, messages),
     );
+  if (hasPages(queryClient.getQueryData<MessagesData>(queryKey))) {
+    upsert();
+    // 過去ログの読み込み等の途中なら、その結果で上書きされて消えるため、終わったら差し込み直す
+    // （id で重複排除されるので何度差し込んでも安全）
+    const inFlight = inFlightFetch(queryClient, queryKey);
+    if (inFlight) void inFlight.then(upsert, upsert);
     return true;
   }
   void queryClient.refetchQueries({ queryKey, exact: true }).then(() => {
@@ -417,22 +528,73 @@ export function addMessagesToCache(
   return false;
 }
 
+/** ISO 形式の時刻から ms を引いた ISO 文字列（ミリ秒精度に切り下げ。解釈できなければ null） */
+export function shiftTimestamp(value: string, deltaMs: number): string | null {
+  const micros = timestampToMicros(value);
+  if (Number.isNaN(micros)) return null;
+  return new Date(Math.floor(micros / 1000) + deltaMs).toISOString();
+}
+
+/** 差分取得の起点（キャッシュの最新メッセージから CATCH_UP_LOOKBACK_MS 遡った時刻。空なら先頭から） */
+export function catchUpSince(data: MessagesData | undefined): string {
+  const newest = latestMessage(data);
+  return (
+    (newest && shiftTimestamp(newest.created_at, -CATCH_UP_LOOKBACK_MS)) ??
+    new Date(0).toISOString()
+  );
+}
+
+export interface ResyncOptions {
+  /** 画面を離れたときの中断 */
+  signal?: AbortSignal;
+  /** 差分の取得（テスト用に差し替え可能。既定は fetchMessagesSince） */
+  fetchSince?: (since: string, limit: number, signal?: AbortSignal) => Promise<MessageDTO[]>;
+}
+
 /**
- * 取りこぼしの回収（Realtime の購読開始・再接続時）。
- * 初回取得の途中だと invalidate はその取得（購読開始より前のスナップショット）に合流するだけなので、
- * 終わるのを待ってから改めて取り直す。
+ * 取りこぼしの回収（Realtime の購読開始・再接続時、画面復帰・オンライン復帰時）。
+ *
+ * キャッシュの最新メッセージより新しいもの（少し遡って取り、id で重複排除）だけを取得して先頭ページへ差し込む。
+ * ふつうは 0〜数件の小さな応答で、読み込み済みのページを取り直さない。
+ * - 初回取得の途中なら、終わるのを待ってから差分を取る（その取得が購読開始より前のスナップショットでも、
+ *   間に保存されたメッセージを回収できる）
+ * - 取りこぼしが CATCH_UP_LIMIT 件以上なら差分では埋めず、最新の 1 ページだけを取り直す
  */
 export async function resyncMessages(
   queryClient: QueryClient,
   conversationId: string,
+  options: ResyncOptions = {},
 ): Promise<void> {
+  const { signal } = options;
+  const fetchSince =
+    options.fetchSince ??
+    ((since: string, limit: number, abortSignal?: AbortSignal) =>
+      fetchMessagesSince(getSupabaseBrowserClient(), conversationId, since, limit, abortSignal));
   const queryKey = queryKeys.messages(conversationId);
+
   if (!hasPages(queryClient.getQueryData<MessagesData>(queryKey))) {
+    // 進行中の初回取得に合流する（無ければ取得を始める）
     await queryClient.refetchQueries({ queryKey, exact: true });
     // 失敗して data が無いままならエラー表示（再試行）に任せる
     if (!hasPages(queryClient.getQueryData<MessagesData>(queryKey))) return;
   }
-  await queryClient.invalidateQueries({ queryKey, exact: true });
+  if (signal?.aborted) return;
+
+  const since = catchUpSince(queryClient.getQueryData<MessagesData>(queryKey));
+  const missed = await fetchSince(since, CATCH_UP_LIMIT, signal);
+  if (signal?.aborted) return;
+
+  if (missed.length >= CATCH_UP_LIMIT) {
+    // 取りこぼしが多すぎる: 最新の 1 ページだけを取り直す（全ページの順次再取得にしない）
+    queryClient.setQueryData<MessagesData>(queryKey, (data) =>
+      data && data.pages.length > 1
+        ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+        : data,
+    );
+    await queryClient.invalidateQueries({ queryKey, exact: true });
+    return;
+  }
+  if (missed.length > 0) addMessagesToCache(queryClient, conversationId, missed);
 }
 
 // ---------------------------------------------------------------------------
@@ -448,8 +610,10 @@ export function uniqueSuffix(): string {
 
 /**
  * 会話の新着メッセージを購読し、キャッシュへ差し込む。
- * - SUBSCRIBED になるたび（初回・再接続）にキャッシュを invalidate して、購読開始前や切断中の
- *   取りこぼしを回収する（ページ内容が同じなら構造共有で再描画は起きない）。
+ * - SUBSCRIBED になるたび（初回・再接続）、画面復帰（visibilitychange）・オンライン復帰（online）時に
+ *   差分取得（resyncMessages）で購読開始前や切断中の取りこぼしを回収する。同時に何度呼ばれても
+ *   実行中の 1 回が終わってからもう 1 回だけ実行する。
+ * - 前回の表示のキャッシュが古い（MESSAGES_CATCH_UP_ON_MOUNT_MS 以上）ときは、開いた時点でも差分を取る。
  * - onInsert は新規に届いたメッセージごとに呼ばれる（既読化・「新しいメッセージ」表示用）。
  */
 export function useMessagesRealtime(
@@ -465,6 +629,43 @@ export function useMessagesRealtime(
   useEffect(() => {
     if (!conversationId) return;
     const supabase = getSupabaseBrowserClient();
+    const controller = new AbortController();
+    let running = false;
+    let again = false;
+    const resync = () => {
+      if (controller.signal.aborted) return;
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      resyncMessages(queryClient, conversationId, { signal: controller.signal })
+        .catch((error: unknown) => {
+          // 次の復帰・再接続で再び回収する
+          if (!controller.signal.aborted) console.warn("[dm] resync failed:", error);
+        })
+        .finally(() => {
+          running = false;
+          if (again) {
+            again = false;
+            resync();
+          }
+        });
+    };
+
+    const cached = queryClient.getQueryState(queryKeys.messages(conversationId));
+    if (
+      cached?.data !== undefined &&
+      Date.now() - cached.dataUpdatedAt > MESSAGES_CATCH_UP_ON_MOUNT_MS
+    ) {
+      resync();
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("online", resync);
+
     const channel = supabase
       // realtime-js は同名トピックの既存チャンネルを返すため、StrictMode の再マウント等で
       // 片付け中のチャンネルを掴まないようマウントごとに一意な名前にする
@@ -487,13 +688,16 @@ export function useMessagesRealtime(
       .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
           // 初回: 取得〜購読開始の間の取りこぼしを回収 / 再接続: 切断中の取りこぼしを回収
-          void resyncMessages(queryClient, conversationId);
+          resync();
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          // 自動で再接続される。フォーカス復帰時の再取得でも回収される
+          // 自動で再接続される。画面復帰・オンライン復帰時の差分取得でも回収される
           console.warn(`[dm] realtime ${status}`, error?.message ?? "");
         }
       });
     return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("online", resync);
       void supabase.removeChannel(channel);
     };
   }, [conversationId, queryClient]);

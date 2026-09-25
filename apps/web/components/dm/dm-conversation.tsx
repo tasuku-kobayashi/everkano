@@ -14,12 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBottomBarHeight } from "@/components/ui/toast";
 import { getErrorMessage, isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
-import {
-  invalidateDmSummaries,
-  useConversation,
-  useDmCharacter,
-  useMarkConversationRead,
-} from "@/lib/queries/dm";
+import { useConversation, useDmCharacter, useMarkConversationRead } from "@/lib/queries/dm";
 import { queryKeys } from "@/lib/queries/keys";
 import {
   flattenMessagesAsc,
@@ -45,8 +40,8 @@ export interface DmConversationProps {
 
 /**
  * DM 会話画面（/dm/[characterId]、仕様 §5.6 / C-2）。
- * 開いたら POST /conversations で会話を取得または作成（初回はキャラの挨拶が届く）し、
- * メッセージを表示・送信する。ヘッダー右の「i」でメモリパネル。
+ * 開いたら会話を取得（既存の会話は DM 一覧のキャッシュ・直接参照で開き、無ければ POST /conversations で作成。
+ * 初回はキャラの挨拶が届く）し、メッセージを表示・送信する。ヘッダー右の「i」でメモリパネル。
  */
 export function DmConversation({ characterId }: DmConversationProps) {
   const valid = isUuid(characterId);
@@ -62,7 +57,7 @@ export function DmConversation({ characterId }: DmConversationProps) {
   const character: PublicCharacter | null | undefined = notFound
     ? null
     : (characterQuery.data ?? undefined);
-  const conversation = conversationQuery.data?.conversation;
+  const conversation = conversationQuery.data;
 
   return (
     <>
@@ -157,9 +152,15 @@ function ConversationBody({
     return () => document.removeEventListener("visibilitychange", markReadIfVisible);
   }, [markReadIfVisible]);
 
+  // 返答待ちの間に届いたキャラの発言（= その返答）は、返答を表示し終えたときに 1 回だけ既読にする
+  // （Realtime の到着時と返答の表示時の両方で既読にすると、1 往復で mark_conversation_read が 2 回走る）
+  const sendingRef = useRef(false);
+  const readAfterSendRef = useRef(false);
   const onRealtimeInsert = useCallback(
     (message: MessageDTO) => {
-      if (message.sender_type === "character") markReadIfVisible();
+      if (message.sender_type !== "character") return;
+      if (sendingRef.current) readAfterSendRef.current = true;
+      else markReadIfVisible();
     },
     [markReadIfVisible],
   );
@@ -169,8 +170,9 @@ function ConversationBody({
   const [memoryNotices, setMemoryNotices] = useState<ReadonlyMap<string, number>>(() => new Map());
   const onReplied = useCallback(
     (response: ChatResponse) => {
-      markReadIfVisible();
-      void invalidateDmSummaries(queryClient);
+      // 既読化は返答待ちが終わったとき（下の effect）。DM 一覧・未読バッジの更新は送信側
+      // （useSendMessage のミューテーション）で行う
+      readAfterSendRef.current = true;
       if (response.memories_created.length > 0) {
         setMemoryNotices((previous) =>
           new Map(previous).set(response.character_message.id, response.memories_created.length),
@@ -178,7 +180,7 @@ function ConversationBody({
         void queryClient.invalidateQueries({ queryKey: queryKeys.memories(characterId) });
       }
     },
-    [characterId, markReadIfVisible, queryClient],
+    [characterId, queryClient],
   );
   const sender = useSendMessage({
     conversationId,
@@ -187,6 +189,14 @@ function ConversationBody({
     onReplied,
   });
   const { confirmLocals } = sender;
+  const sending = sender.pending !== null;
+  useEffect(() => {
+    sendingRef.current = sending;
+    if (!sending && readAfterSendRef.current) {
+      readAfterSendRef.current = false;
+      markReadIfVisible();
+    }
+  }, [sending, markReadIfVisible]);
 
   const { items, confirmed } = useMemo(
     () => mergeTimeline(serverAsc, sender.locals, sender.keyAliases),
@@ -204,7 +214,7 @@ function ConversationBody({
   const typing = Boolean(sender.pending?.typing);
   // 返答待ちの間と、履歴の初回取得が終わるまで（読み込み中・読み込み失敗）は送信できない。
   // 履歴が無いうちに送ると、送った発言と返答を差し込むキャッシュが無く、表示から消えてしまう
-  const sendDisabled = sender.pending !== null || !hasData;
+  const sendDisabled = sending || !hasData;
 
   // ---- 入力欄の高さ（本文の下余白・トースト位置）
   const [footerHeight, setFooterHeight] = useState(DEFAULT_FOOTER_PX);
@@ -309,7 +319,7 @@ function ConversationBody({
           <button
             type="button"
             onClick={() => scroll.scrollToBottom("smooth")}
-            className="pointer-events-auto flex h-9 animate-fade-in items-center gap-1 rounded-full bg-ig-sheet px-4 text-[14px] font-semibold text-ig-blue shadow-[0_2px_12px_rgb(0_0_0/0.18)]"
+            className="pointer-events-auto flex h-9 animate-fade-in items-center gap-1 rounded-full bg-ig-sheet px-4 text-[14px] font-semibold text-ig-blue-text shadow-[0_2px_12px_rgb(0_0_0/0.18)]"
           >
             新しいメッセージ
             <ChevronDownIcon size={16} strokeWidth={2.4} />
@@ -337,7 +347,7 @@ function MemoryNotice({ name, onOpen }: { name: string; onOpen: () => void }) {
       >
         <BookmarkIcon size={13} strokeWidth={2.2} />
         <span>{name}があなたのことを覚えました</span>
-        <span className="font-semibold text-ig-blue">・見る</span>
+        <span className="font-semibold text-ig-blue-text">・見る</span>
       </button>
     </div>
   );

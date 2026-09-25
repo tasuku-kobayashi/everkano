@@ -1,8 +1,12 @@
+"use client";
+
 import type { PublicCharacter } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonClassName } from "@/components/ui/button";
 import { formatCount } from "@/lib/format";
+import { prefetchCharacterProfile } from "@/lib/queries/prefetch";
 
 export interface ConversationIntroProps {
   character: Pick<PublicCharacter, "name" | "handle" | "avatar_url" | "follower_count"> | null;
@@ -10,6 +14,7 @@ export interface ConversationIntroProps {
 
 /** 会話の先頭（過去ログを遡りきった所）に出すプロフィールカード（Instagram DM と同じ） */
 export function ConversationIntro({ character }: ConversationIntroProps) {
+  const queryClient = useQueryClient();
   if (!character) return <div className="h-6" />;
   return (
     <section
@@ -28,6 +33,8 @@ export function ConversationIntro({ character }: ConversationIntroProps) {
       ) : null}
       <Link
         href={`/c/${encodeURIComponent(character.handle)}`}
+        // リンクに触れた時点でプロフィールのデータを取りに行く（lib/queries/prefetch.ts）
+        onPointerDown={() => prefetchCharacterProfile(queryClient, character.handle)}
         className={buttonClassName({ variant: "secondary", size: "sm" }) + " mt-4"}
       >
         プロフィールを見る

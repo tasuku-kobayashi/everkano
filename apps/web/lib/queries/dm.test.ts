@@ -1,9 +1,12 @@
 import type { DmThread } from "@everkano/shared";
 import { describe, expect, it } from "vitest";
 import {
+  conversationFromThreads,
+  dmThreadsRealtimeFilter,
   excludeConversed,
   filterThreads,
   markThreadReadInList,
+  REALTIME_IN_FILTER_MAX,
   threadPreview,
   totalUnread,
 } from "./dm";
@@ -76,5 +79,41 @@ describe("filterThreads / excludeConversed", () => {
     expect(excludeConversed([{ id: "1" }, { id: "2" }, { id: "3" }], threads)).toEqual([
       { id: "3" },
     ]);
+  });
+});
+
+describe("dmThreadsRealtimeFilter", () => {
+  it("自分の会話の id だけに絞る（並びに依らず同じ文字列・重複なし）", () => {
+    expect(dmThreadsRealtimeFilter(["b", "a", "b"])).toBe("conversation_id=in.(a,b)");
+    expect(dmThreadsRealtimeFilter(["a", "b"])).toBe(dmThreadsRealtimeFilter(["b", "a"]));
+  });
+
+  it("会話が無ければ購読しない（null）", () => {
+    expect(dmThreadsRealtimeFilter([])).toBeNull();
+  });
+
+  it("Realtime の上限（100 件）を超えたら、一覧の上から（最近の会話を）優先する", () => {
+    const ids = Array.from(
+      { length: REALTIME_IN_FILTER_MAX + 5 },
+      (_, i) => `c${String(i).padStart(3, "0")}`,
+    );
+    const filter = dmThreadsRealtimeFilter(ids)!;
+    const values = filter.slice("conversation_id=in.(".length, -1).split(",");
+    expect(values).toHaveLength(REALTIME_IN_FILTER_MAX);
+    expect(values).toContain("c000");
+    expect(values).not.toContain(`c${REALTIME_IN_FILTER_MAX}`);
+  });
+});
+
+describe("conversationFromThreads", () => {
+  it("一覧にある会話はそのまま開ける（API を経由しない）", () => {
+    const threads = [thread({ conversation_id: "conv-9", character_id: "char-9" })];
+    expect(conversationFromThreads(threads, "char-9")).toEqual({
+      id: "conv-9",
+      character_id: "char-9",
+      created: false,
+    });
+    expect(conversationFromThreads(threads, "char-1")).toBeUndefined();
+    expect(conversationFromThreads(undefined, "char-9")).toBeUndefined();
   });
 });

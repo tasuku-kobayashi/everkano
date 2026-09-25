@@ -1,11 +1,14 @@
 "use client";
 
 import type { PublicCharacter } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { OPAQUE_HEADER } from "@/components/post/opaque-header";
 import { AppHeader, HeaderIconButton } from "@/components/ui/app-header";
 import { Avatar } from "@/components/ui/avatar";
 import { InfoIcon } from "@/components/ui/icons";
 import { Skeleton } from "@/components/ui/skeleton";
+import { prefetchCharacterProfile } from "@/lib/queries/prefetch";
 
 export interface DmHeaderProps {
   character: Pick<PublicCharacter, "name" | "handle" | "avatar_url"> | null | undefined;
@@ -18,11 +21,16 @@ export interface DmHeaderProps {
  * アバターと名前はキャラのプロフィールへのリンク。
  */
 export function DmHeader({ character, onOpenInfo }: DmHeaderProps) {
+  const queryClient = useQueryClient();
   return (
     <AppHeader
       variant="back"
       backHref="/dm"
       bordered
+      // 画面の見出し（視覚的には非表示の h1）= キャラクター名
+      heading={character?.name}
+      // 半透明だとスクロールした吹き出し・時刻の区切りが名前や「アクティブ中」の下に透けて読みにくい
+      className={OPAQUE_HEADER}
       right={
         onOpenInfo && character ? (
           <HeaderIconButton label={`${character.name}が覚えていること`} onClick={onOpenInfo}>
@@ -34,6 +42,8 @@ export function DmHeader({ character, onOpenInfo }: DmHeaderProps) {
       {character ? (
         <Link
           href={`/c/${encodeURIComponent(character.handle)}`}
+          // リンクに触れた時点でプロフィールのデータを取りに行く（lib/queries/prefetch.ts）
+          onPointerDown={() => prefetchCharacterProfile(queryClient, character.handle)}
           className="flex min-w-0 items-center gap-2.5 pressable"
           aria-label={`${character.name}のプロフィール`}
         >

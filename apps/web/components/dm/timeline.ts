@@ -7,6 +7,7 @@
  */
 
 import type { SenderType } from "@everkano/shared";
+import { calendarDayDiff, zonedParts } from "@/lib/format";
 import { timestampToMicros, type TimelineMessage } from "@/lib/queries/messages";
 
 /** これ以上間が空いたら時刻の区切りを入れる */
@@ -30,58 +31,22 @@ export interface MessageRow {
 
 export type TimelineRow = SeparatorRow | MessageRow;
 
-const TIME_ZONE = "Asia/Tokyo";
 const WEEKDAYS_JA = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
 
-const partsFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: TIME_ZONE,
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "numeric",
-  minute: "numeric",
-  hourCycle: "h23",
-});
-
-interface ZonedParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-}
-
-function zoned(date: Date): ZonedParts {
-  const map: Record<string, string> = {};
-  for (const part of partsFormatter.formatToParts(date)) map[part.type] = part.value;
-  return {
-    year: Number(map.year),
-    month: Number(map.month),
-    day: Number(map.day),
-    hour: Number(map.hour),
-    minute: Number(map.minute),
-  };
-}
-
 /**
- * 区切りの表示（Asia/Tokyo）:
+ * 区切りの表示（APP_TIME_ZONE = Asia/Tokyo。lib/format の zonedParts）:
  * 今日「今日 14:03」/ 昨日「昨日 14:03」/ 7 日以内「火曜日 14:03」/ 今年「9月3日 14:03」/ それ以前「2025年9月3日 14:03」
  */
 export function formatSeparatorLabel(input: string | Date, now: Date = new Date()): string {
   const date = typeof input === "string" ? new Date(timestampToMicros(input) / 1000) : input;
   if (Number.isNaN(date.getTime())) return "";
-  const p = zoned(date);
-  const n = zoned(now);
+  const p = zonedParts(date);
+  const n = zonedParts(now);
   const time = `${p.hour}:${String(p.minute).padStart(2, "0")}`;
-  const dayDiff = Math.round(
-    (Date.UTC(n.year, n.month - 1, n.day) - Date.UTC(p.year, p.month - 1, p.day)) / 86_400_000,
-  );
+  const dayDiff = calendarDayDiff(p, n);
   if (dayDiff <= 0) return `今日 ${time}`;
   if (dayDiff === 1) return `昨日 ${time}`;
-  if (dayDiff < 7) {
-    const weekday = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
-    return `${WEEKDAYS_JA[weekday]} ${time}`;
-  }
+  if (dayDiff < 7) return `${WEEKDAYS_JA[p.weekday]} ${time}`;
   if (p.year === n.year) return `${p.month}月${p.day}日 ${time}`;
   return `${p.year}年${p.month}月${p.day}日 ${time}`;
 }

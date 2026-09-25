@@ -31,6 +31,8 @@ export interface MessageBubbleProps {
  * - キャラ: 左寄せ・グレー（ダーク #262626）。グループ最後の吹き出しの横にアバター
  * - 絵文字だけの短いメッセージは吹き出し無しで大きく
  * - 送信中は薄く、送信失敗は赤い「!」と「送信できませんでした・タップで再送」
+ * - スクリーンリーダー向けに、吹き出しごとに送り手（「あなた: 」/「<キャラ名>: 」）を読み上げる
+ *   （会話ログ role="log" の中でユーザーとキャラの発言が区別できるように。アバターは装飾扱い）
  */
 export function MessageBubble({
   message,
@@ -61,7 +63,8 @@ export function MessageBubble({
         failed && "opacity-70",
       )}
     >
-      {message.body}
+      <span className="sr-only">{`${own ? "あなた" : characterName || "相手"}: `}</span>
+      <span>{message.body}</span>
     </div>
   );
 
@@ -90,7 +93,7 @@ export function MessageBubble({
             className="block w-full text-left pressable disabled:cursor-default"
           >
             {content}
-            <p className="mt-1 text-right text-[12px] leading-4 text-ig-red">
+            <p className="mt-1 text-right text-[12px] leading-4 text-ig-red-text">
               送信できませんでした・タップで再送
             </p>
           </button>
@@ -106,7 +109,7 @@ export function MessageBubble({
 
   return (
     <div className={cn("flex items-end gap-2 pr-16 pl-3", isFirstInGroup ? "mt-2" : "mt-0.5")}>
-      <div className="w-7 shrink-0" aria-hidden={!isLastInGroup}>
+      <div className="w-7 shrink-0" aria-hidden="true">
         {isLastInGroup ? <Avatar src={characterAvatarUrl} alt={characterName} size={28} /> : null}
       </div>
       {bubble}

@@ -1,8 +1,10 @@
 "use client";
 
 import type { DmThread, PublicCharacter } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { OPAQUE_HEADER } from "@/components/post/opaque-header";
 import { AppHeader } from "@/components/ui/app-header";
 import { Avatar } from "@/components/ui/avatar";
 import { ErrorState } from "@/components/ui/error-state";
@@ -15,6 +17,7 @@ import { formatRelativeTimeShort } from "@/lib/format";
 import {
   excludeConversed,
   filterThreads,
+  prefetchDmConversation,
   threadPreview,
   useDmThreads,
   useDmThreadsRealtime,
@@ -26,13 +29,15 @@ import {
  * 会話済みキャラ（最新メッセージ・時刻・未読）と、まだ話していないキャラの「おすすめ」。
  */
 export function DmInbox() {
+  const queryClient = useQueryClient();
   const { data: account } = useMyAccount();
   const threadsQuery = useDmThreads();
   const suggestionsQuery = useSuggestedCharacters();
-  useDmThreadsRealtime();
   const [query, setQuery] = useState("");
 
   const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
+  const conversationIds = useMemo(() => threads.map((t) => t.conversation_id), [threads]);
+  useDmThreadsRealtime(conversationIds);
   const visibleThreads = useMemo(() => filterThreads(threads, query), [threads, query]);
   const suggestions = useMemo(() => {
     const candidates = excludeConversed(suggestionsQuery.data ?? [], threads);
@@ -50,7 +55,7 @@ export function DmInbox() {
 
   return (
     <>
-      <AppHeader variant="title" title={title} />
+      <AppHeader variant="title" title={title} className={OPAQUE_HEADER} />
 
       <div className="px-4 pt-1 pb-3">
         <label className="flex h-9 items-center gap-2 rounded-[10px] bg-ig-elevated px-3">
@@ -114,7 +119,11 @@ export function DmInbox() {
           <ul>
             {visibleThreads.map((thread) => (
               <li key={thread.conversation_id}>
-                <ThreadRow thread={thread} now={now} />
+                <ThreadRow
+                  thread={thread}
+                  now={now}
+                  onIntent={() => prefetchDmConversation(queryClient, thread.character_id)}
+                />
               </li>
             ))}
           </ul>
@@ -129,7 +138,10 @@ export function DmInbox() {
           <ul>
             {suggestions.map((character) => (
               <li key={character.id}>
-                <SuggestionRow character={character} />
+                <SuggestionRow
+                  character={character}
+                  onIntent={() => prefetchDmConversation(queryClient, character.id)}
+                />
               </li>
             ))}
           </ul>
@@ -143,7 +155,16 @@ export function DmInbox() {
   );
 }
 
-function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
+function ThreadRow({
+  thread,
+  now,
+  onIntent,
+}: {
+  thread: DmThread;
+  now: Date;
+  /** タップし始めた・ポインタが乗った（遷移より先に会話のデータを取りに行く） */
+  onIntent: () => void;
+}) {
   const unread = thread.unread_count > 0;
   const time = formatRelativeTimeShort(thread.last_message_at, now);
   const preview = threadPreview(thread);
@@ -159,6 +180,11 @@ function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
   return (
     <Link
       href={`/dm/${thread.character_id}`}
+      // 会話済みのキャラは数が限られ（キャラごとに 1 会話）開く可能性が高いため、画面（RSC とページの JS）も
+      // 丸ごと先読みしておく。データはタップし始めた時点で onIntent が取りに行く
+      prefetch
+      onPointerDown={onIntent}
+      onMouseEnter={onIntent}
       aria-label={label}
       className="flex items-center gap-3 px-4 py-2 transition-colors active:bg-ig-elevated"
     >
@@ -191,10 +217,19 @@ function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
   );
 }
 
-function SuggestionRow({ character }: { character: PublicCharacter }) {
+function SuggestionRow({
+  character,
+  onIntent,
+}: {
+  character: PublicCharacter;
+  /** タップし始めた・ポインタが乗った（遷移より先に会話画面のキャラ情報を取りに行く。会話の作成はしない） */
+  onIntent: () => void;
+}) {
   return (
     <Link
       href={`/dm/${character.id}`}
+      onPointerDown={onIntent}
+      onMouseEnter={onIntent}
       aria-label={`${character.name}にメッセージを送る`}
       className="flex items-center gap-3 px-4 py-2 transition-colors active:bg-ig-elevated"
     >

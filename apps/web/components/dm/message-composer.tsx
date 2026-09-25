@@ -126,7 +126,7 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
                 // 送信ボタンを押してもキーボードを閉じない
                 onPointerDown={(event) => event.preventDefault()}
                 className={cn(
-                  "mb-[5px] h-[34px] shrink-0 px-3 text-[15px] font-semibold text-ig-blue transition-opacity",
+                  "mb-[5px] h-[34px] shrink-0 px-3 text-[15px] font-semibold text-ig-blue-text transition-opacity",
                   !canSend && "opacity-40",
                 )}
               >

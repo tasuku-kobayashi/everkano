@@ -4,12 +4,20 @@ import { afterEach, describe, expect, it } from "vitest";
 import { queryKeys } from "./keys";
 import {
   addMessagesToCache,
+  CATCH_UP_LIMIT,
+  CATCH_UP_LOOKBACK_MS,
+  catchUpSince,
   compareMessagesAsc,
   flattenMessagesAsc,
+  isMessageCached,
   mergeTimeline,
+  MESSAGES_PAGE_SIZE,
   parseMessageRow,
   resyncMessages,
+  seedMessagesCache,
+  shiftTimestamp,
   timestampToMicros,
+  toMessagesPage,
   upsertMessagesInPages,
   type LocalMessage,
   type MessagesCursor,
@@ -283,7 +291,18 @@ function mountMessages(queryClient: QueryClient) {
     retry: false,
   });
   const unsubscribe = observer.subscribe(() => undefined);
-  return { calls, unsubscribe };
+  return { calls, unsubscribe, observer };
+}
+
+/** 差分取得（fetchSince）の呼び出しを記録し、Deferred で結果を返す */
+function fetchSinceStub() {
+  const calls: { since: string; limit: number; result: Deferred<MessageDTO[]> }[] = [];
+  const fetchSince = (since: string, limit: number) => {
+    const result = deferred<MessageDTO[]>();
+    calls.push({ since, limit, result });
+    return result.promise;
+  };
+  return { calls, fetchSince };
 }
 
 /** 保留中の Promise の後続処理を流す */
@@ -348,17 +367,145 @@ describe("addMessagesToCache / resyncMessages", () => {
     expect(cachedIds(queryClient)).toEqual(["g1", "u1", "c1"]);
   });
 
-  it("購読開始が初回取得の途中でも、終わってから取り直して取りこぼしを回収する", async () => {
+  it("購読開始が初回取得の途中でも、終わってから差分を取って取りこぼしを回収する（ページは取り直さない）", async () => {
     queryClient = new QueryClient();
     const { calls, unsubscribe } = mountMessages(queryClient);
     unmount = unsubscribe;
+    const since = fetchSinceStub();
 
-    const resync = resyncMessages(queryClient, CONV); // SUBSCRIBED（初回取得はまだ進行中）
+    // SUBSCRIBED（初回取得はまだ進行中）
+    const resync = resyncMessages(queryClient, CONV, { fetchSince: since.fetchSince });
     calls[0]!.resolve(page(greeting)); // 購読開始より前のスナップショット
     await flush();
-    expect(calls).toHaveLength(2); // 合流で終わらせず、取り直す
-    calls[1]!.resolve(page(sent, greeting)); // その間に保存された発言
+    expect(since.calls).toHaveLength(1); // 合流で終わらせず、差分を取りに行く
+    expect(since.calls[0]!.since).toBe(shiftTimestamp(greeting.created_at, -CATCH_UP_LOOKBACK_MS));
+    expect(since.calls[0]!.limit).toBe(CATCH_UP_LIMIT);
+    since.calls[0]!.result.resolve([greeting, sent]); // その間に保存された発言（遡った分は重複排除）
     await resync;
     expect(cachedIds(queryClient)).toEqual(["g1", "u1"]);
+    expect(calls, "読み込み済みのページは取り直さない").toHaveLength(1);
+  });
+
+  it("取りこぼしが無ければ何も変えない（同じ参照）", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    calls[0]!.resolve(page(greeting));
+    await flush();
+    const before = queryClient.getQueryData(queryKeys.messages(CONV));
+
+    await resyncMessages(queryClient, CONV, { fetchSince: async () => [greeting] });
+    expect(queryClient.getQueryData(queryKeys.messages(CONV))).toBe(before);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("取りこぼしが上限以上なら、遡って読んだページを捨てて最新の 1 ページだけを取り直す", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe, observer } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    const older = Array.from({ length: MESSAGES_PAGE_SIZE }, (_, i) =>
+      msg(`o${i}`, `2026-09-25T02:${String(59 - i).padStart(2, "0")}:00Z`),
+    );
+    calls[0]!.resolve({
+      messages: [greeting],
+      nextCursor: { createdAt: greeting.created_at, id: greeting.id },
+    });
+    await flush();
+    const next = observer.fetchNextPage();
+    calls[1]!.resolve({ messages: older, nextCursor: null });
+    await next;
+    expect(queryClient.getQueryData<MessagesData>(queryKeys.messages(CONV))?.pages).toHaveLength(2);
+
+    const flood = Array.from({ length: CATCH_UP_LIMIT }, (_, i) =>
+      msg(`n${i}`, `2026-09-25T04:00:00.${String(i).padStart(6, "0")}Z`),
+    );
+    const resync = resyncMessages(queryClient, CONV, { fetchSince: async () => flood });
+    await flush();
+    expect(calls, "1 ページ目だけを取り直す（N ページの順次再取得にしない）").toHaveLength(3);
+    calls[2]!.resolve({ messages: flood.slice(-MESSAGES_PAGE_SIZE).reverse(), nextCursor: null });
+    await resync;
+    const pages = queryClient.getQueryData<MessagesData>(queryKeys.messages(CONV))?.pages;
+    expect(pages).toHaveLength(1);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("中断されたら差し込まない", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    calls[0]!.resolve(page(greeting));
+    await flush();
+    const controller = new AbortController();
+    const since = fetchSinceStub();
+    const resync = resyncMessages(queryClient, CONV, {
+      fetchSince: since.fetchSince,
+      signal: controller.signal,
+    });
+    await flush();
+    controller.abort();
+    since.calls[0]!.result.resolve([sent]);
+    await resync;
+    expect(cachedIds(queryClient)).toEqual(["g1"]);
+  });
+
+  it("過去ログの読み込み中に届いたメッセージも、読み込み完了で上書きされずに残る", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe, observer } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    calls[0]!.resolve({
+      messages: [greeting],
+      nextCursor: { createdAt: greeting.created_at, id: greeting.id },
+    });
+    await flush();
+
+    const next = observer.fetchNextPage(); // 取得開始時点のページ（新着なし）+ 次のページで上書きされる
+    expect(addMessagesToCache(queryClient, CONV, [sent, reply])).toBe(true);
+    expect(isMessageCached(queryClient, CONV, sent.id)).toBe(true);
+    calls[1]!.resolve({ messages: [msg("o1", "2026-09-25T02:00:00Z")], nextCursor: null });
+    await next;
+    await flush();
+    expect(cachedIds(queryClient)).toEqual(["o1", "g1", "u1", "c1"]);
+  });
+});
+
+describe("toMessagesPage / seedMessagesCache / catchUpSince", () => {
+  it("ちょうど 1 ページ分あれば最古の行を次のカーソルにする", () => {
+    const rows = Array.from({ length: MESSAGES_PAGE_SIZE }, (_, i) =>
+      msg(`m${i}`, `2026-09-25T03:${String(59 - i).padStart(2, "0")}:00Z`),
+    );
+    expect(toMessagesPage(rows).nextCursor).toEqual({
+      createdAt: rows.at(-1)!.created_at,
+      id: rows.at(-1)!.id,
+    });
+    expect(toMessagesPage(rows.slice(0, 3)).nextCursor).toBeNull();
+    expect(toMessagesPage([{ ...rows[0]!, sender_type: "unknown" }]).messages[0]?.sender_type).toBe(
+      "character",
+    );
+  });
+
+  it("キャッシュが無いときだけ埋める（追従済みの内容を古いスナップショットで戻さない）", () => {
+    const queryClient = new QueryClient();
+    const greeting = msg("g1", "2026-09-25T03:00:00Z");
+    const later = msg("c2", "2026-09-25T03:10:00Z");
+    seedMessagesCache(queryClient, CONV, toMessagesPage([greeting]));
+    addMessagesToCache(queryClient, CONV, [later]);
+    seedMessagesCache(queryClient, CONV, toMessagesPage([greeting]));
+    expect(
+      flattenMessagesAsc(queryClient.getQueryData<MessagesData>(queryKeys.messages(CONV))).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["g1", "c2"]);
+    queryClient.clear();
+  });
+
+  it("差分の起点は最新メッセージの少し前（空なら先頭から）", () => {
+    expect(shiftTimestamp("2026-09-25T03:00:05.123456+00:00", -5_000)).toBe(
+      "2026-09-25T03:00:00.123Z",
+    );
+    expect(shiftTimestamp("not a date", -5_000)).toBeNull();
+    expect(
+      catchUpSince(data([msg("b", "2026-09-25T03:00:10Z"), msg("a", "2026-09-25T03:00:00Z")])),
+    ).toBe("2026-09-25T03:00:05.000Z");
+    expect(catchUpSince(undefined)).toBe("1970-01-01T00:00:00.000Z");
   });
 });

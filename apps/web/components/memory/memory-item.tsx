@@ -13,6 +13,7 @@ import {
   isTempMemoryId,
   levelToImportance,
   MEMORY_CONTENT_MAX,
+  memoryOriginLabel,
   withTag,
 } from "@/lib/queries/memories";
 import { PriorityControl } from "./priority-control";
@@ -20,16 +21,19 @@ import { SecretChip } from "./secret-chip";
 
 export interface MemoryItemProps {
   memory: MemoryDTO;
-  onUpdate: (memoryId: string, patch: UpdateMemoryRequest) => void;
+  /** 更新する。成功したら true（失敗の通知は呼び出し側） */
+  onUpdate: (memoryId: string, patch: UpdateMemoryRequest) => Promise<boolean>;
   onDelete: (memory: MemoryDTO) => void;
 }
 
 /** 記憶 1 件（内容・バッジ・優先度・秘密・編集・削除） */
 export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
   const [editing, setEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const saving = isTempMemoryId(memory.id);
   const secret = isSecretMemory(memory);
   const summary = isSummaryMemory(memory);
+  const origin = memoryOriginLabel(memory);
 
   return (
     <li
@@ -38,7 +42,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
     >
       <div className="mb-1 flex min-h-8 items-center gap-1.5">
         {summary ? <Badge>🗒 会話の要約</Badge> : null}
-        {memory.is_user_edited ? <Badge>編集済み</Badge> : null}
+        {origin ? <Badge>{origin}</Badge> : null}
         <span className="text-[12px] leading-4 text-ig-secondary">
           {saving ? "保存中…" : formatRelativeTime(memory.created_at)}
         </span>
@@ -68,10 +72,19 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
       {editing ? (
         <EditForm
           initial={memory.content}
+          saving={savingEdit}
           onCancel={() => setEditing(false)}
           onSave={(content) => {
-            setEditing(false);
-            if (content !== memory.content) onUpdate(memory.id, { content });
+            if (content === memory.content) {
+              setEditing(false);
+              return;
+            }
+            // 保存できるまで編集欄を閉じない（失敗したら入力した内容のまま直して再保存できる）
+            setSavingEdit(true);
+            void onUpdate(memory.id, { content }).then((saved) => {
+              setSavingEdit(false);
+              if (saved) setEditing(false);
+            });
           }}
         />
       ) : (
@@ -110,10 +123,13 @@ function Badge({ children }: { children: ReactNode }) {
 
 function EditForm({
   initial,
+  saving,
   onSave,
   onCancel,
 }: {
   initial: string;
+  /** 保存中（ボタンを無効にする） */
+  saving: boolean;
   onSave: (content: string) => void;
   onCancel: () => void;
 }) {
@@ -133,7 +149,7 @@ function EditForm({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        if (trimmed) onSave(trimmed);
+        if (trimmed && !saving) onSave(trimmed);
       }}
     >
       <label className="sr-only" htmlFor={id}>
@@ -152,11 +168,11 @@ function EditForm({
         <span className="mr-auto text-[12px] text-ig-secondary">
           {value.length}/{MEMORY_CONTENT_MAX}
         </span>
-        <Button variant="secondary" size="sm" onClick={onCancel}>
+        <Button variant="secondary" size="sm" onClick={onCancel} disabled={saving}>
           キャンセル
         </Button>
-        <Button type="submit" size="sm" disabled={!trimmed}>
-          保存
+        <Button type="submit" size="sm" disabled={!trimmed || saving}>
+          {saving ? "保存中…" : "保存"}
         </Button>
       </div>
     </form>

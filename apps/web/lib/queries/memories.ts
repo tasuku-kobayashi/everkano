@@ -4,7 +4,10 @@
  * - 一覧・追加・更新・削除はすべて Python API（/memories）経由（書き込みは Gate #1 + 監査ログのため API 必須。
  *   一覧も API の並び順「重要度 → 新しい順」に揃える）。
  * - ミューテーションは楽観的更新 → 失敗時ロールバック → 最後の 1 件が終わったら再取得。
- *   トースト表示は呼び出し側（mutate の onError）で行う。
+ *   トースト表示・入力内容の復元は呼び出し側（mutateAsync の結果）で行う。mutate(vars, { onError }) の
+ *   コールバックは同じフックで最後に呼んだ 1 回分しか実行されないため、連続した操作の失敗を取りこぼす。
+ * - 追加に失敗した入力内容は失わない（stashMemoryDraft で預かり、フォームが空いていれば戻す。パネルを閉じた後に
+ *   失敗したら、次に開いたときに戻す）。
  */
 
 import {
@@ -14,7 +17,14 @@ import {
   type MemoryDTO,
   type UpdateMemoryRequest,
 } from "@everkano/shared";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  mutationOptions,
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/queries/keys";
 
@@ -86,6 +96,22 @@ export function isSummaryMemory(memory: Pick<MemoryDTO, "tags">): boolean {
 export function withTag(tags: readonly string[], tag: string, enabled: boolean): string[] {
   const without = tags.filter((t) => t !== tag);
   return enabled ? [...without, tag] : without;
+}
+
+/**
+ * 記憶の出どころのバッジ。
+ * - あなたが追加: ユーザーが「覚えてほしいことを追加」した記憶（会話の発言に由来しない）
+ * - 編集済み: 会話から自動で覚えた記憶（要約を含む）をユーザーが編集した
+ * - null: 自動で覚えたまま
+ * （is_user_edited は「自動更新で上書きしない」印で、追加した記憶にも立つため、それだけで「編集済み」にしない）
+ */
+export function memoryOriginLabel(
+  memory: Pick<MemoryDTO, "is_user_edited" | "source_message_id" | "tags">,
+): "あなたが追加" | "編集済み" | null {
+  if (!memory.is_user_edited) return null;
+  return memory.source_message_id === null && !isSummaryMemory(memory)
+    ? "あなたが追加"
+    : "編集済み";
 }
 
 // ---------------------------------------------------------------------------
@@ -196,8 +222,15 @@ async function optimistic(
   return { previous };
 }
 
+/**
+ * 楽観的更新を取り消す。一覧を読み込めていなかった（previous が undefined）場合は setQueryData で
+ * undefined に戻せない（無視される）ため、読み込み前の状態に戻して取り直す。
+ */
 function rollback(queryClient: QueryClient, characterId: string, context?: MemoriesContext) {
-  if (context) queryClient.setQueryData(queryKeys.memories(characterId), context.previous);
+  if (!context) return;
+  const queryKey = queryKeys.memories(characterId);
+  if (context.previous === undefined) void queryClient.resetQueries({ queryKey, exact: true });
+  else queryClient.setQueryData(queryKey, context.previous);
 }
 
 /** 最後のミューテーションが終わったときだけ再取得する（途中で古いサーバー状態に戻って見えるのを防ぐ） */
@@ -209,13 +242,28 @@ function settle(queryClient: QueryClient, characterId: string) {
 
 let tempSeq = 0;
 
+export interface CreateMemoryVariables {
+  request: CreateMemoryRequest;
+  /** 楽観的に表示する仮の記憶の id（nextTempMemoryId()） */
+  tempId: string;
+}
+
 /** 記憶を追加（POST /memories） */
 export function useCreateMemory(characterId: string) {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation(createMemoryMutationOptions(queryClient, characterId));
+}
+
+/** useCreateMemory の設定（楽観的更新・失敗時の取り消し。単体テスト用に切り出している） */
+export function createMemoryMutationOptions(
+  queryClient: QueryClient,
+  characterId: string,
+  createMemory: (request: CreateMemoryRequest) => Promise<MemoryDTO> = (request) =>
+    api.createMemory(request),
+) {
+  return mutationOptions<MemoryDTO, unknown, CreateMemoryVariables, MemoriesContext>({
     mutationKey: memoriesMutationKey(characterId),
-    mutationFn: ({ request }: { request: CreateMemoryRequest; tempId: string }) =>
-      api.createMemory(request),
+    mutationFn: ({ request }) => createMemory(request),
     onMutate: async ({ request, tempId }) =>
       optimistic(queryClient, characterId, (memories) => [
         buildTempMemory(request, tempId),
@@ -223,12 +271,94 @@ export function useCreateMemory(characterId: string) {
       ]),
     onSuccess: (created, { tempId }) => {
       queryClient.setQueryData<MemoryDTO[]>(queryKeys.memories(characterId), (memories) =>
-        (memories ?? []).map((memory) => (memory.id === tempId ? created : memory)),
+        memories ? replaceTempMemory(memories, tempId, created) : memories,
       );
     },
-    onError: (_error, _variables, context) => rollback(queryClient, characterId, context),
+    // 仮の記憶だけを取り除く（一覧ごと戻すと、並行して進んでいる他の操作の楽観的更新まで消える）
+    onError: (_error, { tempId }, context) => {
+      const queryKey = queryKeys.memories(characterId);
+      queryClient.setQueryData<MemoryDTO[]>(queryKey, (memories) =>
+        memories?.filter((memory) => memory.id !== tempId),
+      );
+      // 一覧を読み込めていない状態で追加した場合: 仮の記憶が消えて空になった一覧（「まだ覚えていることは
+      // ありません」）を残さず、読み込み前の状態に戻して取り直す（失敗が続けばエラー表示と再試行ボタン）
+      if (
+        context?.previous === undefined &&
+        !queryClient.getQueryData<MemoryDTO[]>(queryKey)?.length
+      ) {
+        void queryClient.resetQueries({ queryKey, exact: true });
+      }
+    },
     onSettled: () => settle(queryClient, characterId),
   });
+}
+
+/** 追加に成功した記憶で仮の記憶を置き換える（仮の記憶が既に無ければ先頭に加える） */
+export function replaceTempMemory(
+  memories: readonly MemoryDTO[],
+  tempId: string,
+  created: MemoryDTO,
+): MemoryDTO[] {
+  if (memories.some((memory) => memory.id === tempId)) {
+    return memories.map((memory) => (memory.id === tempId ? created : memory));
+  }
+  return [created, ...memories.filter((memory) => memory.id !== created.id)];
+}
+
+// ---------------------------------------------------------------------------
+// 追加に失敗した入力内容（下書き）
+// ---------------------------------------------------------------------------
+
+/** 追加フォームの入力内容 */
+export interface MemoryDraft {
+  content: string;
+  level: MemoryLevel;
+  secret: boolean;
+}
+
+/**
+ * 下書きの置き場所（QueryClient。ログアウト時の queryClient.clear() で一緒に消える）。
+ * queryKeys.memories() の配下に置くと記憶一覧の invalidate / cancel の対象になるため別のキーにする。
+ * 値は MemoryDraft（預かり中）か null（取り出し済み）。
+ */
+const MEMORY_DRAFT_PREFIX = ["memory-draft"] as const;
+const memoryDraftKey = (characterId: string) => [...MEMORY_DRAFT_PREFIX, characterId] as const;
+
+/**
+ * 追加に失敗した入力内容を預かる。表示中のフォーム（useMemoryDraft）が空ならすぐに戻り、
+ * パネルを閉じていれば次に開いたときに戻る。
+ */
+export function stashMemoryDraft(
+  queryClient: QueryClient,
+  characterId: string,
+  draft: MemoryDraft,
+): void {
+  // パネルを閉じている間（オブザーバーが無い）に既定の gcTime（5 分）で消えないようにする
+  queryClient.setQueryDefaults(MEMORY_DRAFT_PREFIX, { gcTime: Number.POSITIVE_INFINITY });
+  queryClient.setQueryData<MemoryDraft | null>(memoryDraftKey(characterId), draft);
+}
+
+/** 預かっている入力内容を取り出す（取り出したら空にする） */
+export function takeMemoryDraft(
+  queryClient: QueryClient,
+  characterId: string,
+): MemoryDraft | undefined {
+  const queryKey = memoryDraftKey(characterId);
+  const draft = queryClient.getQueryData<MemoryDraft | null>(queryKey);
+  if (!draft) return undefined;
+  queryClient.setQueryData<MemoryDraft | null>(queryKey, null);
+  return draft;
+}
+
+/** 預かっている入力内容（無ければ null）。預けられた時点で再描画される */
+export function useMemoryDraft(characterId: string): MemoryDraft | null {
+  const { data } = useQuery<MemoryDraft | null>({
+    queryKey: memoryDraftKey(characterId),
+    queryFn: skipToken,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+  });
+  return data ?? null;
 }
 
 /** 仮 id を発行する（useCreateMemory の variables.tempId 用） */

@@ -1,6 +1,7 @@
 "use client";
 
 import { MEMORY_TAG_SECRET, type MemoryDTO, type UpdateMemoryRequest } from "@everkano/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
@@ -16,10 +17,14 @@ import {
   MEMORY_CONTENT_MAX,
   nextTempMemoryId,
   stableMemoryOrder,
+  stashMemoryDraft,
+  takeMemoryDraft,
   useCreateMemory,
   useDeleteMemory,
   useMemories,
+  useMemoryDraft,
   useUpdateMemory,
+  type MemoryDraft,
   type MemoryLevel,
 } from "@/lib/queries/memories";
 import { MemoryItem } from "./memory-item";
@@ -86,8 +91,40 @@ function MemoryPanelContent({
 
   const onError = (error: unknown) => toast.error(getErrorMessage(error));
 
-  const onUpdate = (memoryId: string, patch: UpdateMemoryRequest) =>
-    updateMemory.mutate({ memoryId, patch }, { onError });
+  // mutate(vars, { onError }) は同じフックで最後に呼んだ 1 回分しかコールバックが実行されない
+  // （別の記憶の優先度を続けて変えると、先の失敗が通知されない）。呼び出しごとの結果を返す mutateAsync を使う
+  /** 更新して、成功したら true（失敗はトーストで通知し、楽観的更新は取り消される） */
+  const onUpdate = (memoryId: string, patch: UpdateMemoryRequest): Promise<boolean> =>
+    updateMemory.mutateAsync({ memoryId, patch }).then(
+      () => true,
+      (error: unknown) => {
+        onError(error);
+        return false;
+      },
+    );
+
+  /** 追加して、成功したら true */
+  const onCreate = ({ content, level, secret }: MemoryDraft): Promise<boolean> =>
+    createMemory
+      .mutateAsync({
+        tempId: nextTempMemoryId(),
+        request: {
+          character_id: characterId,
+          content,
+          importance: levelToImportance(level),
+          tags: secret ? [MEMORY_TAG_SECRET] : [],
+        },
+      })
+      .then(
+        () => {
+          toast.show(`${characterName}が覚えました`);
+          return true;
+        },
+        (error: unknown) => {
+          onError(error);
+          return false;
+        },
+      );
 
   const confirmDelete = () => {
     const target = deleting;
@@ -99,13 +136,9 @@ function MemoryPanelContent({
       const root = rootRef.current;
       if (root && !root.contains(document.activeElement)) root.focus({ preventScroll: true });
     }, 250);
-    deleteMemory.mutate(
-      { memoryId: target.id },
-      {
-        onSuccess: () => toast.show("記憶を削除しました"),
-        onError,
-      },
-    );
+    deleteMemory
+      .mutateAsync({ memoryId: target.id })
+      .then(() => toast.show("記憶を削除しました"), onError);
   };
 
   return (
@@ -115,26 +148,7 @@ function MemoryPanelContent({
         は、あなたとの会話で大切だと感じたことを覚えています。覚えていてほしいことを追加したり、忘れてほしいことを削除したりできます。
       </p>
 
-      <AddMemoryForm
-        characterName={characterName}
-        onSubmit={(content, level, secret) =>
-          createMemory.mutate(
-            {
-              tempId: nextTempMemoryId(),
-              request: {
-                character_id: characterId,
-                content,
-                importance: levelToImportance(level),
-                tags: secret ? [MEMORY_TAG_SECRET] : [],
-              },
-            },
-            {
-              onSuccess: () => toast.show(`${characterName}が覚えました`),
-              onError,
-            },
-          )
-        }
-      />
+      <AddMemoryForm characterId={characterId} characterName={characterName} onSubmit={onCreate} />
 
       {memoriesQuery.isPending ? (
         <MemoryListSkeleton />
@@ -150,7 +164,8 @@ function MemoryPanelContent({
           <div className="mb-3 flex size-14 items-center justify-center rounded-full border-2 border-ig-text">
             <BookmarkIcon size={26} strokeWidth={1.6} />
           </div>
-          <p className="text-[15px] leading-5 font-semibold">
+          {/* EmptyState と同じく、行の長さをそろえ文節の途中で折り返さない（375px で「よ / う」だけが落ちるのを防ぐ） */}
+          <p className="text-[15px] leading-5 font-semibold text-balance [word-break:auto-phrase]">
             まだ覚えていることはありません。たくさん話してみよう
           </p>
         </div>
@@ -184,13 +199,23 @@ function MemoryPanelContent({
   );
 }
 
+/**
+ * 「覚えてほしいことを追加」フォーム。
+ * 追加するとすぐに閉じて一覧に「保存中…」の記憶を出す（楽観的更新）。保存に失敗したら入力内容を預かり
+ * （stashMemoryDraft）、フォームが空いていれば戻す（別の内容を入力中なら上書きせず、空いたときに戻す）。
+ * パネルを閉じた後に失敗した場合は、次に開いたときに戻る。
+ */
 function AddMemoryForm({
+  characterId,
   characterName,
   onSubmit,
 }: {
+  characterId: string;
   characterName: string;
-  onSubmit: (content: string, level: MemoryLevel, secret: boolean) => void;
+  /** 保存できたら true */
+  onSubmit: (draft: MemoryDraft) => Promise<boolean>;
 }) {
+  const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState("");
   const [level, setLevel] = useState<MemoryLevel>(DEFAULT_MEMORY_LEVEL);
@@ -200,6 +225,18 @@ function AddMemoryForm({
   const wasExpandedRef = useRef(false);
   const id = useId();
   const trimmed = content.trim();
+
+  // 保存に失敗した入力内容を、フォームが空いていれば戻す
+  const stashed = useMemoryDraft(characterId);
+  const idle = !trimmed;
+  useEffect(() => {
+    if (!stashed || !idle) return;
+    takeMemoryDraft(queryClient, characterId);
+    setContent(stashed.content);
+    setLevel(stashed.level);
+    setSecret(stashed.secret);
+    setExpanded(true);
+  }, [stashed, idle, characterId, queryClient]);
 
   useEffect(() => {
     if (expanded) {
@@ -241,8 +278,11 @@ function AddMemoryForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!trimmed) return;
-        onSubmit(trimmed, level, secret);
+        const draft: MemoryDraft = { content: trimmed, level, secret };
         reset();
+        void onSubmit(draft).then((saved) => {
+          if (!saved) stashMemoryDraft(queryClient, characterId, draft);
+        });
       }}
     >
       <label htmlFor={id} className="mb-1.5 block text-[13px] font-semibold">

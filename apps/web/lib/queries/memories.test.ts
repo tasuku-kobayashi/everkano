@@ -1,7 +1,14 @@
 import type { MemoryDTO } from "@everkano/shared";
+import { MutationObserver, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { queryKeys } from "./keys";
 import {
   buildTempMemory,
+  createMemoryMutationOptions,
+  memoryOriginLabel,
+  replaceTempMemory,
+  stashMemoryDraft,
+  takeMemoryDraft,
   importanceToLevel,
   isSecretMemory,
   isSummaryMemory,
@@ -134,5 +141,139 @@ describe("楽観的更新", () => {
       created_at: "NOW",
     });
     expect(buildTempMemory({ character_id: "c", content: "x" }, id).importance).toBe(0.7);
+  });
+});
+
+describe("memoryOriginLabel", () => {
+  const base = memory("m", 0.6, "2026-09-25T00:00:00Z");
+
+  it("ユーザーが追加した記憶は「あなたが追加」（編集済みではない）", () => {
+    const added = buildTempMemory({ character_id: "c", content: "誕生日は3月3日" }, "temp-1");
+    expect(memoryOriginLabel(added)).toBe("あなたが追加");
+    expect(memoryOriginLabel({ ...base, is_user_edited: true, source_message_id: null })).toBe(
+      "あなたが追加",
+    );
+  });
+
+  it("会話から覚えた記憶を編集したら「編集済み」、そのままならバッジなし", () => {
+    const extracted = { ...base, source_message_id: "msg-1" };
+    expect(memoryOriginLabel(extracted)).toBeNull();
+    expect(memoryOriginLabel({ ...extracted, is_user_edited: true })).toBe("編集済み");
+    expect(memoryOriginLabel(patchMemory([extracted], "m", { importance: 0.9 })[0]!)).toBe(
+      "編集済み",
+    );
+  });
+
+  it("要約（中期メモリ）を編集したら「編集済み」", () => {
+    expect(
+      memoryOriginLabel({
+        ...base,
+        tags: ["summary"],
+        is_user_edited: true,
+        source_message_id: null,
+      }),
+    ).toBe("編集済み");
+  });
+});
+
+describe("replaceTempMemory", () => {
+  const created = { ...memory("m-new", 0.6, "2026-09-25T00:00:00Z"), is_user_edited: true };
+
+  it("仮の記憶を保存済みの記憶に置き換える", () => {
+    const temp = buildTempMemory({ character_id: "c", content: "x" }, "temp-1");
+    const other = memory("a", 0.3, "2026-09-24T00:00:00Z");
+    expect(replaceTempMemory([temp, other], "temp-1", created)).toEqual([created, other]);
+  });
+
+  it("仮の記憶が既に無ければ（他の操作の取り消しで消えた）先頭に加える", () => {
+    const other = memory("a", 0.3, "2026-09-24T00:00:00Z");
+    expect(replaceTempMemory([other], "temp-1", created)).toEqual([created, other]);
+    expect(replaceTempMemory([created, other], "temp-1", created)).toEqual([created, other]);
+  });
+});
+
+describe("useCreateMemory（楽観的更新と失敗時の取り消し）", () => {
+  const CHAR = "22222222-2222-4222-8222-222222222222";
+  const request = { character_id: CHAR, content: "大事なことを覚えてほしい", importance: 0.6 };
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  it("一覧を読み込めていない状態で追加に失敗しても、「保存中…」の仮の記憶を残さない", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const key = queryKeys.memories(CHAR);
+    // 一覧の取得は失敗している（API 停止中）
+    const list = new QueryObserver<MemoryDTO[]>(queryClient, {
+      queryKey: key,
+      queryFn: () => Promise.reject(new Error("network")),
+    });
+    const unsubscribe = list.subscribe(() => undefined);
+    await flush();
+    expect(list.getCurrentResult().isError).toBe(true);
+    expect(queryClient.getQueryData(key)).toBeUndefined();
+
+    let fail: (error: Error) => void = () => undefined;
+    const mutation = new MutationObserver(queryClient, {
+      ...createMemoryMutationOptions(
+        queryClient,
+        CHAR,
+        () => new Promise<MemoryDTO>((_, reject) => (fail = reject)),
+      ),
+    });
+    const pending = mutation.mutate({ request, tempId: "temp-x" }).catch(() => undefined);
+    await flush();
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)?.map((m) => m.id)).toEqual(["temp-x"]);
+    fail(new Error("down"));
+    await pending;
+    await flush();
+
+    expect(
+      queryClient.getQueryData<MemoryDTO[]>(key)?.some((m) => m.id === "temp-x") ?? false,
+      "仮の記憶が消えている",
+    ).toBe(false);
+    unsubscribe();
+    queryClient.clear();
+  });
+
+  it("一覧がある状態で失敗したら仮の記憶だけを取り除く（他の記憶はそのまま）", async () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.memories(CHAR);
+    const existing = memory("a", 0.6, "2026-09-24T00:00:00Z");
+    queryClient.setQueryData<MemoryDTO[]>(key, [existing]);
+    const mutation = new MutationObserver(queryClient, {
+      ...createMemoryMutationOptions(queryClient, CHAR, () => Promise.reject(new Error("down"))),
+    });
+    await mutation.mutate({ request, tempId: "temp-y" }).catch(() => undefined);
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)).toEqual([existing]);
+    queryClient.clear();
+  });
+
+  it("成功したら仮の記憶を保存済みの記憶に置き換える", async () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.memories(CHAR);
+    queryClient.setQueryData<MemoryDTO[]>(key, []);
+    const saved = { ...memory("m-1", 0.6, "2026-09-25T00:00:00Z"), is_user_edited: true };
+    const mutation = new MutationObserver(queryClient, {
+      ...createMemoryMutationOptions(queryClient, CHAR, async () => saved),
+    });
+    await mutation.mutate({ request, tempId: "temp-z" });
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)?.[0]).toEqual(saved);
+    queryClient.clear();
+  });
+});
+
+describe("stashMemoryDraft / takeMemoryDraft", () => {
+  it("預けた入力内容を 1 回だけ取り出せる（キャラごと）", () => {
+    const queryClient = new QueryClient();
+    const draft = { content: "来週プレゼン", level: "high" as const, secret: true };
+    stashMemoryDraft(queryClient, "c1", draft);
+    expect(takeMemoryDraft(queryClient, "c2")).toBeUndefined();
+    expect(takeMemoryDraft(queryClient, "c1")).toEqual(draft);
+    expect(takeMemoryDraft(queryClient, "c1")).toBeUndefined();
+    // もう一度預けられる（表示中のフォームが購読しているキャッシュに入る）
+    stashMemoryDraft(queryClient, "c1", { ...draft, content: "2 回目" });
+    expect(takeMemoryDraft(queryClient, "c1")?.content).toBe("2 回目");
+    queryClient.clear();
   });
 });
