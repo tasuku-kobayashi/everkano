@@ -76,6 +76,8 @@ class AuditLogger:
                         "user_id": str(user_id) if user_id else None,
                         "character_id": str(character_id) if character_id else None,
                         "error": repr(exc),
+                        # INFO の複製がフィルタされても内容が失われないよう、本文も残す
+                        "payload": body,
                     }
                 },
             )

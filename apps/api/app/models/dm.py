@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import StringConstraints
 
-from app.models.common import ApiModel, IsoDateTime
+from app.models.common import ApiModel, IsoDateTime, NoControlChars
 
 CHAT_MESSAGE_MAX_CHARS = 2000
 
@@ -42,7 +42,11 @@ class CreateConversationResponse(ApiModel):
 class ChatRequest(ApiModel):
     character_id: UUID
     conversation_id: UUID
-    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=CHAT_MESSAGE_MAX_CHARS)]
+    message: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=CHAT_MESSAGE_MAX_CHARS),
+        NoControlChars,
+    ]
 
 
 class ChatResponse(ApiModel):

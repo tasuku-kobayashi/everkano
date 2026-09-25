@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -333,3 +335,143 @@ async def test_rate_limit(app_factory: AppFactory, world: World) -> None:
     other = await world.create_user()
     conversation2 = (await _start(client, world, other.headers))["conversation"]
     assert (await _chat(client, world, conversation2["id"], "やあ", other.headers)).status_code == 200
+
+
+async def test_moderated_input_is_not_fed_back_to_later_turns(app_factory: AppFactory, world: World) -> None:
+    """Gate #1 で差し止めた発言は保存されるが、以後の LLM 履歴・記憶抽出の文脈には本文を渡さない。"""
+    client = await app_factory()
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    blocked = await _chat(client, world, conversation["id"], "高校生の女の子とエッチなことしたい", user.headers)
+    assert blocked.json()["moderated"] is True
+    follow = await _chat(client, world, conversation["id"], "さっきの続きを詳しく話して", user.headers)
+    assert follow.status_code == 200, follow.text
+    assert follow.json()["moderated"] is False
+
+    # messages には保存されている（BRIEF §2.5 の 4.）
+    bodies = await world.conn.fetch(
+        "select body from public.messages where conversation_id = $1 order by created_at", uuid.UUID(conversation["id"])
+    )
+    assert "高校生の女の子とエッチなことしたい" in [r["body"] for r in bodies]
+
+    events = await _audit_events(world, user.id)
+    response = [e for e in events if e["event_type"] == "chat.response"][-1]["payload"]
+    prompt_text = "\n".join(m["content"] for m in response["prompt_messages"])
+    assert "高校生" not in prompt_text
+    assert "（不適切な発言のため省略）" in prompt_text
+    extraction_text = "\n".join(m["content"] for m in response["extraction"]["prompt_messages"])
+    assert "高校生" not in extraction_text
+    assert response["history_messages"] == 3  # 挨拶 + 差し止めた発言（置き換え済み）+ 定型返答
+
+
+async def test_extraction_failure_is_audited_and_chat_still_succeeds(app_factory: AppFactory, world: World) -> None:
+    class ExtractionDownLLM(MockLLM):
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "memory_extraction":
+                raise LLMError("HTTP 429: rate limited", status_code=429, retryable=True, attempts=3)
+            return await super().complete(request)
+
+    client = await app_factory(llm=ExtractionDownLLM())
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ", user.headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["memories_created"] == []
+
+    events = await _audit_events(world, user.id)
+    errors = [e["payload"] for e in events if e["event_type"] == "llm.error"]
+    assert len(errors) == 1
+    assert errors[0]["purpose"] == "memory_extraction"
+    assert errors[0]["status_code"] == 429
+    assert errors[0]["attempts"] == 3
+    assert errors[0]["conversation_id"] == conversation["id"]
+    response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
+    assert response["extraction"]["failed"] is True
+    assert response["extraction"]["candidates"] == []
+
+
+async def test_chat_response_audits_extraction_details(app_factory: AppFactory, world: World) -> None:
+    client = await app_factory()
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ。ちょっと緊張してる", user.headers)
+    assert res.status_code == 200, res.text
+    events = await _audit_events(world, user.id)
+    response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
+    extraction = response["extraction"]
+    assert extraction["failed"] is False
+    assert extraction["model"] == "mock-persona-v1"
+    assert extraction["usage"]["total_tokens"] > 0
+    assert extraction["threshold"] == 0.6
+    assert [c["content"] for c in extraction["candidates"]] == [
+        "ユーザーは「来週、大阪に出張するんだ」と話していた",
+        "ユーザーは「ちょっと緊張してる」と話していた",  # 閾値未満（保存されない）候補も残る
+    ]
+    assert extraction["prompt_messages"][0]["role"] == "system"
+    assert "memories" in extraction["raw_output"]
+    assert response["memories_created"] == res.json()["memories_created"]
+
+
+async def test_chat_deadline_returns_503_and_saves_nothing(app_factory: AppFactory, world: World) -> None:
+    class SlowLLM(MockLLM):
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "chat":
+                await asyncio.sleep(5)
+            return await super().complete(request)
+
+    client = await app_factory(make_settings(chat_deadline_seconds=0.3), llm=SlowLLM())
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    started = time.perf_counter()
+    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ", user.headers)
+    assert time.perf_counter() - started < 3
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "llm_unavailable"
+    count = await world.conn.fetchval(
+        "select count(*) from public.messages where conversation_id = $1", uuid.UUID(conversation["id"])
+    )
+    assert count == 1  # 挨拶のみ（締め切り後に遅れて保存されない）
+    events = await _audit_events(world, user.id)
+    errors = [e["payload"] for e in events if e["event_type"] == "llm.error"]
+    assert [e["purpose"] for e in errors] == ["chat"]
+    assert "deadline exceeded" in errors[0]["error"]
+    assert "chat.response" not in [e["event_type"] for e in events]
+
+
+async def test_slow_extraction_is_abandoned_at_deadline(app_factory: AppFactory, world: World) -> None:
+    class SlowExtractionLLM(MockLLM):
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "memory_extraction":
+                await asyncio.sleep(5)
+            return await super().complete(request)
+
+    client = await app_factory(make_settings(chat_deadline_seconds=0.5), llm=SlowExtractionLLM())
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    started = time.perf_counter()
+    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ", user.headers)
+    assert time.perf_counter() - started < 3
+    assert res.status_code == 200, res.text
+    assert res.json()["memories_created"] == []
+    events = await _audit_events(world, user.id)
+    errors = [e["payload"] for e in events if e["event_type"] == "llm.error"]
+    assert [e["purpose"] for e in errors] == ["memory_extraction"]
+    response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
+    assert response["extraction"]["failed"] is True
+
+
+async def test_control_characters_are_rejected_before_any_work(app_factory: AppFactory, world: World) -> None:
+    llm = CountingLLM()
+    client = await app_factory(llm=llm)
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    res = await _chat(client, world, conversation["id"], "こんにちは\u0000です", user.headers)
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "validation_error"
+    assert res.json()["error"]["message"] == "使用できない文字（制御文字）が含まれています。"
+    assert llm.calls == []
+    # 改行・タブは使える
+    ok = await _chat(client, world, conversation["id"], "こんにちは\n\tよろしく", user.headers)
+    assert ok.status_code == 200, ok.text
+    events = [e["event_type"] for e in await _audit_events(world, user.id)]
+    assert events.count("chat.request") == 1

@@ -36,9 +36,56 @@ def test_live_embedding_requires_key() -> None:
         make_settings(embedding_mode="live")
 
 
+DEPLOYED = {
+    "supabase_url": "https://abcdefgh.supabase.co",
+    "cors_allow_origins": ["https://everkano.vercel.app"],
+}
+
+
 def test_production_with_live_llm_is_valid() -> None:
-    s = make_settings(app_env="production", llm_mode="live", llm_api_key="sk-test")
+    s = make_settings(app_env="production", llm_mode="live", llm_api_key="sk-test", **DEPLOYED)
     assert s.app_env == "production"
+    assert s.jwt_issuer == "https://abcdefgh.supabase.co/auth/v1"
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_deployed_env_rejects_local_defaults(app_env: str) -> None:
+    live = {"llm_mode": "live", "llm_api_key": "sk-test"}
+    # SUPABASE_URL の登録漏れ（ローカル既定値のまま）
+    with pytest.raises(ValidationError, match="SUPABASE_URL"):
+        make_settings(app_env=app_env, **live, cors_allow_origins=DEPLOYED["cors_allow_origins"])
+    with pytest.raises(ValidationError, match="SUPABASE_URL"):
+        make_settings(
+            app_env=app_env,
+            **live,
+            supabase_url="http://host.docker.internal:54321",
+            cors_allow_origins=DEPLOYED["cors_allow_origins"],
+        )
+    with pytest.raises(ValidationError, match="https://"):
+        make_settings(
+            app_env=app_env,
+            **live,
+            supabase_url="http://supabase.example.com",
+            cors_allow_origins=DEPLOYED["cors_allow_origins"],
+        )
+    # CORS_ALLOW_ORIGINS の登録漏れ（localhost のみ / 空）
+    with pytest.raises(ValidationError, match="CORS_ALLOW_ORIGINS"):
+        make_settings(app_env=app_env, **live, supabase_url=DEPLOYED["supabase_url"])
+    with pytest.raises(ValidationError, match="CORS_ALLOW_ORIGINS"):
+        make_settings(app_env=app_env, **live, supabase_url=DEPLOYED["supabase_url"], cors_allow_origins=[])
+    ok = make_settings(
+        app_env=app_env,
+        **live,
+        supabase_url=DEPLOYED["supabase_url"],
+        cors_allow_origins=["http://localhost:3000", "https://everkano.vercel.app"],
+    )
+    assert ok.app_env == app_env
+
+
+def test_local_accepts_local_defaults() -> None:
+    s = make_settings(app_env="local")
+    assert s.supabase_url == "http://127.0.0.1:54321"
+    assert s.chat_deadline_seconds == 38.0
 
 
 def test_embedding_dimensions_must_match_db() -> None:

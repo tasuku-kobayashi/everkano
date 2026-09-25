@@ -52,7 +52,7 @@ TEMPLATE_SPECS: Final[dict[str, TemplateSpec]] = {
     ),
     "memory_extraction": TemplateSpec(
         required=frozenset({"recent_context", "user_message"}),
-        optional=frozenset({"name", "memory_focus", "second_person"}),
+        optional=frozenset({"name", "memory_focus", "second_person", "now", "threshold"}),
     ),
     "memory_summary": TemplateSpec(
         required=frozenset({"conversation"}),
@@ -128,6 +128,11 @@ def format_now(now: datetime) -> str:
     return f"{local.year}年{local.month}月{local.day}日（{_WEEKDAYS_JA[local.weekday()]}）{local:%H:%M}"
 
 
+def format_date(value: datetime) -> str:
+    local = value.astimezone(JST)
+    return f"{local.year}年{local.month}月{local.day}日（{_WEEKDAYS_JA[local.weekday()]}）"
+
+
 def render_speech(persona: Persona) -> str:
     s = persona.speech
     lines: list[str] = []
@@ -137,7 +142,10 @@ def render_speech(persona: Persona) -> str:
         lines.append(f"- 文の長さ: {s.sentence_length}")
     if s.emoji:
         lines.append(f"- 絵文字: {s.emoji}")
-    lines.append(f"- 一人称: 「{s.first_person}」 / 相手の呼び方: 「{s.second_person}」")
+    lines.append(
+        f"- 一人称: 「{s.first_person}」 / 相手の呼び方（基本）: 「{s.second_person}」"
+        "（呼び方の希望を覚えていればそちらを優先）"
+    )
     if s.examples:
         lines.append("- 話し方の例:")
         lines.extend(f"  - 「{ex}」" for ex in s.examples)
@@ -154,12 +162,13 @@ def render_relationship(persona: Persona) -> str:
 
 
 def render_memory_line(memory: RetrievedMemory) -> str:
+    """記憶1件。末尾に記録日（日本時間）を付け、「来週」「明日」などを記録日基準で解釈できるようにする。"""
     prefix = ""
     if memory.is_summary:
         prefix += SUMMARY_MARKER
     if memory.is_secret:
         prefix += SECRET_MARKER
-    return f"- {prefix}{memory.content}"
+    return f"- {prefix}{memory.content}（{format_date(memory.created_at)}に記録）"
 
 
 def render_memories(memories: Sequence[RetrievedMemory]) -> str:
@@ -176,14 +185,24 @@ def render_schedule(persona: Persona, now: datetime) -> str:
     return "\n".join(lines)
 
 
-def render_short_term_note(history: Sequence[HistoryItem]) -> str:
+def render_short_term_note(history: Sequence[HistoryItem], now: datetime | None = None) -> str:
     # 直近の会話そのものは system の後ろに user / assistant メッセージとして渡す（重複させない）
     if not history:
         return "（まだ会話はありません。これが二人の最初のやりとりです）"
-    return (
+    note = (
         f"直近{len(history)}件のやりとりは、このあとの会話履歴（user = 相手 / assistant = あなた）"
         "として渡されます。流れを踏まえて自然に続けてください。"
     )
+    if now is not None:
+        # 履歴のメッセージには時刻が無いため、前回から日が空いたことだけは明示する
+        last = history[-1].created_at
+        days = (now.astimezone(JST).date() - last.astimezone(JST).date()).days
+        if days >= 1:
+            note += (
+                f"\n前回のやりとり（{format_date(last)}）から{days}日たっています。"
+                "履歴の中の「明日」「来週」などは、その日を基準にした表現です。"
+            )
+    return note
 
 
 def render_transcript(
@@ -265,7 +284,7 @@ class PromptBuilder:
             "speech": render_speech(persona),
             "relationship": render_relationship(persona),
             "memories": render_memories(memories),
-            "short_term": render_short_term_note(history),
+            "short_term": render_short_term_note(history, now),
             "first_person": persona.speech.first_person,
             "second_person": persona.speech.second_person,
             "schedule": render_schedule(persona, now),
@@ -281,7 +300,13 @@ class PromptBuilder:
         return _merge_consecutive(messages)
 
     def extraction_messages(
-        self, persona: Persona, *, history: Sequence[HistoryItem], user_message: str
+        self,
+        persona: Persona,
+        *,
+        history: Sequence[HistoryItem],
+        user_message: str,
+        now: datetime,
+        threshold: float,
     ) -> list[ChatMessage]:
         recent = history[-EXTRACTION_CONTEXT_MESSAGES:]
         focus = "\n".join(f"- {f}" for f in persona.memory_focus) or "（特になし）"
@@ -291,6 +316,9 @@ class PromptBuilder:
             "second_person": persona.speech.second_person,
             "recent_context": render_transcript(recent, persona),
             "user_message": user_message,
+            # 「来週」「明日」を絶対日付に直すための現在日時と、保存される重要度の下限
+            "now": format_now(now),
+            "threshold": f"{threshold:.2f}".rstrip("0").rstrip("."),
         }
         return self._templates["memory_extraction"].render(values)
 

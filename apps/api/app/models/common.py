@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict
 
 ApiErrorCodeLiteral = Literal[
     "unauthorized",
@@ -19,6 +19,28 @@ ApiErrorCodeLiteral = Literal[
 
 # ISO 8601（UTC, 例: 2026-09-25T03:04:05.123456Z）で出力される日時
 IsoDateTime = datetime
+
+INVALID_CHARS_MESSAGE: Final[str] = "使用できない文字（制御文字）が含まれています。"
+_ALLOWED_CONTROL_CHARS: Final[frozenset[str]] = frozenset("\n\r\t")
+
+
+def reject_control_chars(value: str) -> str:
+    """改行・タブ以外の制御文字（U+0000〜U+001F, U+007F）とサロゲートを拒否する。
+
+    Postgres の text / jsonb は U+0000 を保存できず、監査ログ・LLM 呼び出しの後に 500 になるため、
+    利用者が書く本文は入口（422 validation_error）で弾く。
+    """
+    for ch in value:
+        if ch in _ALLOWED_CONTROL_CHARS:
+            continue
+        code = ord(ch)
+        if code < 0x20 or code == 0x7F or 0xD800 <= code <= 0xDFFF:
+            raise ValueError(INVALID_CHARS_MESSAGE)
+    return value
+
+
+# 利用者が入力する本文（メッセージ・コメント・記憶）に付ける検証
+NoControlChars = AfterValidator(reject_control_chars)
 
 
 class ApiModel(BaseModel):

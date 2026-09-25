@@ -280,6 +280,10 @@ PERSONAL_WORDS: Final[tuple[str, ...]] = (
     "入院",
     "風邪",
     "体調",
+    "眠れ",
+    "寝不足",
+    "睡眠",
+    "頭痛",
     "日課",
     "毎日",
     "毎朝",
@@ -327,9 +331,18 @@ _CATEGORY_WEIGHTS: Final[dict[str, tuple[tuple[str, ...], float]]] = {
 _BASE_IMPORTANCE: Final[float] = 0.3
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[。！？!?\n])")
 _QUESTION_END: Final = re.compile(r"[？?]\s*$")
-_TRAILING_PUNCT: Final = re.compile(r"[\s。、．，！？!?…〜~ー♪wｗ笑]+$")
+# 文末から落とすもの（strip_trailing で繰り返し適用する）。語の一部になりうる文字は条件付きで落とす
+_TRAILING_RULES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"[\s。、．，,.！？!?…‥〜~～♪☆★・]+$"),
+    re.compile(r"[（(]笑[）)]$"),
+    re.compile(r"(?<![\u4e00-\u9fff\u3005])笑+$"),  # 「楽しかった笑」の笑（「爆笑」「苦笑」は残す）
+    re.compile(r"(?<![A-Za-z])[wｗ]+$"),  # 「楽しかったw」の w（英単語の末尾は残す）
+    re.compile(r"(?<![\u30a1-\u30fa\u30fc])ー+$"),  # かな・漢字の後の伸ばし（「ねー」「楽しかったー」）
+    re.compile(r"(?<=[\u30a1-\u30fa]ー)ー+$"),  # カタカナ語の後の余分な伸ばし（「サッカーーー」→「サッカー」）
+)
+# 記憶の引用から落とす文末表現（語の一部を削らないよう、単独の「な/の/わ/さ」は落とさない）
 _SENTENCE_ENDINGS: Final = re.compile(
-    r"(?:なんだよね|なんだよ|なんだ|んだよね|んだよ|んだ|だよね|だよ|よね|かな|よ|ね|な|の|わ|さ)$"
+    r"(?:なんだよね|なんだよ|なんだ|なのよね|なのよ|なのね|なの|んだよね|んだよ|んだ|だよね|だよ|だわ|のよ|よね|(?<!さ)かな|よ|ね)$"
 )
 _QUOTED: Final = re.compile(r"「(.+)」")
 # 内容語の連続（漢字 / カタカナ / 英数字をそれぞれ別の語として扱う: 「ラーメン食べた」→「ラーメン」「食」）
@@ -338,6 +351,23 @@ _KANJI: Final = re.compile(r"[\u4e00-\u9fff]")
 # 話題として拾わない語（時間表現など）
 _TOPIC_STOP: Final[frozenset[str]] = frozenset(
     {"今日", "明日", "昨日", "来週", "今週", "先週", "今度", "週末", "最近", "今年", "来年", "毎日", "ユーザー"}
+)
+_TOPIC_STOP_RE: Final = re.compile("|".join(re.escape(w) for w in sorted(_TOPIC_STOP, key=len, reverse=True)))
+# 記録日を添えて思い出すべき相対的な時間表現（「来週」と言われたのが何日も前なら日付を付けて話す）
+_RELATIVE_TIME_WORDS: Final[tuple[str, ...]] = (
+    "来週",
+    "今週",
+    "明日",
+    "あした",
+    "明後日",
+    "今度",
+    "週末",
+    "来月",
+    "今日",
+    "今夜",
+    "今朝",
+    "昨日",
+    "さっき",
 )
 _SINGLE_KANJI_STOP: Final[frozenset[str]] = frozenset(
     "今何日時人事方気前後中上下私僕俺君手目年月分回度本思言行来見話出入会食寝家円的大小多少良悪"
@@ -368,6 +398,17 @@ def _pick[T](options: Sequence[T], seed: int, salt: int = 0) -> T:
     return options[(seed + salt * 7919) % len(options)]
 
 
+def strip_trailing(text: str) -> str:
+    """文末の句読点・記号・笑い（w / 笑）・伸ばし棒を落とす。カタカナ語の長音（「サッカー」）は残す。"""
+    previous: str | None = None
+    value = text
+    while value != previous:
+        previous = value
+        for rule in _TRAILING_RULES:
+            value = rule.sub("", value)
+    return value
+
+
 def split_sentences(text: str) -> list[str]:
     return [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
 
@@ -389,7 +430,7 @@ def mock_extract(user_message: str) -> list[dict[str, Any]]:
     for sentence in split_sentences(user_message):
         if _QUESTION_END.search(sentence):
             continue
-        core = _TRAILING_PUNCT.sub("", sentence).strip()
+        core = strip_trailing(sentence).strip()
         if len(core) < 4:
             continue
         importance, category = score_sentence(core)
@@ -405,22 +446,27 @@ def memory_core(content: str) -> str:
     quoted = _QUOTED.search(content)
     core = quoted.group(1) if quoted else content
     core = re.sub(r"^ユーザー(?:は|が|の)", "", core)
-    core = _TRAILING_PUNCT.sub("", core)
+    core = strip_trailing(core)
     core = _SENTENCE_ENDINGS.sub("", core)
-    return _TRAILING_PUNCT.sub("", core).strip()
+    return strip_trailing(core).strip()
 
 
 def content_tokens(text: str) -> set[str]:
+    """内容語（漢字・カタカナ・英数字の連続）とその2文字断片。時間表現（今日・来週…）は含めない。
+
+    「今日は雨だったね」と「今日も仕事で疲れたよ」が「今日」だけで結び付かないようにする。
+    """
     tokens: set[str] = set()
     for run in _CONTENT_RUN.findall(text):
-        if run in {"ユーザー"}:
-            continue
-        if len(run) == 1:
-            if run not in _SINGLE_KANJI_STOP and _KANJI.match(run):
-                tokens.add(run)
-            continue
-        tokens.add(run)
-        tokens.update(run[i : i + 2] for i in range(len(run) - 1))
+        for part in _TOPIC_STOP_RE.split(run):
+            if not part:
+                continue
+            if len(part) == 1:
+                if part not in _SINGLE_KANJI_STOP and _KANJI.match(part):
+                    tokens.add(part)
+                continue
+            tokens.add(part)
+            tokens.update(part[i : i + 2] for i in range(len(part) - 1))
     return tokens
 
 
@@ -460,18 +506,67 @@ _SEGMENT_TIME: Final = re.compile(
 )
 
 
+_WEEKDAY_CHARS: Final[str] = "月火水木金土日"  # datetime.weekday() の順
+_SCHEDULE_HEAD: Final = re.compile(r"^[^:：\d]*[:：]")
+_HEAD_PARENS: Final = re.compile(r"[（(]([^）)]*)[）)]")
+_DAY_RANGE: Final = re.compile(r"([月火水木金土日])(?:曜日?)?\s*[〜~～\-–]\s*([月火水木金土日])(?:曜日?)?")
+_DAY_SINGLE: Final = re.compile(r"([月火水木金土日])曜")
+_WEEKDAY_PREFIXES: Final[tuple[str, ...]] = ("平日",)
+_HOLIDAY_PREFIXES: Final[tuple[str, ...]] = ("休日", "土日", "週末", "休み")
+
+
+def parse_schedule_days(head: str) -> frozenset[int] | None:
+    """行頭の見出しのかっこ内の曜日指定を解釈する（月=0〜日=6）。指定が無ければ None。
+
+    例: 「平日（木〜月）」「平日（金〜水）」（週をまたぐ範囲）/「休日（火曜・水曜）」/「休日（主に土日）」/
+    「平日（サロン出勤日。火曜以外）」。「七日に一度」のように曜日が読み取れないものは None。
+    """
+    days: set[int] = set()
+    for spec in _HEAD_PARENS.findall(head):
+        found: set[int] = set()
+        for start, end in _DAY_RANGE.findall(spec):
+            day, last = _WEEKDAY_CHARS.index(start), _WEEKDAY_CHARS.index(end)
+            found.add(day)
+            while day != last:
+                day = (day + 1) % 7
+                found.add(day)
+        rest = _DAY_RANGE.sub("", spec)
+        found.update(_WEEKDAY_CHARS.index(d) for d in _DAY_SINGLE.findall(rest))
+        if "土日" in rest:
+            found.update({5, 6})
+        if found and "以外" in rest:
+            found = set(range(7)) - found
+        days |= found
+    return frozenset(days) if days else None
+
+
+def _schedule_line(schedule_pattern: str, weekday: int) -> str | None:
+    """今日の曜日に当てはまる「平日」/「休日」の行を選ぶ。
+
+    かっこ内の曜日指定（「平日（木〜月）」など）を優先し、指定の無い行は月〜金=平日・土日=休日とみなす。
+    """
+    candidates: list[tuple[str, frozenset[int] | None]] = []
+    for raw in schedule_pattern.splitlines():
+        line = raw.strip()
+        if not line.startswith(_WEEKDAY_PREFIXES + _HOLIDAY_PREFIXES):
+            continue
+        head = _SCHEDULE_HEAD.match(line)
+        candidates.append((line, parse_schedule_days(head.group(0)) if head else None))
+    explicit = next((line for line, days in candidates if days is not None and weekday in days), None)
+    if explicit is not None:
+        return explicit
+    unspecified = [line for line, days in candidates if days is None]
+    target = _HOLIDAY_PREFIXES if weekday >= 5 else _WEEKDAY_PREFIXES
+    return next((line for line in unspecified if line.startswith(target)), unspecified[0] if unspecified else None)
+
+
 def current_activity(schedule_pattern: str, now: datetime) -> str | None:
     """schedule_pattern（「平日: 9:00出社 / 19:00退社 ...」）から現在時刻の過ごし方を推定する。"""
     local = now.astimezone(JST)
-    weekend = local.weekday() >= 5
-    target_prefixes = ("休日", "土日", "週末", "休み") if weekend else ("平日",)
-    line = next(
-        (ln for ln in schedule_pattern.splitlines() if ln.strip().startswith(target_prefixes)),
-        None,
-    )
+    line = _schedule_line(schedule_pattern, local.weekday())
     if line is None:
         return None
-    body = re.split(r"[:：]", line, maxsplit=1)[1] if re.search(r"^[^:：\d]*[:：]", line) else line
+    body = re.split(r"[:：]", line, maxsplit=1)[1] if _SCHEDULE_HEAD.search(line) else line
     segments = [s.strip() for s in re.split(r"[/／]", body) if s.strip()]
     if not segments:
         return None
@@ -518,12 +613,17 @@ def _greeting(message: str, hour: int, sp: str) -> str | None:
     return None
 
 
-def _memory_reference(memory: RetrievedMemory, seed: int) -> str:
+def _memory_reference(memory: RetrievedMemory, seed: int, now: datetime) -> str:
     core = memory_core(memory.content)
+    # 「来週」「明日」などを含む記憶が前日以前のものなら、言われた日を添える（今も「来週」扱いしない）
+    created = memory.created_at.astimezone(JST)
+    when = ""
+    if (now.astimezone(JST).date() - created.date()).days >= 1 and any(w in core for w in _RELATIVE_TIME_WORDS):
+        when = f"{created.month}月{created.day}日に"
     options = (
-        f"そういえば、{core}って言ってたよね。",
-        f"{core}って話してくれたの、ちゃんと覚えてるよ。",
-        f"前に{core}って言ってたけど、あれからどう？",
+        f"そういえば、{when}{core}って言ってたよね。",
+        f"{when}{core}って話してくれたの、ちゃんと覚えてるよ。",
+        f"{when or '前に'}{core}って言ってたけど、あれからどう？",
     )
     text = _pick(options, seed, 1)
     if memory.is_secret:
@@ -531,12 +631,17 @@ def _memory_reference(memory: RetrievedMemory, seed: int) -> str:
     return text
 
 
-def _topic_word(message: str) -> str | None:
-    """ユーザー発言から話題語を1つ選ぶ（長い語を優先。時間表現・一般的な1文字漢字は除く）。"""
+# 送り仮名が続く述語の語幹（「お酒好き」→「酒好」、「食べ物」→「食」にならないよう区切る）
+_PREDICATE_STEM: Final = re.compile(r"[好嫌](?=[きい])|[食飲](?=[べみんま])")
+
+
+def _topic_word(message: str, exclude: Sequence[str] = ()) -> str | None:
+    """ユーザー発言から話題語を1つ選ぶ（長い語を優先。時間表現・一般的な1文字漢字・キャラ名は除く）。"""
     candidates: list[str] = [
         run
-        for run in _CONTENT_RUN.findall(message)
+        for run in _CONTENT_RUN.findall(_PREDICATE_STEM.sub(" ", message))
         if run not in _TOPIC_STOP
+        and run not in exclude
         and (len(run) >= 2 or (_KANJI.match(run) is not None and run not in _SINGLE_KANJI_STOP))
     ]
     if not candidates:
@@ -549,14 +654,25 @@ _GREETING_WORDS: Final = re.compile(
 )
 
 
-def _has_substance(message: str) -> bool:
+# 「いま何してる？」系の質問（キャラの現在の過ごし方を答える）
+_ACTIVITY_QUESTION: Final = re.compile(r"(?:何|なに|なん)(?:して|やって)|(?:今|いま)(?:何|なに|なん|どこ)")
+
+
+def _has_substance(message: str, exclude: Sequence[str] = ()) -> bool:
     """あいさつ語を除いた本文に、反応すべき内容（話題語・質問・感情語）があるか。"""
     stripped = _GREETING_WORDS.sub("", message)
     if _QUESTION_END.search(stripped):
         return True
     if any(w in stripped for w in (*_NEGATIVE_WORDS, *_POSITIVE_WORDS)):
         return True
-    return _topic_word(stripped) is not None
+    return _topic_word(stripped, exclude) is not None
+
+
+def _asks_current_activity(message: str) -> bool:
+    """「いま何してるの？」のように、キャラが今なにをしているかを尋ねる発言か。"""
+    if _ACTIVITY_QUESTION.search(message) is None:
+        return False
+    return _QUESTION_END.search(message) is not None or message.rstrip().endswith(("の", "か"))
 
 
 def _reaction(message: str, seed: int, persona: Persona, now: datetime) -> str:
@@ -582,17 +698,31 @@ def _reaction(message: str, seed: int, persona: Persona, now: datetime) -> str:
             seed,
             3,
         )
-    if _QUESTION_END.search(message) or message.rstrip().endswith(("の", "か")):
+    topic = _topic_word(message, (persona.name,))
+    if _asks_current_activity(message):
         activity = current_activity(persona.schedule_pattern, now) if persona.schedule_pattern else None
         if activity:
+            label = f"「{activity}」" if activity.endswith("時間") else f"「{activity}」の時間"
             return _pick(
                 (
-                    f"{fp}？いまは「{activity}」って感じの時間かな。",
-                    f"えっとね、{fp}はいま「{activity}」の時間だよ。",
+                    f"{fp}？いまは{label}って感じかな。",
+                    f"えっとね、{fp}はいま{label}だよ。",
                 ),
                 seed,
                 4,
             )
+    if _QUESTION_END.search(message) and topic:
+        # 過ごし方以外の質問は、話題語で受けて聞き返す（「美咲はお酒好き？」→「酒のこと？…」）
+        return _pick(
+            (
+                f"{topic}のこと？うーん、{sp}はどう思う？",
+                f"{topic}かあ。{sp}はどうなの？",
+                f"えっとね…{topic}の話なら、{fp}もいろいろ話したいな。",
+            ),
+            seed,
+            9,
+        )
+    if _QUESTION_END.search(message) or _asks_current_activity(message):
         return _pick(
             {
                 "morning": (f"{fp}はさっき起きたところ。まだちょっと眠いかも。",),
@@ -603,7 +733,6 @@ def _reaction(message: str, seed: int, persona: Persona, now: datetime) -> str:
             seed,
             5,
         )
-    topic = _topic_word(message)
     if topic:
         kw = topic
         return _pick(
@@ -633,11 +762,14 @@ def mock_chat_reply(hints: MockHints) -> str:
         parts.append(greeting)
     memory = pick_relevant_memory(message, hints.memories)
     if memory is not None:
-        parts.append(_memory_reference(memory, seed))
-    elif greeting is None or _has_substance(message):
+        parts.append(_memory_reference(memory, seed, hints.now))
+    elif greeting is None or _has_substance(message, (persona.name,)):
         parts.append(_reaction(message, seed, persona, hints.now))
     if len(parts) < 3 and persona.speech.examples:
-        parts.append(_pick(persona.speech.examples, seed, 8))
+        # 直前の文と書き出しが同じ口調例（「わたし？…」が2回続く等）は避ける
+        openings = {part[:3] for part in parts}
+        examples = [ex for ex in persona.speech.examples if ex[:3] not in openings] or persona.speech.examples
+        parts.append(_pick(examples, seed, 8))
     return "".join(parts[:3])
 
 
@@ -646,11 +778,11 @@ def mock_summary(hints: MockHints) -> str:
     picked: list[str] = []
     for body in user_lines:
         for sentence in split_sentences(body):
-            core = _TRAILING_PUNCT.sub("", sentence).strip()
+            core = strip_trailing(sentence).strip()
             if core and score_sentence(core)[1] is not None and core not in picked:
                 picked.append(core[:40])
     if not picked:
-        picked = [_TRAILING_PUNCT.sub("", b).strip()[:40] for b in user_lines[:3] if b.strip()]
+        picked = [strip_trailing(b).strip()[:40] for b in user_lines[:3] if b.strip()]
     quoted = "".join(f"「{p}」" for p in picked[:6])
     summary = f"これまでの{len(hints.history)}件のやりとりで、ユーザーは{quoted}と話していた。"
     return summary[:400]

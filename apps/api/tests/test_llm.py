@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -15,16 +15,22 @@ from app.services.llm import (
     MockLLM,
     OpenAICompatibleLLM,
     clean_reply,
+    content_tokens,
     current_activity,
     memory_core,
+    mock_chat_reply,
     mock_extract,
     parse_json_object,
+    parse_schedule_days,
     pick_relevant_memory,
+    strip_trailing,
 )
 from app.services.memory import parse_candidates, parse_summary
 from app.services.persona import load_persona_file
 from app.services.types import RetrievedMemory
-from tests.conftest import FIXTURES_DIR, make_settings
+from tests.conftest import FIXTURES_DIR, REPO_ROOT, make_settings
+
+PERSONAS_DIR = REPO_ROOT / "packages" / "personas"
 
 PERSONA = load_persona_file(FIXTURES_DIR / "personas" / "test_persona.yaml")
 NOW = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)  # JST 木曜 21:00
@@ -138,6 +144,94 @@ def test_memory_core_and_relevance() -> None:
     assert memory_core("ユーザーは猫を飼っている。") == "猫を飼っている"
     summary = _memory("大阪の話をした", tags=("summary",))
     assert pick_relevant_memory("大阪行きたい", [summary]) is None
+
+
+def test_mock_memory_text_keeps_long_vowels_and_word_endings() -> None:
+    items = mock_extract("趣味はサッカー。好きな飲み物はコーヒー。")
+    assert [i["content"] for i in items] == [
+        "ユーザーは「趣味はサッカー」と話していた",
+        "ユーザーは「好きな飲み物はコーヒー」と話していた",
+    ]
+    assert memory_core("ユーザーは「猫が好きなの」と話していた") == "猫が好き"
+    assert memory_core("ユーザーは「好きな魚はさかな」と話していた") == "好きな魚はさかな"
+    assert strip_trailing("楽しかったーーー！！w") == "楽しかった"
+    assert strip_trailing("サッカーーー！") == "サッカー"
+    assert strip_trailing("面白かった（笑）") == "面白かった"
+    assert strip_trailing("昨日は爆笑") == "昨日は爆笑"
+    assert strip_trailing("new") == "new"
+
+
+def test_mock_extract_health_and_time_words() -> None:
+    sleep = mock_extract("最近眠れないんだ")
+    assert [i["content"] for i in sleep] == ["ユーザーは「最近眠れないんだ」と話していた"]
+    assert sleep[0]["importance"] >= 0.6
+    # 時間表現だけの重なりでは記憶を持ち出さない
+    assert "今日" not in content_tokens("今日は雨だったね")
+    assert content_tokens("来週大阪に出張") >= {"大阪", "出張"}
+    tired = _memory("ユーザーは「今日も仕事で疲れたよ」と話していた")
+    assert pick_relevant_memory("今日は雨だったね", [tired]) is None
+    assert pick_relevant_memory("仕事やめたい", [tired]) is tired
+
+
+def test_parse_schedule_days() -> None:
+    assert parse_schedule_days("平日（水族館の出勤日。木〜月）:") == frozenset({3, 4, 5, 6, 0})
+    assert parse_schedule_days("平日（金〜水）:") == frozenset({4, 5, 6, 0, 1, 2})
+    assert parse_schedule_days("休日（火曜・水曜）:") == frozenset({1, 2})
+    assert parse_schedule_days("休日（ライブの日。主に土日）:") == frozenset({5, 6})
+    assert parse_schedule_days("平日（サロン出勤日。火曜以外）:") == frozenset({0, 2, 3, 4, 5, 6})
+    assert parse_schedule_days("休日（七日に一度の安息日）:") is None
+    assert parse_schedule_days("平日:") is None
+
+
+def test_current_activity_follows_persona_workdays() -> None:
+    osananajimi = load_persona_file(PERSONAS_DIR / "osananajimi.yaml")  # 出勤: 木〜月 / 休み: 火・水
+    tsundere = load_persona_file(PERSONAS_DIR / "tsundere.yaml")  # 出勤: 金〜水 / 休み: 木
+    saturday_15 = datetime(2026, 9, 26, 6, 0, tzinfo=UTC)
+    thursday_15 = datetime(2026, 9, 24, 6, 0, tzinfo=UTC)
+    tuesday_15 = datetime(2026, 9, 22, 6, 0, tzinfo=UTC)
+    assert current_activity(osananajimi.schedule_pattern, saturday_15) == "展示・ふれあいガイド"
+    assert current_activity(osananajimi.schedule_pattern, tuesday_15) == "午後は兄の漁の手伝いか、町の食堂で定食"
+    assert current_activity(tsundere.schedule_pattern, thursday_15) == "食べ歩き・製菓道具の専門店めぐり"
+    assert current_activity(tsundere.schedule_pattern, saturday_15) == "遅めのまかない"
+
+
+def test_mock_reaction_only_answers_activity_when_asked() -> None:
+    misaki = load_persona_file(PERSONAS_DIR / "ol_oneesan.yaml")
+    noon = datetime(2026, 9, 24, 3, 30, tzinfo=UTC)  # JST 木 12:30 → 「同僚とランチ」
+    question = mock_chat_reply(MockHints(persona=misaki, now=noon, user_message="美咲はお酒好き？"))
+    assert "ランチ" not in question
+    assert "酒" in question
+    statement = mock_chat_reply(MockHints(persona=misaki, now=noon, user_message="好きな食べ物はマグロの刺身なの"))
+    assert "ランチ" not in statement
+    assert "マグロ" in statement
+    activity = mock_chat_reply(MockHints(persona=misaki, now=noon, user_message="今なにしてるの？"))
+    assert "同僚とランチ" in activity
+    # 書き出しが同じ口調例（「わたし？…」）を続けない
+    assert activity.count(f"{misaki.speech.first_person}？") <= 1
+    elf = load_persona_file(PERSONAS_DIR / "isekai_elf.yaml")
+    night = datetime(2026, 9, 24, 13, 0, tzinfo=UTC)  # JST 22:00
+    elf_reply = mock_chat_reply(MockHints(persona=elf, now=night, user_message="今なにしてるの？"))
+    assert "時間」の時間" not in elf_reply
+
+
+def test_mock_recall_dates_old_relative_memories() -> None:
+    old = RetrievedMemory(
+        id=uuid.uuid4(),
+        content="ユーザーは「来週大阪に出張するんだ」と話していた",
+        importance=0.9,
+        tags=(),
+        similarity=0.4,
+        created_at=NOW - timedelta(days=20),
+    )
+    reply = mock_chat_reply(MockHints(persona=PERSONA, now=NOW, user_message="大阪のおすすめある？", memories=(old,)))
+    assert "9月4日に来週大阪に出張する" in reply
+    fresh = RetrievedMemory(
+        id=old.id, content=old.content, importance=0.9, tags=(), similarity=0.4, created_at=NOW - timedelta(hours=1)
+    )
+    same_day = mock_chat_reply(
+        MockHints(persona=PERSONA, now=NOW, user_message="大阪のおすすめある？", memories=(fresh,))
+    )
+    assert "月" not in same_day.split("来週")[0]
 
 
 def test_clean_reply() -> None:

@@ -29,11 +29,19 @@ kill_timeout = "30s"
   LLM_MODE = "live"
   LLM_BASE_URL = "https://openrouter.ai/api/v1"
   LLM_MODEL = "deepseek/deepseek-chat"
-  # EMBEDDING_API_KEY を用意したら "live" に変更する（hash は開発用の簡易埋め込み）
+  # EMBEDDING_API_KEY を用意したら "live" に変更する（hash は開発用の簡易埋め込み）。
+  # 切り替え（EMBEDDING_MODEL の変更も同じ）後は、既存の記憶を必ず再埋め込みすること。実行するまで
+  # 既存の記憶の検索・重複排除が正しく動かない（hash と live はベクトル空間が別で、次元数が同じためエラーにならない）:
+  #   fly secrets set --config apps/api/fly.toml EMBEDDING_API_KEY=...   # EMBEDDING_MODE を "live" にしてデプロイ
+  #   fly ssh console --config apps/api/fly.toml -C "/opt/venv/bin/python /app/scripts/reembed_memories.py"
+  # 手順の詳細は apps/api/README.md「埋め込み設定の切り替え」
   EMBEDDING_MODE = "hash"
   # Supavisor の transaction mode（:6543）経由で接続する場合は 0 にする
   DATABASE_STATEMENT_CACHE_SIZE = "100"
   AUDIT_LOG_PROMPTS = "true"
+  # Fly のエッジ（プロキシ）経由の X-Forwarded-Proto を信頼する。クライアントIPは偽装できない Fly-Client-IP を記録する
+  FORWARDED_ALLOW_IPS = "*"
+  CLIENT_IP_HEADER = "Fly-Client-IP"
 
 [http_service]
   internal_port = 8000

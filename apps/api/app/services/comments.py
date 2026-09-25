@@ -232,6 +232,21 @@ class CommentService:
         if not text:
             raise LLMError("empty comment reply")
 
+        # 生成のメタデータ（モデル・トークン使用量）は、出力が差し止められた場合も comment.generate に残す（H6）
+        payload: dict[str, Any] = {
+            "comment_id": None,
+            "post_id": post["id"],
+            "parent_comment_id": parent["id"],
+            "body": None,
+            "moderated": False,
+            "trigger": trigger,
+            "model": result.model,
+            "latency_ms": result.latency_ms,
+            "usage": result.usage,
+        }
+        if self._settings.audit_log_prompts:
+            payload["prompt_messages"] = messages
+
         check = self._moderator.check(text, extra_ng_words=persona.speech.ng_words)
         if check.flagged:
             await self._audit.log(
@@ -248,6 +263,8 @@ class CommentService:
                     "text": text,
                 },
             )
+            payload["moderated"] = True
+            await self._audit.log("comment.generate", user_id=requested_by, character_id=character.id, payload=payload)
             return None
 
         row = await self._pool.fetchrow(
@@ -256,18 +273,7 @@ class CommentService:
         if row is None:  # pragma: no cover
             raise RuntimeError("comment insert returned no row")
         comment = comment_dto(row)
-        payload: dict[str, Any] = {
-            "comment_id": comment.id,
-            "post_id": comment.post_id,
-            "parent_comment_id": comment.parent_comment_id,
-            "body": comment.body,
-            "trigger": trigger,
-            "model": result.model,
-            "latency_ms": result.latency_ms,
-            "usage": result.usage,
-        }
-        if self._settings.audit_log_prompts:
-            payload["prompt_messages"] = messages
+        payload.update({"comment_id": comment.id, "body": comment.body})
         await self._audit.log("comment.generate", user_id=requested_by, character_id=character.id, payload=payload)
         return comment
 

@@ -14,6 +14,10 @@
 12. 中期要約（BackgroundTask）
 13. audit chat.response
 LLM 障害時は audit llm.error を記録し 503。メッセージは保存しない。
+
+全体の上限は `CHAT_DEADLINE_SECONDS`（Web の CHAT_TIMEOUT_MS より短い）。5〜8 の応答生成がこれを超えたら
+503（何も保存しない）。記憶抽出の待ちと記憶の保存は残り時間で打ち切り、チャット自体は成功させる。
+クライアントが諦めた後に遅れて保存され、再送で二重になることを防ぐ。
 """
 
 from __future__ import annotations
@@ -38,15 +42,16 @@ from app.services.audit import AuditLogger
 from app.services.characters import MESSAGE_COLUMNS, character_from_row, message_dto
 from app.services.embedding import EmbeddingError
 from app.services.llm import LLMClient, LLMError, LLMRequest, MockHints, clean_reply
-from app.services.memory import MemoryEngine
+from app.services.memory import ExtractionResult, MemoryEngine, SavedMemories
 from app.services.moderation import ModerationResult, Moderator
 from app.services.persona import Persona, PersonaRepository
 from app.services.prompt import PromptBuilder
-from app.services.types import MemoryCandidate
 
 logger = get_logger("chat")
 
 REPLY_MAX_CHARS: Final[int] = 2000
+# 返答生成後、記憶の保存に最低限与える秒数（締め切り間際でも数秒は待つ。Web 側の上限には余裕がある）
+SAVE_MEMORIES_MIN_SECONDS: Final[float] = 3.0
 
 _CONVERSATION_SQL: Final[str] = """
 select ch.id, ch.handle, ch.name, ch.avatar_url, ch.bio, ch.persona_key, ch.system_prompt, ch.is_active
@@ -86,6 +91,8 @@ class ChatService:
 
     async def chat(self, user: CurrentUser, request: ChatRequest, background: BackgroundTasks) -> ChatResponse:
         started = time.perf_counter()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._settings.chat_deadline_seconds
         now = datetime.now(UTC)
         conversation_id = request.conversation_id
 
@@ -125,44 +132,64 @@ class ChatService:
                 started=started,
             )
 
-        # 5〜6. 短期・長期メモリ
-        async with self._pool.acquire() as conn:
-            history = await self._memory.fetch_short_term(conn, conversation_id)
-        query_embedding = await self._memory.embed_query(request.message)
-        async with self._pool.acquire() as conn:
-            memories = await self._memory.retrieve(
-                conn, user_id=user.id, character_id=character.id, query_embedding=query_embedding
-            )
-
-        # 7. プロンプト
-        prompt_messages = self._prompts.chat_messages(
-            persona, memories=memories, history=history, user_message=request.message, now=now
-        )
-        llm_request = LLMRequest(
-            purpose="chat",
-            messages=prompt_messages,
-            temperature=self._settings.llm_temperature,
-            max_tokens=self._settings.llm_max_tokens,
-            hints=MockHints(
-                persona=persona,
-                now=now,
-                user_message=request.message,
-                memories=tuple(memories),
-                history=tuple(history),
-            ),
-        )
-
-        # 8. 応答生成と記憶抽出を並行実行
-        extraction = asyncio.create_task(
-            self._memory.extract_candidates(persona, history=history, user_message=request.message, now=now)
-        )
+        # 5〜8. 締め切り（CHAT_DEADLINE_SECONDS）付きで、メモリ取得・プロンプト組立・応答生成を行う
+        extraction: asyncio.Task[ExtractionResult] | None = None
+        budget = asyncio.timeout_at(deadline)
         try:
-            result = await self._llm.complete(llm_request)
-            reply = clean_reply(result.text, persona.name, max_chars=REPLY_MAX_CHARS)
-            if not reply:
-                raise LLMError("empty reply after cleanup")
-        except LLMError as exc:
-            await _cancel(extraction)
+            async with budget:
+                # 5〜6. 短期・長期メモリ
+                async with self._pool.acquire() as conn:
+                    history = await self._memory.fetch_short_term(conn, conversation_id)
+                query_embedding = await self._memory.embed_query(request.message)
+                async with self._pool.acquire() as conn:
+                    memories = await self._memory.retrieve(
+                        conn, user_id=user.id, character_id=character.id, query_embedding=query_embedding
+                    )
+
+                # 7. プロンプト
+                prompt_messages = self._prompts.chat_messages(
+                    persona, memories=memories, history=history, user_message=request.message, now=now
+                )
+                llm_request = LLMRequest(
+                    purpose="chat",
+                    messages=prompt_messages,
+                    temperature=self._settings.llm_temperature,
+                    max_tokens=self._settings.llm_max_tokens,
+                    hints=MockHints(
+                        persona=persona,
+                        now=now,
+                        user_message=request.message,
+                        memories=tuple(memories),
+                        history=tuple(history),
+                    ),
+                )
+
+                # 8. 応答生成と記憶抽出を並行実行
+                extraction = asyncio.create_task(
+                    self._memory.extract_candidates(
+                        persona,
+                        history=history,
+                        user_message=request.message,
+                        now=now,
+                        user_id=user.id,
+                        character_id=character.id,
+                        conversation_id=conversation_id,
+                    )
+                )
+                result = await self._llm.complete(llm_request)
+                reply = clean_reply(result.text, persona.name, max_chars=REPLY_MAX_CHARS)
+                if not reply:
+                    raise LLMError("empty reply after cleanup")
+        except (LLMError, TimeoutError) as exc:
+            if isinstance(exc, TimeoutError) and not budget.expired():
+                raise  # 締め切り以外の TimeoutError（DB 接続待ちなど）は 500 として扱う
+            if extraction is not None:
+                await _cancel(extraction)
+            if isinstance(exc, LLMError):
+                error, status_code, attempts = str(exc), exc.status_code, exc.attempts
+            else:
+                error = f"deadline exceeded ({self._settings.chat_deadline_seconds:g}s)"
+                status_code, attempts = None, None
             await self._audit.log(
                 "llm.error",
                 user_id=user.id,
@@ -170,16 +197,24 @@ class ChatService:
                 payload={
                     "purpose": "chat",
                     "conversation_id": conversation_id,
-                    "error": str(exc),
-                    "status_code": exc.status_code,
-                    "attempts": exc.attempts,
+                    "error": error,
+                    "status_code": status_code,
+                    "attempts": attempts,
+                    "elapsed_ms": int((time.perf_counter() - started) * 1000),
                 },
             )
             raise ApiError(503, "llm_unavailable") from exc
         except BaseException:
-            await _cancel(extraction)
+            if extraction is not None:
+                await _cancel(extraction)
             raise
-        candidates: list[MemoryCandidate] = await extraction
+        extracted = await self._await_extraction(
+            extraction,
+            remaining_seconds=deadline - loop.time(),
+            user_id=user.id,
+            character_id=character.id,
+            conversation_id=conversation_id,
+        )
 
         # 9. Gate #1（出力）
         moderated = False
@@ -199,16 +234,17 @@ class ChatService:
         # 10. 保存（1トランザクション）
         user_message, character_message = await self._save_messages(conversation_id, request.message, reply)
 
-        # 11. 記憶の保存（失敗してもチャット自体は成功扱い。ただしログは残す）
-        memories_created: list[UUID] = []
+        # 11. 記憶の保存（失敗・時間切れでもチャット自体は成功扱い。ただしログは残す）
+        saved = SavedMemories()
         try:
-            memories_created = await self._memory.save_candidates(
-                user_id=user.id,
-                character_id=character.id,
-                source_message_id=user_message.id,
-                candidates=candidates,
-            )
-        except (EmbeddingError, asyncpg.PostgresError, OSError) as exc:
+            async with asyncio.timeout(max(deadline - loop.time(), SAVE_MEMORIES_MIN_SECONDS)):
+                saved = await self._memory.save_candidates(
+                    user_id=user.id,
+                    character_id=character.id,
+                    source_message_id=user_message.id,
+                    candidates=extracted.candidates,
+                )
+        except (EmbeddingError, asyncpg.PostgresError, OSError, TimeoutError) as exc:
             logger.error(
                 "failed to save extracted memories",
                 extra={"fields": {"conversation_id": str(conversation_id), "error": repr(exc)}},
@@ -238,8 +274,14 @@ class ChatService:
             "latency_ms": int((time.perf_counter() - started) * 1000),
             "usage": result.usage,
             "memories_used": memories_used,
-            "memories_created": memories_created,
-            "memory_candidates": len(candidates),
+            "memories_created": saved.created,
+            "memories_updated": saved.updated,
+            "memories_skipped_user_edited": saved.skipped_user_edited,
+            "memory_candidates": len(extracted.candidates),
+            "extraction": extracted.audit_payload(
+                threshold=self._settings.memory_importance_threshold,
+                include_prompt=self._settings.audit_log_prompts,
+            ),
             "history_messages": len(history),
             "persona_key": persona.key,
             "persona_fallback": persona.is_fallback,
@@ -252,11 +294,34 @@ class ChatService:
             message_id=character_message.id,
             reply=reply,
             memories_used=memories_used,
-            memories_created=memories_created,
+            memories_created=saved.created,
             user_message=user_message,
             character_message=character_message,
             moderated=moderated,
         )
+
+    async def _await_extraction(
+        self,
+        task: asyncio.Task[ExtractionResult],
+        *,
+        remaining_seconds: float,
+        user_id: UUID,
+        character_id: UUID,
+        conversation_id: UUID,
+    ) -> ExtractionResult:
+        """返答ができた後、記憶抽出は締め切りまでだけ待つ（間に合わなければ候補なし）。"""
+        try:
+            return await asyncio.wait_for(task, timeout=max(remaining_seconds, 0.0))
+        except TimeoutError:
+            error = f"deadline exceeded ({self._settings.chat_deadline_seconds:g}s)"
+            logger.error(
+                "memory extraction timed out; continuing without candidates",
+                extra={"fields": {"conversation_id": str(conversation_id)}},
+            )
+            await self._memory.log_extraction_error(
+                error, user_id=user_id, character_id=character_id, conversation_id=conversation_id
+            )
+            return ExtractionResult(candidates=[], error=error)
 
     async def _respond_moderated(
         self,

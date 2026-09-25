@@ -11,7 +11,7 @@ import asyncpg
 import httpx
 import pytest
 
-from app.core.logging import JsonFormatter, request_id_var
+from app.core.logging import AUDIT_LOGGER_NAME, JsonFormatter, configure_logging, request_id_var
 from app.main import create_app
 from app.services.audit import AuditLogger
 from tests.conftest import make_settings
@@ -72,3 +72,56 @@ async def test_audit_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixtu
     assert mirrored["payload"] == {"message": "hi", "request_id": "req-audit"}
     assert mirrored["request_id"] == "req-audit"
     assert "failed to write audit log" in records[1].getMessage()
+    # DB 書き込みに失敗した ERROR レコードにも本文が残る
+    failed = json.loads(JsonFormatter().format(records[1]))
+    assert failed["payload"] == {"message": "hi", "request_id": "req-audit"}
+
+
+async def test_audit_mirror_survives_warning_log_level(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("WARNING")
+    try:
+        assert logging.getLogger(AUDIT_LOGGER_NAME).getEffectiveLevel() == logging.INFO
+        audit = AuditLogger(_BrokenPool())  # type: ignore[arg-type]
+        await audit.log("chat.response", user_id=uuid.uuid4(), payload={"reply": "やっほー"})
+        lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+        mirrored = [line for line in lines if line.get("level") == "INFO" and line.get("audit")]
+        assert [m["event_type"] for m in mirrored] == ["chat.response"]
+        assert mirrored[0]["payload"]["reply"] == "やっほー"
+        errors = [line for line in lines if line.get("level") == "ERROR"]
+        assert errors[0]["payload"]["reply"] == "やっほー"
+        # 一般のロガーは LOG_LEVEL に従う
+        assert not logging.getLogger("everkano.chat").isEnabledFor(logging.INFO)
+        configure_logging("DEBUG")
+        assert logging.getLogger(AUDIT_LOGGER_NAME).getEffectiveLevel() == logging.DEBUG
+    finally:
+        configure_logging("WARNING")
+
+
+async def test_client_ip_uses_trusted_header_not_forwarded_for(caplog: pytest.LogCaptureFixture) -> None:
+    """X-Forwarded-For の先頭はクライアントが偽装できるため、信頼済みヘッダー（Fly-Client-IP）を記録する。"""
+    app = create_app(make_settings(client_ip_header="Fly-Client-IP", log_level="INFO"))
+
+    @app.get("/ping")
+    async def ping() -> dict[str, str]:
+        return {}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+        with caplog.at_level(logging.INFO, logger="everkano.access"):
+            await client.get("/ping", headers={"X-Forwarded-For": "6.6.6.6", "Fly-Client-IP": "203.0.113.7"})
+    ips = [getattr(r, "fields", {}).get("client_ip") for r in caplog.records if r.name == "everkano.access"]
+    assert ips == ["203.0.113.7"]
+
+
+async def test_client_ip_falls_back_to_peer_without_trusted_header(caplog: pytest.LogCaptureFixture) -> None:
+    app = create_app(make_settings(log_level="INFO"))
+
+    @app.get("/ping")
+    async def ping() -> dict[str, str]:
+        return {}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+        with caplog.at_level(logging.INFO, logger="everkano.access"):
+            await client.get("/ping", headers={"Fly-Client-IP": "203.0.113.7"})
+    ips = [getattr(r, "fields", {}).get("client_ip") for r in caplog.records if r.name == "everkano.access"]
+    assert len(ips) == 1
+    assert ips[0] != "203.0.113.7"

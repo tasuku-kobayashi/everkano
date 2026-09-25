@@ -32,13 +32,15 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 
 # ---- runtime ---------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS runtime
-# FORWARDED_ALLOW_IPS: Fly.io 等のリバースプロキシ配下で X-Forwarded-For / X-Forwarded-Proto を信頼する
+# FORWARDED_ALLOW_IPS: X-Forwarded-For / X-Forwarded-Proto を信頼するプロキシのIP（uvicorn --proxy-headers）。
+#   既定は 127.0.0.1（信頼しない）。Fly.io では fly.toml で "*" にし、ログ用のクライアントIPは
+#   偽装できない CLIENT_IP_HEADER=Fly-Client-IP から取得する（"*" の X-Forwarded-For 先頭は偽装可能なため）。
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/opt/venv/bin:$PATH \
     PERSONAS_DIR=/srv/everkano/personas \
     PROMPTS_DIR=/srv/everkano/prompts \
-    FORWARDED_ALLOW_IPS="*"
+    FORWARDED_ALLOW_IPS="127.0.0.1"
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home --shell /usr/sbin/nologin app
@@ -46,6 +48,8 @@ RUN groupadd --system --gid 10001 app \
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY apps/api/app ./app
+# 運用スクリプト（EMBEDDING_MODE / EMBEDDING_MODEL 切り替え後の記憶の再埋め込み）
+COPY apps/api/scripts/reembed_memories.py ./scripts/reembed_memories.py
 # ペルソナ YAML とプロンプトテンプレート（起動時に検証される）
 COPY packages/personas /srv/everkano/personas
 COPY packages/prompts/templates /srv/everkano/prompts

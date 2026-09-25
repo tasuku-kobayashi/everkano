@@ -20,6 +20,9 @@ from uuid import UUID
 # リクエストID（middleware で設定。バックグラウンドタスクにも引き継がれる）
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
+# 監査ログの stdout 複製に使うロガー名（services/audit.py の get_logger("audit")）
+AUDIT_LOGGER_NAME: Final[str] = "everkano.audit"
+
 _STANDARD_ATTRS: Final[frozenset[str]] = frozenset(
     {
         "args",
@@ -124,6 +127,9 @@ def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.handlers = [h for h in root.handlers if not isinstance(h, _JsonStdoutHandler)] + [handler]
     root.setLevel(level.upper())
+    # 監査ログ（H6）の stdout 複製は INFO で出すため、LOG_LEVEL=WARNING 以上でも抑止しない
+    requested = logging.getLevelNamesMapping().get(level.upper(), logging.INFO)
+    logging.getLogger(AUDIT_LOGGER_NAME).setLevel(min(logging.INFO, requested))
     for name in ("uvicorn", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers = []

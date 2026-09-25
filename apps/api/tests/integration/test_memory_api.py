@@ -185,6 +185,58 @@ async def test_summarization_triggers_when_threshold_exceeded(app_factory: AppFa
     assert count == 1
 
 
+async def test_summary_excludes_moderated_turns(app_factory: AppFactory, world: World) -> None:
+    client = await app_factory(make_settings(memory_summary_trigger_turns=3, memory_short_term_turns=2))
+    user = await world.create_user()
+    conversation_id = await _start(client, world, user.headers)
+    conv_uuid = uuid.UUID(conversation_id)
+    turns = [
+        ("仕事で疲れた話その0", "おつかれさま0"),
+        ("高校生の子が好きなんだ", "ごめんね、その話はちょっとできないかな"),  # Gate #1 で差し止められたターン
+        ("仕事で疲れた話その1", "おつかれさま1"),
+        ("仕事で疲れた話その2", "おつかれさま2"),
+    ]
+    for user_body, character_body in turns:
+        await world.conn.execute(
+            "insert into public.messages (conversation_id, sender_type, body) values ($1, 'user', $2),"
+            " ($1, 'character', $3)",
+            conv_uuid,
+            user_body,
+            character_body,
+        )
+    await _chat(client, world, conversation_id, "今日はいい天気だね", user.headers)
+
+    summary = await world.conn.fetchval(
+        "select content from public.memories where user_id = $1 and 'summary' = any(tags)", user.id
+    )
+    assert summary is not None
+    assert "仕事で疲れた話" in summary
+    assert "高校生" not in summary
+    audit = await world.conn.fetchval(
+        "select payload from public.audit_logs where user_id = $1 and event_type = 'memory.summary'", user.id
+    )
+    assert audit["excluded_moderated_messages"] == 2
+    # カーソルは除外したターンも含めて進む（短期ウィンドウ 4 件だけが未要約で残る）
+    cursor = await world.conn.fetchval("select summary_cursor from public.conversations where id = $1", conv_uuid)
+    newer = await world.conn.fetchval(
+        "select count(*) from public.messages where conversation_id = $1 and created_at > $2", conv_uuid, cursor
+    )
+    assert newer == 4
+
+
+async def test_memory_with_control_characters_is_rejected(client: httpx.AsyncClient, world: World) -> None:
+    user = await world.create_user()
+    for payload in (
+        {"character_id": str(world.character_id), "content": "a\u0000b"},
+        {"character_id": str(world.character_id), "content": "ok", "tags": ["x\u0000"]},
+    ):
+        res = await client.post("/memories", json=payload, headers=user.headers)
+        assert res.status_code == 422, res.text
+        assert res.json()["error"]["code"] == "validation_error"
+    count = await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id)
+    assert count == 0
+
+
 async def test_memories_crud_and_ownership(client: httpx.AsyncClient, world: World) -> None:
     alice = await world.create_user()
     bob = await world.create_user()

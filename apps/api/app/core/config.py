@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -20,6 +21,11 @@ ENV_FILE = API_ROOT / ".env"
 
 # DB の memories.embedding は vector(1536) 固定
 DB_EMBEDDING_DIMENSIONS = 1536
+
+# staging / production で既定値（ローカル）のまま起動していないかの検査に使うホスト名
+_LOCAL_HOSTS: Final[frozenset[str]] = frozenset(
+    {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}  # noqa: S104 - 判定用の定数
+)
 
 
 def _find_repo_dir(*parts: str) -> Path | None:
@@ -61,6 +67,10 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: str | None = None
     jwks_cache_ttl_seconds: int = Field(default=600, ge=10)
 
+    # [追加・任意] ログに記録するクライアントIPを取り出す、プロキシが上書きする信頼済みヘッダー名。
+    # Fly.io では "Fly-Client-IP"。未設定時は接続元アドレス（X-Forwarded-For の先頭は偽装可能なため使わない）。
+    client_ip_header: str | None = None
+
     # --- CORS ---------------------------------------------------------------
     cors_allow_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -75,6 +85,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(default=400, ge=16, le=8192)
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=10)
+    # [追加・任意] POST /chat 全体（埋め込み + 生成 + 記憶抽出の待ち）の上限秒数。
+    # Web の CHAT_TIMEOUT_MS（45秒）より短くし、クライアントが諦めた後に保存されることを防ぐ。
+    chat_deadline_seconds: float = Field(default=38.0, gt=0, le=300)
     # [追加・任意] OpenRouter のランキング用ヘッダ（HTTP-Referer / X-Title）
     llm_http_referer: str | None = None
     llm_app_title: str = "everkano"
@@ -148,6 +161,8 @@ class Settings(BaseSettings):
             errors.append("DATABASE_POOL_MIN_SIZE は DATABASE_POOL_MAX_SIZE 以下にしてください")
         if self.app_env == "production" and "*" in self.cors_allow_origins:
             errors.append("APP_ENV=production では CORS_ALLOW_ORIGINS に * を指定できません")
+        if self.app_env in ("staging", "production"):
+            errors.extend(self._deployed_env_errors())
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -163,6 +178,26 @@ class Settings(BaseSettings):
         if self.prompts_dir is None or not self.prompts_dir.is_dir():
             raise ValueError(f"PROMPTS_DIR が見つかりません: {self.prompts_dir}")
         return self
+
+    def _deployed_env_errors(self) -> list[str]:
+        """staging / production でローカル既定値のまま起動していないか（Fly secrets の登録漏れ）を検査する。"""
+        errors: list[str] = []
+        env = self.app_env
+        supabase = urlsplit(self.supabase_url)
+        if (supabase.hostname or "") in _LOCAL_HOSTS:
+            errors.append(
+                f"APP_ENV={env} では SUPABASE_URL にローカルのURLを指定できません"
+                "（fly secrets set SUPABASE_URL=https://<project-ref>.supabase.co を確認してください）"
+            )
+        elif supabase.scheme != "https":
+            errors.append(f"APP_ENV={env} では SUPABASE_URL は https:// で指定してください")
+        remote_origins = [o for o in self.cors_allow_origins if (urlsplit(o).hostname or "") not in _LOCAL_HOSTS]
+        if not remote_origins:
+            errors.append(
+                f"APP_ENV={env} では CORS_ALLOW_ORIGINS に Web のURLを指定してください"
+                "（fly secrets set CORS_ALLOW_ORIGINS=https://<web>.vercel.app を確認してください）"
+            )
+        return errors
 
     # -------------------------------------------------------------------------
     @property

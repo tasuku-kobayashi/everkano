@@ -10,11 +10,15 @@
 絞り込み付きの近似検索（HNSW）は該当行を取りこぼすため使わない（ADR-0005）。
 
 ユーザーが編集した記憶（is_user_edited = true）は自動処理で上書きしない。
+
+Gate #1（入力）で差し止めたユーザー発言も messages には保存されるが、LLM に渡す履歴・記憶抽出の文脈・
+中期要約には本文を渡さない（`sanitize_history`）。
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
@@ -28,8 +32,9 @@ from app.services.audit import AuditLogger
 from app.services.characters import to_numeric
 from app.services.embedding import EmbeddingClient, EmbeddingError
 from app.services.llm import LLMClient, LLMError, LLMRequest, MockHints, parse_json_object
+from app.services.moderation import Moderator
 from app.services.persona import Persona
-from app.services.prompt import PromptBuilder
+from app.services.prompt import ChatMessage, PromptBuilder
 from app.services.types import MEMORY_TAG_SUMMARY, HistoryItem, MemoryCandidate, RetrievedMemory
 
 logger = get_logger("memory")
@@ -41,6 +46,8 @@ EXTRACTED_CONTENT_MAX_CHARS: Final[int] = 500
 MAX_CANDIDATES_PER_MESSAGE: Final[int] = 5
 EXTRACTION_MAX_TOKENS: Final[int] = 600
 SUMMARY_MAX_TOKENS: Final[int] = 800
+# Gate #1（入力）で差し止めた発言を LLM に渡すときの置き換え文
+MODERATED_PLACEHOLDER: Final[str] = "（不適切な発言のため省略）"
 
 # 演算子名は定数のみを埋め込む（利用者入力は含まない）
 _RETRIEVE_SQL: Final[str] = f"""
@@ -88,6 +95,73 @@ def _row_to_memory(row: asyncpg.Record, *, with_similarity: bool) -> RetrievedMe
         similarity=_to_float(row["similarity"]) if with_similarity else None,
         created_at=row["created_at"],
     )
+
+
+def sanitize_history(items: Sequence[HistoryItem], moderator: Moderator, *, drop: bool = False) -> list[HistoryItem]:
+    """Gate #1（入力）で差し止めたユーザー発言の本文を、LLM に渡す履歴から取り除く。
+
+    差し止めた発言も messages に保存される（BRIEF §2.5 の 4.）が、保存時の判定結果は列として持たない。
+    Gate #1 は正規化テキストへの決定的な照合なので、保存済みの本文にもう一度かければ同じ判定になる。
+    - drop=False: 本文をプレースホルダに置き換える（直後の定型返答は残し、会話の流れは保つ）
+    - drop=True: その発言と直後のキャラ発言（定型返答）を取り除く（要約など、記憶として残る用途）
+    """
+    sanitized: list[HistoryItem] = []
+    skip_reply = False
+    for item in items:
+        if skip_reply:
+            skip_reply = False
+            if item.sender_type == "character":
+                continue
+        if item.sender_type == "user" and moderator.check(item.body).flagged:
+            if drop:
+                skip_reply = True
+                continue
+            item = replace(item, body=MODERATED_PLACEHOLDER)  # noqa: PLW2901
+        sanitized.append(item)
+    return sanitized
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionResult:
+    """記憶抽出（LLM 1回）の結果と、監査ログ（chat.response の extraction）用のメタデータ。"""
+
+    candidates: list[MemoryCandidate]
+    messages: list[ChatMessage] = field(default_factory=list)
+    model: str | None = None
+    latency_ms: int | None = None
+    usage: dict[str, int] | None = None
+    raw_output: str | None = None
+    error: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        return self.error is not None
+
+    def audit_payload(self, *, threshold: float, include_prompt: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "failed": self.failed,
+            "error": self.error,
+            "model": self.model,
+            "latency_ms": self.latency_ms,
+            "usage": self.usage,
+            "threshold": threshold,
+            "candidates": [
+                {"content": c.content, "importance": c.importance, "category": c.category} for c in self.candidates
+            ],
+        }
+        if include_prompt:
+            payload["prompt_messages"] = self.messages
+            payload["raw_output"] = self.raw_output
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class SavedMemories:
+    """save_candidates の結果（chat.response の監査用）。"""
+
+    created: list[UUID] = field(default_factory=list)
+    updated: list[UUID] = field(default_factory=list)
+    skipped_user_edited: list[UUID] = field(default_factory=list)
 
 
 def parse_candidates(text: str) -> list[MemoryCandidate]:
@@ -152,6 +226,7 @@ class MemoryEngine:
         llm: LLMClient,
         prompts: PromptBuilder,
         audit: AuditLogger,
+        moderator: Moderator,
     ) -> None:
         self._settings = settings
         self._pool = pool
@@ -159,10 +234,12 @@ class MemoryEngine:
         self._llm = llm
         self._prompts = prompts
         self._audit = audit
+        self._moderator = moderator
         self._summarizing: set[UUID] = set()
 
     # ------------------------------------------------------------------ 短期
     async def fetch_short_term(self, conn: Connection, conversation_id: UUID) -> list[HistoryItem]:
+        """直近の会話（古い順）。差し止めた発言の本文はプレースホルダに置き換える。"""
         rows = await conn.fetch(
             """
             select id, sender_type, body, created_at from (
@@ -177,10 +254,11 @@ class MemoryEngine:
             conversation_id,
             self._settings.short_term_message_limit,
         )
-        return [
+        items = [
             HistoryItem(id=r["id"], sender_type=r["sender_type"], body=r["body"], created_at=r["created_at"])
             for r in rows
         ]
+        return sanitize_history(items, self._moderator)
 
     # ------------------------------------------------------------------ 長期（検索）
     async def embed_query(self, text: str) -> list[float] | None:
@@ -222,12 +300,30 @@ class MemoryEngine:
 
     # ------------------------------------------------------------------ 長期（抽出・保存）
     async def extract_candidates(
-        self, persona: Persona, *, history: Sequence[HistoryItem], user_message: str, now: datetime
-    ) -> list[MemoryCandidate]:
-        """1回の LLM 呼び出しで記憶候補をまとめて抽出する。失敗しても例外は投げない（チャットを止めない）。"""
+        self,
+        persona: Persona,
+        *,
+        history: Sequence[HistoryItem],
+        user_message: str,
+        now: datetime,
+        user_id: UUID,
+        character_id: UUID,
+        conversation_id: UUID,
+    ) -> ExtractionResult:
+        """1回の LLM 呼び出しで記憶候補をまとめて抽出する。失敗しても例外は投げない（チャットを止めない）。
+
+        失敗は audit `llm.error`（purpose=memory_extraction）に残す（「記憶すべきことが無かった」と区別するため）。
+        """
+        messages = self._prompts.extraction_messages(
+            persona,
+            history=history,
+            user_message=user_message,
+            now=now,
+            threshold=self._settings.memory_importance_threshold,
+        )
         request = LLMRequest(
             purpose="memory_extraction",
-            messages=self._prompts.extraction_messages(persona, history=history, user_message=user_message),
+            messages=messages,
             temperature=0.0,
             max_tokens=EXTRACTION_MAX_TOKENS,
             json_mode=True,
@@ -237,8 +333,46 @@ class MemoryEngine:
             result = await self._llm.complete(request)
         except LLMError as exc:
             logger.error("memory extraction failed", extra={"fields": {"error": str(exc)}})
-            return []
-        return parse_candidates(result.text)
+            await self.log_extraction_error(
+                str(exc),
+                user_id=user_id,
+                character_id=character_id,
+                conversation_id=conversation_id,
+                status_code=exc.status_code,
+                attempts=exc.attempts,
+            )
+            return ExtractionResult(candidates=[], messages=messages, error=str(exc))
+        return ExtractionResult(
+            candidates=parse_candidates(result.text),
+            messages=messages,
+            model=result.model,
+            latency_ms=result.latency_ms,
+            usage=result.usage,
+            raw_output=result.text,
+        )
+
+    async def log_extraction_error(
+        self,
+        error: str,
+        *,
+        user_id: UUID,
+        character_id: UUID,
+        conversation_id: UUID,
+        status_code: int | None = None,
+        attempts: int | None = None,
+    ) -> None:
+        await self._audit.log(
+            "llm.error",
+            user_id=user_id,
+            character_id=character_id,
+            payload={
+                "purpose": "memory_extraction",
+                "conversation_id": conversation_id,
+                "error": error,
+                "status_code": status_code,
+                "attempts": attempts,
+            },
+        )
 
     async def save_candidates(
         self,
@@ -247,12 +381,12 @@ class MemoryEngine:
         character_id: UUID,
         source_message_id: UUID | None,
         candidates: Sequence[MemoryCandidate],
-    ) -> list[UUID]:
+    ) -> SavedMemories:
         """重要度が閾値以上の候補を保存する。近似重複は更新（ユーザー編集済みはスキップ）。"""
         threshold = self._settings.memory_importance_threshold
         selected = [c for c in candidates if c.importance >= threshold]
         if not selected:
-            return []
+            return SavedMemories()
         vectors = await self._embedder.embed([c.content for c in selected])
         created: list[tuple[UUID, MemoryCandidate]] = []
         updated: list[tuple[UUID, MemoryCandidate]] = []
@@ -331,7 +465,11 @@ class MemoryEngine:
                 "skipped extracted memories that duplicate user-edited memories",
                 extra={"fields": {"memory_ids": [str(m) for m in skipped]}},
             )
-        return [memory_id for memory_id, _ in created]
+        return SavedMemories(
+            created=[memory_id for memory_id, _ in created],
+            updated=[memory_id for memory_id, _ in updated],
+            skipped_user_edited=skipped,
+        )
 
     # ------------------------------------------------------------------ 中期（要約）
     async def maybe_summarize(
@@ -416,10 +554,15 @@ class MemoryEngine:
             )
         if not rows:
             return None
-        transcript = [
+        raw = [
             HistoryItem(id=r["id"], sender_type=r["sender_type"], body=r["body"], created_at=r["created_at"])
             for r in rows
         ]
+        # 差し止めたターンは要約（= 以後ずっと注入される記憶）に入れない。カーソルは除外分も含めて進める
+        transcript = sanitize_history(raw, self._moderator, drop=True)
+        last = raw[-1]
+        if not transcript:
+            return None
         result = await self._llm.complete(
             LLMRequest(
                 purpose="memory_summary",
@@ -432,9 +575,18 @@ class MemoryEngine:
         )
         summary = parse_summary(result.text)
         if not summary:
+            logger.warning(
+                "mid-term summary was empty; skipped",
+                extra={
+                    "fields": {
+                        "conversation_id": str(conversation_id),
+                        "model": result.model,
+                        "output": result.text[:300],
+                    }
+                },
+            )
             return None
         [vector] = await self._embedder.embed([summary])
-        last = transcript[-1]
         async with self._pool.acquire() as conn, conn.transaction():
             current = await conn.fetchrow(
                 "select summary_cursor from public.conversations where id = $1 and user_id = $2 for update",
@@ -472,7 +624,8 @@ class MemoryEngine:
             payload={
                 "memory_id": memory_id,
                 "conversation_id": conversation_id,
-                "summarized_messages": len(transcript),
+                "summarized_messages": len(raw),
+                "excluded_moderated_messages": len(raw) - len(transcript),
                 "summary_cursor": last.created_at,
                 "content": summary,
                 "model": result.model,

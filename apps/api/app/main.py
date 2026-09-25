@@ -114,7 +114,7 @@ def create_app(
         redoc_url=None,
     )
     register_exception_handlers(app)
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(RequestContextMiddleware, client_ip_header=settings.client_ip_header)
     # CORS は最外周（エラー応答にも CORS ヘッダを付けるため最後に追加）
     app.add_middleware(
         CORSMiddleware,

@@ -260,7 +260,9 @@ def _log_auth_failure(request: Request, reason: str, detail: str | None = None) 
                 "reason": reason,
                 "detail": detail,
                 "path": request.url.path,
-                "client_ip": request.client.host if request.client else None,
+                # RequestContextMiddleware が信頼済みヘッダーから解決した値（偽装不可）
+                "client_ip": getattr(request.state, "client_ip", None)
+                or (request.client.host if request.client else None),
             }
         },
     )

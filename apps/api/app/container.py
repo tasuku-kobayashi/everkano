@@ -65,7 +65,9 @@ def build_services(
     moderator = moderator or Moderator()
     audit = AuditLogger(pool)
     jwks = JwksCache(settings.jwks_url, http, ttl_seconds=settings.jwks_cache_ttl_seconds)
-    memory = MemoryEngine(settings=settings, pool=pool, embedder=embedder, llm=llm, prompts=prompts, audit=audit)
+    memory = MemoryEngine(
+        settings=settings, pool=pool, embedder=embedder, llm=llm, prompts=prompts, audit=audit, moderator=moderator
+    )
     return Services(
         settings=settings,
         pool=pool,

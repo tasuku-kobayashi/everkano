@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import StringConstraints
 
-from app.models.common import ApiModel, IsoDateTime
+from app.models.common import ApiModel, IsoDateTime, NoControlChars
 
 COMMENT_BODY_MAX_CHARS = 500
 
@@ -25,7 +25,11 @@ class CommentDTO(ApiModel):
 
 class CreateCommentRequest(ApiModel):
     post_id: UUID
-    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=COMMENT_BODY_MAX_CHARS)]
+    body: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=COMMENT_BODY_MAX_CHARS),
+        NoControlChars,
+    ]
     parent_comment_id: UUID | None = None
 
 

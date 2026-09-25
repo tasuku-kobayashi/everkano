@@ -160,6 +160,27 @@ async def test_generate_reply_output_moderated_returns_null(app_factory: AppFact
     assert res.json() == {"comment": None}
     count = await world.conn.fetchval("select count(*) from public.comments where post_id = $1", post_id)
     assert count == 1
+    # 差し止めた場合も生成のメタデータ（モデル・プロンプト）は comment.generate に残る
+    generate = await world.conn.fetchval(
+        "select payload from public.audit_logs where user_id = $1 and event_type = 'comment.generate'", user.id
+    )
+    assert generate["moderated"] is True
+    assert generate["comment_id"] is None
+    assert generate["model"] == "rude"
+    assert generate["trigger"] == "manual"
+    assert generate["prompt_messages"][0]["role"] == "system"
+
+
+async def test_comment_with_control_characters_is_rejected(app_factory: AppFactory, world: World) -> None:
+    client = await app_factory(make_settings(comment_auto_reply_probability=0.0))
+    user = await world.create_user()
+    post_id = await world.create_post()
+    res = await client.post("/comments", json={"post_id": str(post_id), "body": "a\u0000b"}, headers=user.headers)
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "validation_error"
+    assert res.json()["error"]["message"] == "使用できない文字（制御文字）が含まれています。"
+    count = await world.conn.fetchval("select count(*) from public.comments where post_id = $1", post_id)
+    assert count == 0
 
 
 async def test_generate_reply_llm_failure(app_factory: AppFactory, world: World) -> None:

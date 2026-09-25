@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -44,9 +44,14 @@ def test_chat_messages_structure_and_secret_marker() -> None:
     assert system["role"] == "system"
     content = system["content"]
     assert "あなたは「テスト美咲」という人物です。" in content
-    assert f"- {SECRET_MARKER}ユーザーは猫を飼っている" in content
-    assert "- ユーザーは営業職" in content
+    assert f"- {SECRET_MARKER}ユーザーは猫を飼っている（2026年9月25日（金）に記録）" in content
+    assert "- ユーザーは営業職（2026年9月25日（金）に記録）" in content
     assert "一人称は「わたし」" in content
+    # 固定の呼び方より、記憶にある呼び方の希望を優先させる（§9.2 呼び方）
+    assert (
+        "相手のことは基本「きみ」と呼ぶが、「あなたが覚えていること」に呼び方の希望があればそちらを優先する" in content
+    )
+    assert "相手の呼び方（基本）: 「きみ」" in content
     assert "2026年9月25日（金）21:30" in content
     assert "直近3件のやりとり" in content
     # 履歴は user / assistant メッセージとして続き、最後に今回の発言
@@ -73,10 +78,18 @@ def test_consecutive_roles_are_merged() -> None:
 
 def test_extraction_summary_and_comment_templates() -> None:
     builder = PromptBuilder.load_dir(PROMPTS_DIR)
-    extraction = builder.extraction_messages(PERSONA, history=_history(), user_message="来週大阪に行く")
+    extraction = builder.extraction_messages(
+        PERSONA, history=_history(), user_message="来週大阪に行く", now=NOW, threshold=0.6
+    )
     assert [m["role"] for m in extraction] == ["system", "user"]
     assert '{"memories": []}' in extraction[0]["content"]
     assert "来週大阪に行く" in extraction[1]["content"]
+    # 相対日付を絶対日付に直すための現在日時と、保存される重要度の下限が入る
+    assert "現在は2026年9月25日（金）21:30（日本時間）です。" in extraction[0]["content"]
+    assert "importance が 0.6 未満の記憶は保存されません" in extraction[0]["content"]
+    assert "0.7〜0.8:" in extraction[0]["content"]
+    custom = builder.extraction_messages(PERSONA, history=[], user_message="x", now=NOW, threshold=0.65)
+    assert "importance が 0.65 未満" in custom[0]["content"]
     summary = builder.summary_messages(PERSONA, transcript=_history())
     assert "テスト美咲: はじめまして" in summary[1]["content"]
     comment = builder.comment_reply_messages(PERSONA, post_caption="カフェなう", comment_body="かわいい！")
@@ -95,3 +108,25 @@ def test_template_validation() -> None:
 
 def test_format_now_uses_jst() -> None:
     assert format_now(datetime(2026, 9, 26, 15, 0, tzinfo=UTC)) == "2026年9月27日（日）00:00"
+
+
+def test_memory_date_and_gap_since_last_message() -> None:
+    builder = PromptBuilder.load_dir(PROMPTS_DIR)
+    week_ago = NOW - timedelta(days=7)
+    memory = RetrievedMemory(
+        id=uuid.uuid4(),
+        content="ユーザーは「明日は早起きしないと」と話していた",
+        importance=0.7,
+        tags=(),
+        similarity=0.5,
+        created_at=week_ago,
+    )
+    history = [HistoryItem(id=uuid.uuid4(), sender_type="user", body="明日は早起きしないと", created_at=week_ago)]
+    messages = builder.chat_messages(PERSONA, memories=[memory], history=history, user_message="ただいま", now=NOW)
+    content = messages[0]["content"]
+    assert "- ユーザーは「明日は早起きしないと」と話していた（2026年9月18日（金）に記録）" in content
+    assert "前回のやりとり（2026年9月18日（金））から7日たっています。" in content
+    assert "記録した日を基準に解釈" in content
+    # 同じ日のうちは経過日数を書かない
+    same_day = builder.chat_messages(PERSONA, memories=[], history=_history(), user_message="x", now=NOW)
+    assert "日たっています" not in same_day[0]["content"]

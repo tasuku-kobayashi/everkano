@@ -78,7 +78,7 @@ app/
     rate_limit.py      プロセス内スライディングウィンドウ
     comments.py / conversations.py / user_memories.py
   models/              Pydantic スキーマ（api.ts と一致）
-scripts/               export_openapi.py / validate_personas.py
+scripts/               export_openapi.py / validate_personas.py / reembed_memories.py（埋め込み設定の切り替え後に実行）
 tests/                 単体テスト + integration/（ローカル Supabase）
 ```
 
@@ -90,6 +90,14 @@ tests/                 単体テスト + integration/（ローカル Supabase）
 - ユーザーが編集した記憶（`is_user_edited`）は自動抽出の重複排除で上書きしない。
 - レート制限はプロセス内メモリ。Fly.io で複数マシンにスケールする場合はマシンごとのカウントになる。
 - 監査ログの DB 書き込みはチャットのトランザクションとは別接続。失敗しても応答は返すが ERROR ログを出す。
+  stdout への複製（INFO）は `LOG_LEVEL=WARNING` 以上でも出る（`everkano.audit` ロガーは常に INFO 以下）。
+- `/chat` 全体の上限は `CHAT_DEADLINE_SECONDS`（既定 38 秒）。応答生成が間に合わなければ 503 `llm_unavailable`
+  で何も保存しない。記憶抽出は残り時間だけ待つ（間に合わなければ候補なし + audit `llm.error`）。
+  **Web の `CHAT_TIMEOUT_MS`（45 秒）より必ず短くする**（クライアントが諦めた後に保存され、再送で二重になるのを防ぐ）。
+- Gate #1（入力）で差し止めた発言も `messages` には保存するが、以後の LLM 履歴・記憶抽出の文脈では本文を
+  「（不適切な発言のため省略）」に置き換え、中期要約からはそのターンごと除く（`memory.sanitize_history`）。
+- `APP_ENV=staging` / `production` では、`SUPABASE_URL`（https 必須）と `CORS_ALLOW_ORIGINS` がローカルの既定値のままだと
+  起動しない（`fly secrets set` の登録漏れ検出）。
 - JWT の `iss` は `SUPABASE_JWT_ISSUER`（任意）→ 無ければ `{SUPABASE_URL}/auth/v1` と照合する。
   Docker から `host.docker.internal` 経由で Supabase を参照する場合は `SUPABASE_JWT_ISSUER` を設定する。
 
@@ -100,6 +108,26 @@ tests/                 単体テスト + integration/（ローカル Supabase）
 fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
 fly secrets set --config apps/api/fly.toml DATABASE_URL=... SUPABASE_URL=... LLM_API_KEY=... CORS_ALLOW_ORIGINS=...
 ```
+
+### 埋め込み設定の切り替え（EMBEDDING_MODE / EMBEDDING_MODEL）
+
+`hash`（開発用の文字 n-gram ハッシュ）と `live`（OpenAI 互換 API）はベクトル空間がまったく別で、次元数（1536）が
+同じためエラーにならないまま、既存の記憶の検索（長期メモリの再注入）と重複排除（cos ≥ 0.92）が壊れる。
+`memories` はどの設定で埋め込んだかを保存していないので、**切り替えたら直後に全件を再埋め込みする**。
+`EMBEDDING_MODEL` を変える場合も同じ。
+
+1. `fly secrets set --config apps/api/fly.toml EMBEDDING_API_KEY=...`（live にする場合）
+2. `apps/api/fly.toml` の `EMBEDDING_MODE`（または `EMBEDDING_MODEL`）を変更してデプロイ
+3. すぐに再埋め込みを実行する（冪等。途中で止まっても再実行すればよい）:
+   ```bash
+   fly ssh console --config apps/api/fly.toml -C "/opt/venv/bin/python /app/scripts/reembed_memories.py --dry-run"  # 件数確認
+   fly ssh console --config apps/api/fly.toml -C "/opt/venv/bin/python /app/scripts/reembed_memories.py"
+   # ローカル: cd apps/api && uv run python scripts/reembed_memories.py
+   ```
+4. 完了するまでの間、既存の記憶は会話で思い出されにくく、近い内容の記憶が重複して作られることがある
+
+再埋め込みは本文が変わっていない行だけを更新する（実行中にユーザーが編集した記憶は、編集時の埋め込みを残す）。
+`memories.updated_at` はトリガーにより実行時刻になる。
 
 TLS を中継するプロキシ配下でイメージをビルドする場合は、CA 証明書を BuildKit secret で渡せる:
 `docker build --secret id=extra_ca,src=/path/to/ca.crt -f apps/api/Dockerfile .`

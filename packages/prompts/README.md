@@ -28,10 +28,10 @@ Python API（`apps/api`）が起動時に読み込み、リクエストごとに
 | `{profile}` | ✓ | ペルソナの `profile`（YAML が無いキャラは `characters.system_prompt`） |
 | `{speech}` | ✓ | `speech` を箇条書きにしたもの（口調・文の長さ・絵文字・一人称/呼び方・話し方の例・NGワード） |
 | `{relationship}` | ✓ | `relationship.initial` / `progression` |
-| `{memories}` | ✓ | 長期記憶（検索上位 K 件を重要度順 + 最新の要約 最大2件）。1行1件。`secret` タグは先頭に `（二人だけの秘密）`、`summary` タグは `（これまでの会話の要約）` が付く。無ければ「（まだ特にない）」 |
-| `{short_term}` | ✓ | 直近の会話についての**注記のみ**（下記） |
+| `{memories}` | ✓ | 長期記憶（検索上位 K 件を重要度順 + 最新の要約 最大2件）。1行1件。`secret` タグは先頭に `（二人だけの秘密）`、`summary` タグは `（これまでの会話の要約）` が付く。末尾に記録日（日本時間）が `（2026年9月25日（金）に記録）` の形で付く（記憶の中の「来週」「明日」を記録日基準で解釈させるため）。無ければ「（まだ特にない）」 |
+| `{short_term}` | ✓ | 直近の会話についての**注記のみ**（下記）。前回のやりとりから1日以上空いている場合は、その日付と経過日数も入る |
 | `{schedule}` | | 現在の日本時間（例: 2026年9月25日（金）21:30）と `schedule_pattern` |
-| `{first_person}` / `{second_person}` | | 一人称 / ユーザーの呼び方 |
+| `{first_person}` / `{second_person}` | | 一人称 / ユーザーの呼び方（**既定値**。記憶に呼び方の希望があればそちらを優先するよう制約に書いている） |
 | `{now}` / `{archetype}` / `{bio}` | | 現在時刻 / タイプ / 自己紹介（任意で使用可） |
 
 **`{short_term}` の扱い（設計判断）**: 直近の会話（最大 `MEMORY_SHORT_TERM_TURNS`×2 件）は system プロンプトに
@@ -46,7 +46,9 @@ Python API（`apps/api`）が起動時に読み込み、リクエストごとに
 [user: 今回のユーザー発言]
 ```
 
-同じ role が連続する場合（例: 入力モデレーションで差し止めた直後）は1メッセージに結合する。
+同じ role が連続する場合は1メッセージに結合する（role の交互性を要求するプロバイダ対策）。
+Gate #1（入力）で差し止めたユーザー発言は `messages` に保存されるが、LLM に渡す履歴・記憶抽出の文脈では
+本文を「（不適切な発言のため省略）」に置き換え、中期要約の対象からはそのターン（直後の定型返答を含む）ごと除く。
 描画済みのメッセージ列は `AUDIT_LOG_PROMPTS=true` のとき `audit_logs`（`chat.response` の `prompt_messages`）に保存される。
 
 ### `memory_extraction.ja.txt` — 重要記憶の抽出（§9.2）
@@ -58,6 +60,8 @@ Python API（`apps/api`）が起動時に読み込み、リクエストごとに
 | `{recent_context}` | ✓ | 直近 6 件の会話（`ユーザー: …` / `<name>: …`） |
 | `{user_message}` | ✓ | 今回のユーザー発言 |
 | `{name}` / `{memory_focus}` / `{second_person}` | | キャラ名 / `memory_focus` の箇条書き / 呼び方 |
+| `{now}` | | 現在の日本時間（例: 2026年9月25日（金）21:30）。「来週」「明日」を絶対日付に直させるために使う |
+| `{threshold}` | | `MEMORY_IMPORTANCE_THRESHOLD`（例: 0.6）。これ未満は保存されない旨を伝え、重要度の目安と合わせて較正する |
 
 出力: `{"memories": [{"content": "ユーザーは〜", "importance": 0.0〜1.0, "category": "emotion|personal|promise|relationship"}]}`。
 API は寛容にパースし（コードブロック・前後の文章を許容）、`importance >= MEMORY_IMPORTANCE_THRESHOLD` のものだけを保存する。

@@ -34,9 +34,30 @@ def _incoming_request_id(scope: Scope) -> str | None:
     return None
 
 
+def resolve_client_ip(scope: Scope, trusted_header: str | None) -> str | None:
+    """ログ用のクライアントIP。
+
+    `trusted_header`（例: Fly.io の `Fly-Client-IP`。エッジが常に上書きするため偽装できない）が
+    設定されていればその値を使う。未設定時は接続元アドレス（uvicorn の --proxy-headers が
+    FORWARDED_ALLOW_IPS で信頼したプロキシからの X-Forwarded-For のみ反映したもの）。
+    X-Forwarded-For の先頭要素はクライアントが自由に付けられるため直接は使わない。
+    """
+    if trusted_header:
+        wanted = trusted_header.lower().encode("latin-1")
+        for name, value in scope.get("headers", []):
+            if name == wanted:
+                raw: bytes = value
+                ip = raw.decode("latin-1").strip()
+                if ip:
+                    return ip[:64]
+    client = scope.get("client")
+    return str(client[0]) if client else None
+
+
 class RequestContextMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, client_ip_header: str | None = None) -> None:
         self.app = app
+        self.client_ip_header = client_ip_header
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -47,6 +68,7 @@ class RequestContextMiddleware:
         token = request_id_var.set(request_id)
         state = scope.setdefault("state", {})
         state["request_id"] = request_id
+        state["client_ip"] = resolve_client_ip(scope, self.client_ip_header)
         started = time.perf_counter()
         status_code = 500
         response_started = False
@@ -81,7 +103,6 @@ class RequestContextMiddleware:
     @staticmethod
     def _log_access(scope: Scope, status_code: int, started: float) -> None:
         state = scope.get("state", {})
-        client = scope.get("client")
         headers = dict(scope.get("headers", []))
         access_logger.info(
             "request",
@@ -91,7 +112,7 @@ class RequestContextMiddleware:
                     "path": scope.get("path"),
                     "status": status_code,
                     "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-                    "client_ip": client[0] if client else None,
+                    "client_ip": state.get("client_ip"),
                     "user_id": state.get("user_id"),
                     "user_agent": headers.get(b"user-agent", b"").decode("latin-1")[:200] or None,
                 }

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, Field, StringConstraints
 
-from app.models.common import ApiModel, IsoDateTime
+from app.models.common import ApiModel, IsoDateTime, NoControlChars, reject_control_chars
 
 MEMORY_CONTENT_MAX_CHARS = 500
 MEMORY_TAG_MAX_CHARS = 20
@@ -25,6 +25,7 @@ def _validate_tags(tags: list[str] | None) -> list[str] | None:
             raise ValueError("タグを空にすることはできません")
         if len(tag) > MEMORY_TAG_MAX_CHARS:
             raise ValueError(f"タグは{MEMORY_TAG_MAX_CHARS}文字以内で入力してください")
+        reject_control_chars(tag)
         if tag not in cleaned:
             cleaned.append(tag)
     if len(cleaned) > MEMORY_TAGS_MAX:
@@ -33,7 +34,9 @@ def _validate_tags(tags: list[str] | None) -> list[str] | None:
 
 
 MemoryContent = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MEMORY_CONTENT_MAX_CHARS)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=MEMORY_CONTENT_MAX_CHARS),
+    NoControlChars,
 ]
 Importance = Annotated[float, Field(ge=0.0, le=1.0)]
 Tags = Annotated[list[str] | None, AfterValidator(_validate_tags)]
