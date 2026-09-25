@@ -43,3 +43,6 @@ coverage/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# 並行開発用の Next.js distDir（NEXT_DIST_DIR）
+.next-*/
