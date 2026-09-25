@@ -1,0 +1,390 @@
+{
+  "stats": {
+    "startTime": "2026-09-25T09:00:44.765Z",
+    "duration": 115255.314,
+    "expected": 53,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "file": "audit.spec.ts",
+      "project": "iphone",
+      "title": "A12: DM の送信ごとに chat.request / chat.response が audit_logs に記録される",
+      "status": "passed",
+      "duration_ms": 7426
+    },
+    {
+      "file": "audit.spec.ts",
+      "project": "android",
+      "title": "A12: DM の送信ごとに chat.request / chat.response が audit_logs に記録される",
+      "status": "passed",
+      "duration_ms": 5709
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "未ログインで開くとログイン画面へリダイレクトされる",
+      "status": "passed",
+      "duration_ms": 1255
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "A2: メールのマジックリンク（/auth/confirm）でログインできる",
+      "status": "passed",
+      "duration_ms": 2817
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
+      "status": "passed",
+      "duration_ms": 2759
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
+      "status": "passed",
+      "duration_ms": 2143
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "未ログインで開くとログイン画面へリダイレクトされる",
+      "status": "passed",
+      "duration_ms": 788
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: メールのマジックリンク（/auth/confirm）でログインできる",
+      "status": "passed",
+      "duration_ms": 1882
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
+      "status": "passed",
+      "duration_ms": 4178
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
+      "status": "passed",
+      "duration_ms": 1893
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "iphone",
+      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
+      "status": "passed",
+      "duration_ms": 10866
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "iphone",
+      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
+      "status": "passed",
+      "duration_ms": 501
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "android",
+      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
+      "status": "passed",
+      "duration_ms": 9808
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "android",
+      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
+      "status": "passed",
+      "duration_ms": 764
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
+      "status": "passed",
+      "duration_ms": 23244
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
+      "status": "passed",
+      "duration_ms": 24117
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "iphone",
+      "title": "A3: ホームフィードが無限スクロールで表示される",
+      "status": "passed",
+      "duration_ms": 4297
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "iphone",
+      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
+      "status": "passed",
+      "duration_ms": 2368
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "android",
+      "title": "A3: ホームフィードが無限スクロールで表示される",
+      "status": "passed",
+      "duration_ms": 3847
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "android",
+      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
+      "status": "passed",
+      "duration_ms": 2267
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
+      "status": "passed",
+      "duration_ms": 11152
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
+      "status": "passed",
+      "duration_ms": 6240
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
+      "status": "passed",
+      "duration_ms": 11169
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
+      "status": "passed",
+      "duration_ms": 8438
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
+      "status": "passed",
+      "duration_ms": 22440
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
+      "status": "passed",
+      "duration_ms": 7744
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
+      "status": "passed",
+      "duration_ms": 23752
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
+      "status": "passed",
+      "duration_ms": 8579
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 6432
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2465
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2425
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 6427
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2433
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2135
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: 投稿詳細でコメント一覧と投稿欄が動作し、キャラの返信が Realtime で届く",
+      "status": "passed",
+      "duration_ms": 1984
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: モデレーション（Gate #1）で拒否されたコメントは保存されず、理由が表示される",
+      "status": "passed",
+      "duration_ms": 1278
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: 投稿詳細でコメント一覧と投稿欄が動作し、キャラの返信が Realtime で届く",
+      "status": "passed",
+      "duration_ms": 2256
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: モデレーション（Gate #1）で拒否されたコメントは保存されず、理由が表示される",
+      "status": "passed",
+      "duration_ms": 1172
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "iphone",
+      "title": "A5: キャラプロフィールの「無料」「有料」タブが切り替わる",
+      "status": "passed",
+      "duration_ms": 1533
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "iphone",
+      "title": "A5: 投稿のアバターをタップするとキャラプロフィールへ移動する",
+      "status": "passed",
+      "duration_ms": 1739
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "iphone",
+      "title": "A7: キャラプロフィールの「DMする」で DM 画面に遷移し、挨拶が届く",
+      "status": "passed",
+      "duration_ms": 3094
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "android",
+      "title": "A5: キャラプロフィールの「無料」「有料」タブが切り替わる",
+      "status": "passed",
+      "duration_ms": 1440
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "android",
+      "title": "A5: 投稿のアバターをタップするとキャラプロフィールへ移動する",
+      "status": "passed",
+      "duration_ms": 1587
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "android",
+      "title": "A7: キャラプロフィールの「DMする」で DM 画面に遷移し、挨拶が届く",
+      "status": "passed",
+      "duration_ms": 2841
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "A11: Web App Manifest が standalone で、アイコンが取得できる",
+      "status": "passed",
+      "duration_ms": 79
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "A11: マニフェストと iOS 用の meta・アイコンが <head> にあり、ブラウザが検出できる",
+      "status": "passed",
+      "duration_ms": 650
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "A11: Service Worker が登録されてページを制御し、オフラインでは /offline を表示する",
+      "status": "passed",
+      "duration_ms": 1032
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "A11: Web App Manifest が standalone で、アイコンが取得できる",
+      "status": "passed",
+      "duration_ms": 39
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "A11: マニフェストと iOS 用の meta・アイコンが <head> にあり、ブラウザが検出できる",
+      "status": "passed",
+      "duration_ms": 614
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "A11: Service Worker が登録されてページを制御し、オフラインでは /offline を表示する",
+      "status": "passed",
+      "duration_ms": 970
+    },
+    {
+      "file": "rls.spec.ts",
+      "project": "iphone",
+      "title": "A13: 他ユーザーの会話・メッセージ・記憶は RLS と API の所有者チェックで取得できない",
+      "status": "passed",
+      "duration_ms": 2509
+    },
+    {
+      "file": "rls.spec.ts",
+      "project": "android",
+      "title": "A13: 他ユーザーの会話・メッセージ・記憶は RLS と API の所有者チェックで取得できない",
+      "status": "passed",
+      "duration_ms": 1955
+    },
+    {
+      "file": "screenshots.spec.ts",
+      "project": "iphone",
+      "title": "スクリーンショット（全画面 × ライト / ダーク）",
+      "status": "passed",
+      "duration_ms": 66190
+    },
+    {
+      "file": "screenshots.spec.ts",
+      "project": "android",
+      "title": "スクリーンショット（全画面 × ライト / ダーク）",
+      "status": "skipped",
+      "duration_ms": 224
+    }
+  ]
+}

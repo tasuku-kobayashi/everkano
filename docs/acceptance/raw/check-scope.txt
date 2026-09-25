@@ -1,0 +1,7 @@
+スコープチェック: 268 ファイルを走査します（apps packages）
+allow apps/web/components/post/paid-lock-modal.tsx:23  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/web/e2e/layout.spec.ts:14  [user-posting] ファイル選択・画像アップロード UI（scope-check: allow）
+
+2 行を scope-check: allow により許可しました（理由をレビューで確認すること）
+OK: スコープ外機能は見つかりませんでした
+exit 0

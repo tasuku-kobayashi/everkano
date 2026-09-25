@@ -1,0 +1,71 @@
+$ pnpm --filter @everkano/web lint
+
+> @everkano/web@0.1.0 lint /home/user/everkano/apps/web
+> eslint .
+
+exit 0
+
+$ pnpm --filter @everkano/web typecheck
+
+> @everkano/web@0.1.0 typecheck /home/user/everkano/apps/web
+> next typegen && tsc --noEmit
+
+Generating route types...
+✓ Route types generated successfully
+exit 0
+
+$ pnpm --filter @everkano/web test
+
+> @everkano/web@0.1.0 test /home/user/everkano/apps/web
+> vitest run
+
+
+ RUN  v3.2.7 /home/user/everkano/apps/web
+
+ ✓ lib/navigation.test.ts (4 tests) 198ms
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > ApiErrorBody のメッセージとコードをそのまま使う（422 moderation_blocked）
+[api] POST /comments -> 422 moderation_blocked (request_id=r-9)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 429 は rate_limited と Retry-After 秒を返す
+[api] POST /chat -> 429 rate_limited (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 本文が JSON でない 429 / 5xx は既定の日本語メッセージ
+[api] GET /health -> 429 rate_limited (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 本文が JSON でない 429 / 5xx は既定の日本語メッセージ
+[api] GET /health -> 500 internal_error (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 本文が JSON でない 429 / 5xx は既定の日本語メッセージ
+[api] GET /health -> 502 llm_unavailable (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 本文が JSON でない 429 / 5xx は既定の日本語メッセージ
+[api] GET /health -> 503 llm_unavailable (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 未知のエラーコードはステータスから推定する
+[api] GET /memories -> 403 account_deleted (request_id=req-123)
+
+stderr | lib/api/client.test.ts > createApiClient: エラー処理 > 未知のエラーコードはステータスから推定する
+[api] GET /memories -> 404 not_found (request_id=req-123)
+
+ ✓ lib/api/client.test.ts (16 tests) 34ms
+ ✓ lib/queries/messages.test.ts (24 tests) 19ms
+ ✓ components/dm/timeline.test.ts (13 tests) 9ms
+ ✓ lib/format.test.ts (12 tests) 12ms
+ ✓ lib/queries/comments.test.ts (16 tests) 9ms
+ ✓ lib/env.test.ts (4 tests) 11ms
+ ✓ lib/storage/storage.test.ts (13 tests) 11ms
+ ✓ lib/queries/memories.test.ts (10 tests) 8ms
+ ✓ lib/auth/auth.test.ts (5 tests) 10ms
+ ✓ lib/queries/search.test.ts (12 tests) 9ms
+ ✓ lib/queries/posts.test.ts (10 tests) 7ms
+ ✓ lib/queries/feed.test.ts (10 tests) 6ms
+ ✓ lib/queries/dm.test.ts (6 tests) 6ms
+ ✓ components/dm/use-chat-scroll.test.ts (8 tests) 6ms
+
+ Test Files  15 passed (15)
+      Tests  163 passed (163)
+   Start at  09:00:29
+   Duration  2.97s (transform 721ms, setup 0ms, collect 3.02s, tests 356ms, environment 9ms, prepare 1.41s)
+
+exit 0
+

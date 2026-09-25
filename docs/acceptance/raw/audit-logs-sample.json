@@ -1,0 +1,142 @@
+[
+  {
+    "event_type": "conversation.create",
+    "created_at": "2026-09-25T07:37:53.724Z",
+    "payload_keys": [
+      "conversation_id",
+      "greeting",
+      "greeting_message_id",
+      "persona_fallback",
+      "persona_key",
+      "request_id"
+    ],
+    "payload": {
+      "greeting": "……え、ほんとにあんた？ 急に連絡くるからびっくりしたじゃん！ 最近どうしてんの？",
+      "request_id": "6fc703af-147d-4926-867d-54560bb1fc00",
+      "persona_key": "osananajimi",
+      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
+      "persona_fallback": false,
+      "greeting_message_id": "f510e935-365a-440c-9be6-d72bdcd10d12"
+    }
+  },
+  {
+    "event_type": "chat.request",
+    "created_at": "2026-09-25T07:37:54.179Z",
+    "payload_keys": ["conversation_id", "message", "request_id"],
+    "payload": {
+      "message": "はじめまして！",
+      "request_id": "76cb67e2-971b-4bab-84ec-d2277e7810dc",
+      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c"
+    }
+  },
+  {
+    "event_type": "chat.response",
+    "created_at": "2026-09-25T07:37:54.225Z",
+    "payload_keys": [
+      "conversation_id",
+      "extraction",
+      "history_messages",
+      "latency_ms",
+      "llm_latency_ms",
+      "memories_created",
+      "memories_skipped_user_edited",
+      "memories_updated",
+      "memories_used",
+      "memory_candidates",
+      "message_id",
+      "model",
+      "moderated",
+      "moderation_stage",
+      "persona_fallback",
+      "persona_key",
+      "prompt_messages",
+      "reply",
+      "request_id",
+      "usage",
+      "user_message_id"
+    ],
+    "payload": {
+      "model": "mock-persona-v1",
+      "reply": "そうなんだ。あんたの話、もっと聞きたいな。あんた、また夜更かししてるでしょ。文面でわかるし",
+      "usage": {
+        "total_tokens": 1128,
+        "prompt_tokens": 1106,
+        "completion_tokens": 22
+      },
+      "moderated": false,
+      "latency_ms": 51,
+      "message_id": "6d774ee0-7b39-48b2-8942-f6412c0f154c",
+      "request_id": "76cb67e2-971b-4bab-84ec-d2277e7810dc",
+      "persona_key": "osananajimi",
+      "memories_used": [],
+      "llm_latency_ms": 0,
+      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
+      "user_message_id": "f11202b9-1d4b-4958-9ab7-9540de0e092b",
+      "history_messages": 1,
+      "memories_created": [],
+      "moderation_stage": null,
+      "persona_fallback": false,
+      "memory_candidates": 0
+    }
+  },
+  {
+    "event_type": "chat.request",
+    "created_at": "2026-09-25T07:37:56.553Z",
+    "payload_keys": ["conversation_id", "message", "request_id"],
+    "payload": {
+      "message": "今日は仕事で疲れたよ",
+      "request_id": "db7f4d13-e110-4667-aa80-bc7636a9c159",
+      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c"
+    }
+  },
+  {
+    "event_type": "chat.response",
+    "created_at": "2026-09-25T07:37:56.580Z",
+    "payload_keys": [
+      "conversation_id",
+      "extraction",
+      "history_messages",
+      "latency_ms",
+      "llm_latency_ms",
+      "memories_created",
+      "memories_skipped_user_edited",
+      "memories_updated",
+      "memories_used",
+      "memory_candidates",
+      "message_id",
+      "model",
+      "moderated",
+      "moderation_stage",
+      "persona_fallback",
+      "persona_key",
+      "prompt_messages",
+      "reply",
+      "request_id",
+      "usage",
+      "user_message_id"
+    ],
+    "payload": {
+      "model": "mock-persona-v1",
+      "reply": "そっか…話してくれてありがとう。あたしはちゃんと味方だよ。おっ、やっと連絡きた！ 遅いっての、ばーか。……で、元気？",
+      "usage": {
+        "total_tokens": 1162,
+        "prompt_tokens": 1133,
+        "completion_tokens": 29
+      },
+      "moderated": false,
+      "latency_ms": 28,
+      "message_id": "21b04da7-5d67-4944-b963-567fb0135183",
+      "request_id": "db7f4d13-e110-4667-aa80-bc7636a9c159",
+      "persona_key": "osananajimi",
+      "memories_used": [],
+      "llm_latency_ms": 0,
+      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
+      "user_message_id": "43170810-0af9-4ee1-a8c7-48b7fd35fd1b",
+      "history_messages": 3,
+      "memories_created": ["d6380b27-0ec1-46d1-9844-8584733b771a"],
+      "moderation_stage": null,
+      "persona_fallback": false,
+      "memory_candidates": 1
+    }
+  }
+]

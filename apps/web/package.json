@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
@@ -29,10 +30,12 @@
     "@playwright/test": "1.56.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.4",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "15.5.26",
+    "pg": "^8.23.0",
     "tailwindcss": "^4.3.3",
     "typescript": "5.9.3",
     "vitest": "^3.2.7"
