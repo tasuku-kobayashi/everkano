@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { expect, type Page } from "@playwright/test";
 import { EMAIL_DOMAIN, EMAIL_PREFIX, E2E, anonKey, runId, serviceRoleKey } from "./env";
 
 /**
@@ -6,7 +7,7 @@ import { EMAIL_DOMAIN, EMAIL_PREFIX, E2E, anonKey, runId, serviceRoleKey } from 
  *
  * ログイン画面そのものの検証（A2）以外では、メール送信のレート制限（Supabase Auth の email_sent）に
  * かからないよう、管理 API の generate_link で発行したトークンをアプリの /auth/confirm（マジックリンクの
- * 着地点と同じルート）に渡してログインする。メールは送信されない。
+ * 着地点と同じルート）に渡し、確認画面の「ログインする」でログインする。メールは送信されない。
  */
 
 export interface TestUser {
@@ -46,6 +47,8 @@ export async function createUser(label: string): Promise<TestUser> {
 /**
  * ログイン用 URL（アプリの /auth/confirm。メールの「ログインする」ボタンと同じルート）。
  * 管理 API の generate_link はメールを送らずに token_hash を返す。
+ * 遷移先は直接の ?next= で渡す（/auth/confirm は redirect_to の中の next が無ければこれを使う）。
+ * 実際のメールのリンクの形（redirect_to）は auth.spec.ts の A2 がログイン画面から送ったメールで検証する。
  */
 export async function confirmPathFor(email: string, next = "/"): Promise<string> {
   const res = await fetch(`${E2E.supabaseURL}/auth/v1/admin/generate_link`, {
@@ -62,6 +65,35 @@ export async function confirmPathFor(email: string, next = "/"): Promise<string>
   if (!tokenHash) throw new Error("generate_link returned no hashed_token");
   const params = new URLSearchParams({ token_hash: tokenHash, type: "magiclink", next });
   return `/auth/confirm?${params.toString()}`;
+}
+
+/**
+ * マジックリンク（/auth/confirm?token_hash=...）を開き、確認画面の「ログインする」を押す。
+ * リンクを開いただけではログインしない（メールスキャナーの先読み・ログイン CSRF 対策。POST で確定する）。
+ */
+export async function confirmMagicLink(page: Page, url: string): Promise<void> {
+  await page.goto(url);
+  await expect(page.getByRole("heading", { name: "everkano にログインしますか？" })).toBeVisible();
+  await page.getByRole("button", { name: "ログインする" }).click();
+}
+
+/** 管理 API でユーザーを利用停止（ban）にする。duration は GoTrue の形式（例 "24h"） */
+export async function banUser(userId: string, duration = "24h"): Promise<void> {
+  const res = await fetch(`${E2E.supabaseURL}/auth/v1/admin/users/${userId}`, {
+    method: "PUT",
+    headers: adminHeaders(),
+    body: JSON.stringify({ ban_duration: duration }),
+  });
+  if (!res.ok) throw new Error(`admin ban user failed: ${res.status} ${await res.text()}`);
+}
+
+/** 管理 API でユーザーを削除する（運用手順のアカウント削除と同じ。コメントが無いユーザーに限る） */
+export async function deleteAuthUser(userId: string): Promise<void> {
+  const res = await fetch(`${E2E.supabaseURL}/auth/v1/admin/users/${userId}`, {
+    method: "DELETE",
+    headers: adminHeaders(),
+  });
+  if (!res.ok) throw new Error(`admin delete user failed: ${res.status} ${await res.text()}`);
 }
 
 /** パスワードグラントでアクセストークンを取得（API / supabase-js を直接叩く検証用） */
@@ -84,7 +116,11 @@ export interface LoginMail {
   subject: string;
   /** 6 桁の確認コード */
   code: string;
-  /** メールの「ログインする」リンク（{{ .SiteURL }}/auth/confirm?token_hash=...&type=email&next=/） */
+  /**
+   * メールの「ログインする」リンク
+   * （{{ .SiteURL }}/auth/confirm?token_hash=...&type=email&redirect_to=<emailRedirectTo>。
+   * emailRedirectTo = <SITE_URL>/auth/callback?next=<ログイン後の遷移先>。infra/supabase/templates/magic_link.html）
+   */
   confirmUrl: string;
 }
 

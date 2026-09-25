@@ -2,6 +2,8 @@
  * E2E テストの接続先（すべて環境変数で上書きできる。既定値はローカル開発環境）。
  *
  * - E2E_BASE_URL          Web（Next.js）          既定 http://localhost:3000
+ * - E2E_SITE_URL          Supabase Auth の Site URL（ログインメールのリンクのオリジン。
+ *                         infra/supabase/config.toml の site_url）   既定 http://localhost:3000
  * - E2E_API_URL           Python API（FastAPI）   既定 http://localhost:8000
  * - E2E_SUPABASE_URL      Supabase（Auth / REST） 既定 http://127.0.0.1:54321
  * - MAILPIT_URL           ログインメールの受信箱   既定 http://127.0.0.1:54324
@@ -13,6 +15,11 @@
 
 export const E2E = {
   baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+  /**
+   * ログインメールのリンクのオリジン（Supabase Auth の site_url）。E2E_BASE_URL とは独立した設定なので、
+   * Web を別のポート・ホストで動かす場合もメールのリンクはこのオリジンになる（auth.spec.ts はパスだけを使う）
+   */
+  siteURL: process.env.E2E_SITE_URL ?? "http://localhost:3000",
   apiURL: process.env.E2E_API_URL ?? "http://localhost:8000",
   supabaseURL: process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321",
   mailpitURL: process.env.MAILPIT_URL ?? "http://127.0.0.1:54324",

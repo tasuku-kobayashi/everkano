@@ -61,6 +61,24 @@ test("A13: 他ユーザーの会話・メッセージ・記憶は RLS と API �
   expect(bConversations.error).toBeNull();
   expect(bConversations.data, "B から A の会話は 0 件").toEqual([]);
 
+  // DM 画面を開くときの読み取り（会話 + 最新ページのメッセージの埋め込み。lib/queries/dm.ts）でも見えない
+  const openQuery = "id, character_id, characters!inner(id), messages(id, body)";
+  const aOpen = await asA
+    .from("conversations")
+    .select(openQuery)
+    .eq("character_id", MISAKI.id)
+    .maybeSingle();
+  expect(aOpen.error).toBeNull();
+  expect(aOpen.data?.id).toBe(conversation.id);
+  expect(aOpen.data?.messages.map((m) => m.body)).toContain(secret);
+  const bOpen = await asB
+    .from("conversations")
+    .select(openQuery)
+    .eq("character_id", MISAKI.id)
+    .maybeSingle();
+  expect(bOpen.error).toBeNull();
+  expect(bOpen.data, "B が同じキャラの DM を開いても A の会話は返らない").toBeNull();
+
   const bMessages = await asB
     .from("messages")
     .select("id, body")

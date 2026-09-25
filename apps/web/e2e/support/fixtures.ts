@@ -7,7 +7,7 @@ import {
   type Page,
   type TestInfo,
 } from "@playwright/test";
-import { confirmPathFor, createUser, type TestUser } from "./auth";
+import { confirmMagicLink, confirmPathFor, createUser, type TestUser } from "./auth";
 import { closeDb, deleteUsersById } from "./db";
 import { deviceFor } from "./devices";
 import { stubExternalImages } from "./images";
@@ -16,7 +16,8 @@ import { stubExternalImages } from "./images";
  * 共通フィクスチャ
  * - context: 外部画像のスタブ + コンソールエラーの収集（失敗時の調査用にテスト結果へ添付）
  * - makeUser: テストごとに新しいユーザーを作り、テスト終了時に削除する
- * - login: 指定ユーザーでログインした状態にする（アプリの /auth/confirm 経由。メールは送らない）
+ * - login: 指定ユーザーでログインした状態にする（アプリの /auth/confirm の確認画面 →「ログインする」経由。
+ *   メールは送らない）
  * - newDeviceContext: 同じ端末設定で別のブラウザコンテキスト（ダークモード・2 人目のユーザー）を作る
  *
  * フィクスチャの第 2 引数は Playwright の慣例では `use` だが、eslint の react-hooks/rules-of-hooks が
@@ -85,7 +86,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   login: async ({}, provide) => {
     await provide(async (page, user, next = "/") => {
       const path = await confirmPathFor(user.email, next);
-      await page.goto(path);
+      await confirmMagicLink(page, path);
       await page.waitForURL((url) => url.pathname === next.split("?")[0], { timeout: 30_000 });
     });
   },

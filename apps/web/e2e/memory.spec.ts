@@ -1,5 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { MemoryDTO } from "@everkano/shared";
+import { addMemory, createConversation } from "./support/api";
+import { accessTokenFor } from "./support/auth";
 import { sql } from "./support/db";
 import { E2E, MISAKI } from "./support/env";
 import { openConversation, sendAndWaitReply } from "./support/dm";
@@ -121,6 +123,9 @@ test("A10: メモリパネルで記憶を追加・削除でき、削除した記
     "aria-pressed",
     "true",
   );
+  // 自分で追加した記憶は「あなたが追加」（編集していないので「編集済み」ではない）
+  await expect(item.getByText("あなたが追加", { exact: true })).toBeVisible();
+  await expect(item.getByText("編集済み", { exact: true })).toHaveCount(0);
   const [row] = await sql<{ is_user_edited: boolean; tags: string[]; importance: string }>(
     "select is_user_edited, tags, importance::text from public.memories where id = $1 and user_id = $2",
     [memory.id, user.id],
@@ -165,4 +170,114 @@ test("A10: メモリパネルで記憶を追加・削除でき、削除した記
   await page.reload();
   panel = await openMemoryPanel(page);
   await expect(panel.getByText(FACT)).toHaveCount(0);
+});
+
+const PLACEHOLDER = "例: 10月2日（金）に大事なプレゼンがある";
+
+test("記憶の追加に失敗しても「保存中…」の記憶が残らず、入力した内容が戻る（パネルを閉じた後の失敗も）", async ({
+  page,
+  makeUser,
+  login,
+}) => {
+  const user = await makeUser();
+  await login(page, user);
+  await openConversation(page, MISAKI);
+
+  // 記憶の API だけ止める（一覧も読み込めない）
+  await page.route(`${E2E.apiURL}/memories**`, (route) => route.abort("connectionrefused"));
+  let panel = await openMemoryPanel(page);
+  await expect(panel.getByRole("button", { name: "再読み込み" })).toBeVisible({ timeout: 15_000 });
+
+  const TEXT = "大事なことを覚えてほしい（API停止中）";
+  await panel.getByRole("button", { name: "覚えてほしいことを追加" }).click();
+  await panel.getByPlaceholder(PLACEHOLDER).fill(TEXT);
+  const form = panel.locator("form").first();
+  await form.getByRole("radio", { name: "優先度: 高" }).click();
+  await form.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(toast(page, /通信できませんでした/)).toBeVisible();
+  await expect(
+    panel.getByText("保存中…"),
+    "保存されていない記憶を「保存中…」のまま残さない",
+  ).toHaveCount(0);
+  await expect(panel.getByRole("listitem").filter({ hasText: TEXT })).toHaveCount(0);
+  await expect(panel.getByPlaceholder(PLACEHOLDER), "入力した内容がフォームに戻る").toHaveValue(
+    TEXT,
+  );
+  await expect(
+    panel.locator("form").first().getByRole("radio", { name: "優先度: 高" }),
+  ).toBeChecked();
+
+  // パネルを閉じた後に失敗した場合: 次に開いたときにフォームへ戻る
+  await page.unroute(`${E2E.apiURL}/memories**`);
+  await page.route(`${E2E.apiURL}/memories**`, async (route) => {
+    if (route.request().method() === "POST") {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      return route.abort("connectionrefused");
+    }
+    return route.continue();
+  });
+  const LATER = "閉じた後に失敗した記憶";
+  await panel.getByPlaceholder(PLACEHOLDER).fill(LATER);
+  const failed = page.waitForEvent(
+    "requestfailed",
+    (request) => request.method() === "POST" && request.url() === `${E2E.apiURL}/memories`,
+  );
+  await panel.locator("form").first().getByRole("button", { name: "追加", exact: true }).click();
+  await closeMemoryPanelByBackdrop(page);
+  await failed;
+  panel = await openMemoryPanel(page);
+  await expect(panel.getByPlaceholder(PLACEHOLDER)).toHaveValue(LATER);
+
+  // 失敗が届く前にパネルを開き直していても、表示中の空のフォームに戻る
+  const AGAIN = "開き直した後に失敗した記憶";
+  await panel.getByPlaceholder(PLACEHOLDER).fill(AGAIN);
+  const failedAgain = page.waitForEvent(
+    "requestfailed",
+    (request) => request.method() === "POST" && request.url() === `${E2E.apiURL}/memories`,
+  );
+  await panel.locator("form").first().getByRole("button", { name: "追加", exact: true }).click();
+  await closeMemoryPanelByBackdrop(page);
+  panel = await openMemoryPanel(page);
+  await failedAgain;
+  await expect(panel.getByPlaceholder(PLACEHOLDER)).toHaveValue(AGAIN);
+  const saved = await sql("select 1 from public.memories where user_id = $1", [user.id]);
+  expect(saved).toHaveLength(0);
+});
+
+test("記憶の編集に失敗したら、入力した内容のまま編集欄が残り、そのまま保存し直せる", async ({
+  page,
+  makeUser,
+  login,
+}) => {
+  const user = await makeUser();
+  const token = await accessTokenFor(user);
+  await createConversation(token, MISAKI.id);
+  const memory = await addMemory(token, MISAKI.id, "週末は実家に帰る");
+  await login(page, user);
+  await openConversation(page, MISAKI);
+  const panel = await openMemoryPanel(page);
+  const item = panel.getByRole("listitem").filter({ hasText: "週末は実家に帰る" });
+  await expect(item.getByText("あなたが追加", { exact: true })).toBeVisible();
+
+  await page.route(`${E2E.apiURL}/memories/*`, (route) =>
+    route.request().method() === "PATCH" ? route.abort("connectionrefused") : route.continue(),
+  );
+  await item.getByRole("button", { name: "編集" }).click();
+  const EDITED = "来週末は実家に帰る";
+  await panel.getByLabel("記憶の内容").fill(EDITED);
+  await panel.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(toast(page, /通信できませんでした/)).toBeVisible();
+  await expect(panel.getByLabel("記憶の内容"), "編集欄が閉じずに入力した内容が残る").toHaveValue(
+    EDITED,
+  );
+
+  await page.unroute(`${E2E.apiURL}/memories/*`);
+  await panel.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(panel.getByLabel("記憶の内容")).toHaveCount(0);
+  await expect(panel.getByRole("listitem").filter({ hasText: EDITED })).toBeVisible();
+  const [row] = await sql<{ content: string }>(
+    "select content from public.memories where id = $1",
+    [memory.id],
+  );
+  expect(row?.content).toBe(EDITED);
 });

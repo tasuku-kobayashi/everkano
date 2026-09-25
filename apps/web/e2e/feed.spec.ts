@@ -1,4 +1,5 @@
 import { visiblePostIds } from "./support/data";
+import { sqlOne } from "./support/db";
 import { expect, test } from "./support/fixtures";
 
 /**
@@ -87,4 +88,59 @@ test("A3: フィードの投稿をタップすると投稿詳細が開き、戻�
   expect(Math.abs(scrollAfter - scrollBefore), "戻ったときにスクロール位置が保たれる").toBeLessThan(
     200,
   );
+});
+
+test("A3: 長いキャプションは 2 行 +「… 続きを読む」で省略され、タップで全文を表示する", async ({
+  page,
+  makeUser,
+  login,
+}) => {
+  const user = await makeUser();
+  await login(page, user);
+  const moreButton = page.getByRole("button", { name: "キャプションの続きを読む" });
+  await expect(moreButton.first()).toBeVisible();
+  const postId =
+    (await page
+      .getByTestId("post-card")
+      .filter({ has: moreButton })
+      .first()
+      .getAttribute("data-post-id")) ?? "";
+  const card = page.locator(`[data-testid="post-card"][data-post-id="${postId}"]`);
+  const { caption, handle } = await sqlOne<{ caption: string; handle: string }>(
+    `select p.caption, c.handle from public.posts p join public.characters c on c.id = p.character_id
+      where p.id = $1`,
+    [postId],
+  );
+  const captionParagraph = card
+    .locator("p")
+    .filter({ has: page.getByRole("link", { name: handle, exact: true }) });
+
+  // 省略表示: 2 行に収まり、「… 続きを読む」が 3 行目に押し出されて隠れていない。
+  // 表示している本文はキャプションの先頭部分で、絵文字を途中で切っていない
+  const metrics = await captionParagraph.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const button = el.querySelector("button")?.getBoundingClientRect();
+    return {
+      height: box.height,
+      bottom: box.bottom,
+      lineHeight: Number.parseFloat(getComputedStyle(el).lineHeight),
+      buttonBottom: button?.bottom ?? Number.NaN,
+      text: el.textContent ?? "",
+    };
+  });
+  expect(metrics.height).toBeLessThanOrEqual(metrics.lineHeight * 2 + 1);
+  expect(metrics.buttonBottom).toBeLessThanOrEqual(metrics.bottom + 1);
+  expect(metrics.text.startsWith(handle)).toBe(true);
+  expect(metrics.text.endsWith("… 続きを読む")).toBe(true);
+  const shown = metrics.text.slice(handle.length, -"… 続きを読む".length);
+  expect(shown.length).toBeGreaterThan(0);
+  expect(caption.startsWith(shown), `「${shown}」はキャプションの先頭部分`).toBe(true);
+  expect(shown).not.toContain("\uFFFD");
+
+  // タップで全文
+  await card.getByRole("button", { name: "キャプションの続きを読む" }).click();
+  await expect(card.getByRole("button", { name: "キャプションの続きを読む" })).toHaveCount(0);
+  await expect
+    .poll(() => captionParagraph.evaluate((el) => el.textContent))
+    .toBe(`${handle}${caption}`);
 });

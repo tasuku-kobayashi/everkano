@@ -2,7 +2,9 @@ import type { Page } from "@playwright/test";
 import { freePostWithComments, paidPost } from "./support/data";
 import { MISAKI } from "./support/env";
 import { messageLog } from "./support/dm";
+import type { TestUser } from "./support/auth";
 import { expect, test } from "./support/fixtures";
+import { expectReadableText } from "./support/ui";
 
 /**
  * ダークモード（§4.1「ダークモード必須（端末設定に追従）」）の表示確認。
@@ -93,6 +95,65 @@ test("ダークモード: 主要画面が端末設定に追従して暗い配色
   await expect(sheet).toHaveCSS("background-color", "rgb(38, 38, 38)");
   await page.waitForTimeout(300);
   expect(await brightSurfaces(page)).toEqual([]);
+
+  // スクリーンリーダー（Esc・背景タップが無い）でも閉じられる「閉じる」ボタンがシート内にある
+  await sheet.getByRole("button", { name: "閉じる" }).click();
+  await expect(sheet).toBeHidden();
+});
+
+/**
+ * 読ませる文字（エラー文言・テキストボタン・破壊的操作のラベル）が WCAG 2.1 AA（4.5:1）を満たす。
+ * Instagram の #0095f6 / #ff3040 は塗り専用で、文字には --ig-blue-text / --ig-red-text を使う（globals.css）。
+ */
+async function expectReadableTexts(
+  page: Page,
+  scheme: string,
+  user: TestUser,
+  login: (page: Page, user: TestUser, next?: string) => Promise<void>,
+): Promise<void> {
+  await page.goto("/login");
+  await page.getByPlaceholder("メールアドレス").fill("not-an-email");
+  await page.getByRole("button", { name: "ログインリンクを送信" }).click();
+  await expectReadableText(page.locator("#login-error"), `${scheme}: ログインのエラー文言`);
+  await expectReadableText(
+    page.getByRole("button", { name: "確認コードをお持ちの場合" }),
+    `${scheme}: テキストボタン（青）`,
+  );
+
+  await login(page, user, "/me");
+  await expectReadableText(
+    page.getByRole("button", { name: "ログアウト" }),
+    `${scheme}: ログアウト`,
+  );
+  await expectReadableText(page.getByRole("button", { name: "退会する" }), `${scheme}: 退会する`);
+  await page.getByRole("button", { name: "退会する" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "退会しますか？" });
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(300); // 表示アニメーション
+  await expectReadableText(
+    dialog.getByRole("button", { name: "退会する" }),
+    `${scheme}: ダイアログの破壊的操作`,
+  );
+  await dialog.getByRole("button", { name: "キャンセル" }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test("文字のコントラスト: エラー文言・テキストボタン・破壊的操作がライト / ダークとも 4.5:1 以上", async ({
+  page,
+  makeUser,
+  login,
+  newDeviceContext,
+}) => {
+  test.setTimeout(120_000);
+  await expectReadableTexts(page, "dark", await makeUser("contrast-dark"), login);
+
+  const context = await newDeviceContext({ colorScheme: "light" });
+  await expectReadableTexts(
+    await context.newPage(),
+    "light",
+    await makeUser("contrast-light"),
+    login,
+  );
 });
 
 test("ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）", async ({
