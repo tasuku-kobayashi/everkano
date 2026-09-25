@@ -14,7 +14,9 @@
 #   docker compose up --build api
 #   curl http://localhost:8000/health
 #
-# Docker Hub のレート制限に当たる場合: PYTHON_IMAGE=mirror.gcr.io/library/python:3.12-slim docker compose build
+# ベースイメージは apps/api/Dockerfile の PYTHON_IMAGE と同じ digest 固定の値を既定にする（タグだけだと同じコミットから別のイメージになる）。
+# Docker Hub のレート制限に当たる場合（digest は同じ）:
+#   PYTHON_IMAGE=mirror.gcr.io/library/python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9 docker compose build
 # =============================================================================
 services:
   api:
@@ -22,7 +24,8 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
       args:
-        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+        # apps/api/Dockerfile の ARG PYTHON_IMAGE と同じ値（更新手順は Dockerfile の先頭）
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9}
     image: everkano-api:local
     env_file:
       - path: apps/api/.env
@@ -36,8 +39,11 @@ services:
       # 起動時の設定検証で落ちる（コンテナ内にはリポジトリの packages/ が無いため）。environment は env_file より優先される
       PERSONAS_DIR: /srv/everkano/personas
       PROMPTS_DIR: /srv/everkano/prompts
+    # ホストの 127.0.0.1 だけで待ち受ける。"8000:8000" だと 0.0.0.0 に公開され、同じネットワーク
+    # （カフェの Wi-Fi・クラウドの開発 VM 等）から開発用 API（/docs、ホスト DB への postgres 接続）に届く。
+    # Docker の公開ポートは ufw 等のホストのファイアウォールも迂回する。CI（checks ジョブ）で検査している
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

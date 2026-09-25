@@ -6,10 +6,18 @@
 #   web    : Next.js の lint / typecheck / test / build（ダミーの公開 env でビルド）
 #   api-db : ローカル Supabase を起動し、RLS の pgTAP テスト（A13）・DB 型のずれ検出・
 #            Python API の ruff / mypy / pytest（統合テストは同じ DB を使用）
-#   e2e    : 受け入れ基準の Playwright E2E（apps/web/e2e）。所要時間が長いため
-#            手動実行（Actions タブ → CI → Run workflow）のときだけ動く
+#   e2e    : 受け入れ基準の Playwright E2E（apps/web/e2e）。所要時間が長いため PR では動かさず、
+#            main への push・毎晩の定期実行・手動実行（Actions タブ → CI → Run workflow）で動く
 #
 # シークレットは一切使わない（LLM は mock、Embedding は hash、Supabase はローカルの既定値）。
+#
+# サプライチェーン対策:
+#   - サードパーティを含むすべての action はコミット SHA で固定する（タグは付け替えられるため）。
+#     行末の `# vX.Y.Z` はその SHA のタグ。更新は Dependabot（.github/dependabot.yml）の PR で行う
+#   - checkout は認証情報を残さない（persist-credentials: false。push するステップは無い）
+#   - uv はバージョンを固定（apps/api/Dockerfile の UV_IMAGE = ghcr.io/astral-sh/uv:0.8.17@sha256:… と同じ版）。
+#     Python の依存は uv.lock から --frozen で入れ、実行時に PyPI からロック外のパッケージを取らない
+#   - pnpm audit（high 以上）で npm 依存の既知の脆弱性を検出する
 # =============================================================================
 name: CI
 
@@ -17,13 +25,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  # 毎晩 03:17 JST（E2E と、新しく公開された脆弱性アドバイザリの pnpm audit を定期的に回す）
+  schedule:
+    - cron: "17 18 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# 同じ PR / ブランチの古い実行は取り消す。定期実行と push は別グループ（夜間の E2E が main への push の実行を取り消さない）
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -39,29 +51,56 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      # 履歴のシークレット走査（下の --history）のため全履歴を取得する
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: シークレット混入チェック（A14 / H7）
         run: bash scripts/check-secrets.sh
 
+      # 作業ツリーだけの検査では「あるコミットで追加し、次のコミットで消した」シークレットがすり抜ける。
+      # PR ならその PR のコミット、main への push なら今回 push されたコミットに含まれた全ファイル版を走査する
+      # （基点が取れない手動実行・初回 push 等は HEAD までの全履歴）
+      - name: シークレット混入チェック（コミット履歴）
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && ! "$BASE_SHA" =~ ^0+$ ]] &&
+            git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            bash scripts/check-secrets.sh --history "${BASE_SHA}..${HEAD_SHA}"
+          else
+            bash scripts/check-secrets.sh --history HEAD
+          fi
+
+      - name: check-secrets.sh の回帰テスト
+        run: bash scripts/tests/check-secrets.test.sh
+
       - name: スコープ外機能チェック（A16 / §12）
         run: bash scripts/check-scope.sh
 
-      - name: ShellCheck（scripts/*.sh）
-        run: shellcheck -x scripts/*.sh
+      - name: ShellCheck（scripts/*.sh, scripts/tests/*.sh）
+        run: shellcheck -x scripts/*.sh scripts/tests/*.sh
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
 
       # packages/personas/scripts/validate_personas.py（= pnpm personas:validate）:
       # YAML の必須項目・全キャラ 20 歳以上に加え、YAML / seed/feed.yaml / infra/supabase/seed.sql に
       # 未成年を想起させる表現が無いこと、seed.sql が generate_seed.py の生成結果と一致すること
-      # （手編集・再生成忘れ）を検査する。API 側の scripts/validate_personas.py は Pydantic モデルの読込のみ
+      # （手編集・再生成忘れ）を検査する。API 側の scripts/validate_personas.py は Pydantic モデルの読込のみ。
+      # pyyaml 等は apps/api の uv.lock から入れる（--frozen。実行時にロック外の版を PyPI から取らない）
       - name: ペルソナ / seed.sql の整合性・未成年表現チェック（成人のみ）
-        run: uv run --with pyyaml python packages/personas/scripts/validate_personas.py
+        run: uv run --frozen --project apps/api python packages/personas/scripts/validate_personas.py
 
       # setup-env.sh（.env.example）から作った apps/api/.env で docker compose の API が起動できること。
       # env_file の空の PERSONAS_DIR= / PROMPTS_DIR= がイメージの既定パスを空文字で上書きしないか検査する
-      - name: docker compose の API 設定（PERSONAS_DIR / PROMPTS_DIR がイメージ内のパスになる）
+      - name: docker compose の API 設定（PERSONAS_DIR / PROMPTS_DIR がイメージ内のパス・127.0.0.1 のみで公開）
         run: |
           status_file="${RUNNER_TEMP}/supabase-status.env"
           printf '%s\n' 'API_URL="http://127.0.0.1:54321"' \
@@ -72,6 +111,9 @@ jobs:
           printf 'PERSONAS_DIR=\nPROMPTS_DIR=\n' >>apps/api/.env
           docker compose config --format json | jq -e '.services.api.environment
             | .PERSONAS_DIR == "/srv/everkano/personas" and .PROMPTS_DIR == "/srv/everkano/prompts"'
+          # 開発用 API（/docs・ホスト DB への postgres 接続）を LAN に公開しない（127.0.0.1 のみで待ち受け）
+          docker compose config --format json | jq -e '.services.api.ports
+            | length > 0 and all(.[]; .host_ip == "127.0.0.1")'
 
   # ---------------------------------------------------------------------------
   web:
@@ -86,18 +128,26 @@ jobs:
       NEXT_PUBLIC_SITE_URL: http://localhost:3000
       NEXT_PUBLIC_STORAGE_DRIVER: passthrough
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # pnpm のバージョンは package.json の packageManager から決まる
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # npm 依存の既知の脆弱性（high 以上で失敗。devDependencies を含む — ビルド・テスト時に動くため）。
+      # 新しいアドバイザリの公開でコード変更なしに失敗し得る。その場合は依存を更新するか、
+      # 推移的依存ならルート package.json の pnpm.overrides で修正版に上げる（Dependabot の PR も参照）
+      - name: 依存パッケージの脆弱性（pnpm audit）
+        run: pnpm audit --audit-level high
 
       - name: Prettier
         run: pnpm format:check
@@ -126,10 +176,14 @@ jobs:
       # ローカル Supabase の既定値（シークレットではない）。scripts/test-db.sh と pytest の統合テストが参照
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      # DB に接続できないとき統合テスト（所有者チェック等）を skip せず失敗にする（CI=true でも有効だが明示する）
+      REQUIRE_TEST_DB: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
         with:
           version: 2.117.0
 
@@ -150,9 +204,9 @@ jobs:
       - name: Auth 設定の静的検査（enable_confirmations 等）
         run: python3 infra/supabase/tests/auth/signup_hardening.py --static-only
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -166,8 +220,9 @@ jobs:
         working-directory: apps/web
         run: bash ../../scripts/check-db-types.sh
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
+          version: "0.8.17"
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
 
@@ -195,9 +250,10 @@ jobs:
         working-directory: apps/api
         run: uv run python scripts/export_openapi.py --check
 
+      # -rs: skip したテストがあれば理由を表示する
       - name: pytest（統合テストはローカル Supabase の Postgres を使用）
         working-directory: apps/api
-        run: uv run pytest
+        run: uv run pytest -rs
 
       - name: 失敗時の診断情報
         if: failure()
@@ -212,8 +268,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   e2e:
-    name: E2E（受け入れ基準 / Playwright・手動実行のみ）
-    if: github.event_name == 'workflow_dispatch'
+    name: E2E（受け入れ基準 / Playwright・main への push・夜間・手動実行）
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -222,9 +280,11 @@ jobs:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
       E2E_WORKERS: "2"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
         with:
           version: 2.117.0
 
@@ -232,15 +292,16 @@ jobs:
       - name: Supabase ローカルスタック起動
         run: supabase start --workdir infra -x storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
+          version: "0.8.17"
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
 
@@ -257,21 +318,21 @@ jobs:
         working-directory: apps/api
         run: |
           nohup uv run uvicorn app.main:app --port 8000 > /tmp/api.log 2>&1 &
-          for i in $(seq 1 60); do curl -fsS http://localhost:8000/health && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fsS http://localhost:8000/health && break; sleep 1; done
 
       - name: Web ビルド・起動（本番ビルド）
         working-directory: apps/web
         run: |
           pnpm build
           nohup pnpm start -p 3000 > /tmp/web.log 2>&1 &
-          for i in $(seq 1 60); do curl -fsS -o /dev/null http://localhost:3000/login && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fsS -o /dev/null http://localhost:3000/login && break; sleep 1; done
 
       - name: Playwright E2E
         run: pnpm --filter @everkano/web e2e
 
       - name: レポート保存
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: |

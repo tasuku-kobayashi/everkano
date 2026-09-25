@@ -1,0 +1,75 @@
+# =============================================================================
+# Dependabot — 依存関係のバージョン更新 PR
+#
+#   github-actions : .github/workflows/*.yml の action（コミット SHA 固定。SHA と行末の `# vX.Y.Z` を更新する）
+#   npm            : pnpm ワークスペース全体（ルートの package.json / pnpm-lock.yaml）
+#   uv             : Python API（apps/api/pyproject.toml / uv.lock）
+#
+# - cooldown: 公開から 7 日経った版だけを提案する（乗っ取られたパッケージが公開直後に取り込まれるのを避ける）。
+# - マイナー / パッチはエコシステムごとに 1 つの PR にまとめる。メジャーは個別の PR（CI が通るか確認してマージ）。
+# - 既知の脆弱性のアラートとセキュリティ更新 PR（Dependabot alerts / security updates）は、このファイルではなく
+#   GitHub の Settings → Code security で有効化する（docs/handover/06-operations.md）。
+# - apps/api/Dockerfile のベースイメージと uv は、ARG（PYTHON_IMAGE / UV_IMAGE）と apps/api/fly.toml の [build.args]・
+#   docker-compose.yml の既定値で digest（sha256）まで固定している。Dependabot の docker エコシステムは ARG を使う
+#   FROM 行を更新できないため対象外。毎月 1 回（と Python / Debian のセキュリティ修正の公開時）に手動で更新する
+#   （手順は apps/api/Dockerfile の先頭。docs/handover/06-operations.md の「定期作業」）。
+# =============================================================================
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+      include: scope
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Next.js 15（App Router）/ Node.js 22 を前提に構築・検証している（README / docs/handover/01-architecture.md）。
+      # これらのメジャー更新は計画的に行う（15.x の修正版は通常どおり提案される）
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint-config-next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: uv
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: chore
+      include: scope

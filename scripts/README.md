@@ -1,6 +1,6 @@
 # scripts/
 
-リポジトリ全体で使う補助スクリプト。すべて bash で、リポジトリのどこから実行しても動く
+リポジトリ全体で使う補助スクリプト。リポジトリのどこから実行しても動く
 （スクリプト自身の位置からリポジトリルートを解決する）。CI（`.github/workflows/ci.yml`）でも同じものを実行する。
 
 | スクリプト                 | 目的                                                         | 対応する基準    | CI  |
@@ -8,10 +8,13 @@
 | `setup-env.sh`             | `supabase status` から `apps/web/.env.local` / `apps/api/.env` を生成 | A15（環境構築） | —   |
 | `test-db.sh`               | RLS・権限・トリガーの pgTAP テストを psql で実行             | A13             | ✓   |
 | `check-db-types.sh`        | `packages/shared/src/database.types.ts` とスキーマのずれ検出 | 型契約          | ✓   |
-| `check-secrets.sh`         | シークレット混入チェック                                     | A14 / H7        | ✓   |
+| `check-secrets.sh`         | シークレット混入チェック（作業ツリー / `--history` でコミット履歴） | A14 / H7        | ✓   |
 | `check-scope.sh`           | スコープ外機能（決済・画像生成・TTS・ユーザー投稿 等）の混入チェック | A16 / §12       | ✓   |
+| `generate-third-party-notices.py` | `THIRD_PARTY_NOTICES.md`（本番依存のライセンス一覧）を生成。依存を更新したら実行してコミット: `uv run --frozen --project apps/api python scripts/generate-third-party-notices.py` | 提出物（DD） | —   |
 
 終了コードは共通で `0` = 成功、`1` = チェック失敗（検出あり）、`2` = 実行できない（接続不可・ツール不足など）。
+
+`scripts/tests/` はスクリプト自体の回帰テスト（CI の checks ジョブで実行。`bash scripts/tests/<名前>.test.sh`）。
 
 ---
 
@@ -65,10 +68,17 @@ pnpm db:start && scripts/check-db-types.sh
 ## check-secrets.sh — シークレット混入チェック（A14）
 
 ```bash
-scripts/check-secrets.sh
+scripts/check-secrets.sh                              # 作業ツリー
+scripts/check-secrets.sh --history                    # HEAD までの全コミットの全ファイル版
+scripts/check-secrets.sh --history origin/main..HEAD  # このブランチのコミットだけ（push 前の確認に）
 ```
 
 - 対象: `git ls-files -co --exclude-standard`（コミット済み + 未追跡で `.gitignore` されていないファイル）。
+- `--history [<git rev-list の引数>]`: 作業ツリーの検査では「あるコミットで追加し、次のコミットで消した」
+  シークレットがすり抜けるため、範囲内のコミットに含まれた全ファイル版（blob）を同じルールで走査する。
+  検出箇所は `パス @ そのファイル版を最初に含んだコミット:行` で表示する。shallow clone では実行しない（終了コード 2）。
+  CI は PR ならその PR のコミット（`base..head`）、main への push なら push されたコミットを走査する。
+  履歴に入った本物の鍵は、ファイルを消しても残るので必ず無効化（ローテーション）すること。
 - 検出: 秘密鍵ブロック、`sk-` 形式の API キー、Supabase の `sb_secret_` キーと JWT（service_role / anon。role を表示）、
   AWS / GitHub / Slack / Google / Stripe の既知形式、Sentry DSN、Bunny.net / Backblaze B2 のキーへの代入、
   `SECRET` / `PASSWORD` / `API_KEY` 等の名前への文字列リテラル代入、ローカル以外を指すパスワード付き DB 接続文字列、
@@ -80,6 +90,7 @@ scripts/check-secrets.sh
     `*.spec.*`, `test_*.py`, `conftest.py`）と、`example` / `dummy` / `test` / `env(...)` / `process.env` 等を含む行を対象外にする。
   - 既知形式のキー（`sk-`・JWT・秘密鍵など）はテストコードでも検出する。テスト用のダミー値であれば、
     テストファイルの該当行に `check-secrets: allow` と理由を書く（テスト以外のファイルでは無効）。
+- 回帰テスト: `bash scripts/tests/check-secrets.test.sh`（使い捨ての git リポジトリで `--history` 等を検証する）。
 
 ## check-scope.sh — スコープ外機能の混入チェック（A16）
 

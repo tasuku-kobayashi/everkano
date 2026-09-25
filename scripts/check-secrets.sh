@@ -23,8 +23,15 @@
 #   テスト以外のファイルではこのマーカーは無視される。
 #
 # 使い方:
-#   scripts/check-secrets.sh        # リポジトリ全体
+#   scripts/check-secrets.sh                          # 作業ツリー（コミットされ得るファイル全部）
+#   scripts/check-secrets.sh --history               # HEAD までの全コミットに含まれた全ファイル版
+#   scripts/check-secrets.sh --history origin/main..HEAD   # 指定範囲のコミットで追加されたファイル版だけ
 #   出力にはシークレットの値そのものは表示しない（CI ログへの二次漏洩防止）。
+#
+# --history: 作業ツリーだけを見ると「あるコミットで追加し、次のコミットで消した」シークレットが
+#   すり抜ける（履歴には残る）。このモードでは `git rev-list --objects <範囲>` の全ファイル版（blob）を
+#   取り出して同じルールで走査し、見つかった場合は「パス @ そのファイル版を最初に含んだコミット」を表示する。
+#   <範囲> は git rev-list の引数（既定: HEAD）。shallow clone では不完全になるため実行しない（終了コード 2）。
 # =============================================================================
 set -euo pipefail
 
@@ -43,30 +50,105 @@ else
   RESET=""
 fi
 
+usage() {
+  sed -n '3,/^# =====/p' "${BASH_SOURCE[0]}" | sed -e '$d' -e 's/^# \{0,1\}//'
+}
+
+MODE=tree
+REVS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --history)
+      MODE=history
+      shift
+      # 残りの引数はすべて git rev-list に渡すリビジョン（範囲）として扱う
+      REVS=("$@")
+      break
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: 不明な引数: $1（--help を参照）" >&2
+      exit 2
+      ;;
+  esac
+done
+
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   echo "error: git リポジトリ内で実行してください" >&2
   exit 2
 }
 
+TMP_ROOT="$(mktemp -d)"
+trap 'rm -rf "$TMP_ROOT"' EXIT
+hits_file="$TMP_ROOT/hits"
+
 # ---------------------------------------------------------------------------
 # 走査対象
+#   tree    : FILES = 作業ツリーの相対パス / ALL_PATHS = コミットされ得る全パス
+#   history : FILES = "$TMP_ROOT/blobs" 配下に書き出した "<blob の SHA>/<元のパス>"（cwd をそこへ移す）
+#             ALL_PATHS = 範囲内のコミットに現れた全パス（ファイル名ルール用）
 # ---------------------------------------------------------------------------
 FILES=()
 ALL_PATHS=()
-while IFS= read -r -d '' f; do
-  ALL_PATHS+=("$f")
-  [[ -f "$f" && ! -L "$f" ]] || continue
-  [[ "$f" == "$SELF" ]] && continue
-  FILES+=("$f")
-done < <(git ls-files -z -co --exclude-standard)
+if [[ "$MODE" == tree ]]; then
+  while IFS= read -r -d '' f; do
+    ALL_PATHS+=("$f")
+    [[ -f "$f" && ! -L "$f" ]] || continue
+    [[ "$f" == "$SELF" ]] && continue
+    FILES+=("$f")
+  done < <(git ls-files -z -co --exclude-standard)
+else
+  [[ ${#REVS[@]} -gt 0 ]] || REVS=(HEAD)
+  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+    echo "error: shallow clone では履歴を走査できません（git fetch --unshallow / actions/checkout の fetch-depth: 0）" >&2
+    exit 2
+  fi
+  if ! COMMIT_COUNT="$(git rev-list --count "${REVS[@]}" 2>/dev/null)"; then
+    echo "error: リビジョンを解決できません: ${REVS[*]}" >&2
+    exit 2
+  fi
+  BLOB_DIR="$TMP_ROOT/blobs"
+  mkdir -p "$BLOB_DIR"
+  git rev-list --objects "${REVS[@]}" >"$TMP_ROOT/objects"
+  while IFS=' ' read -r type sha path; do
+    [[ "$type" == blob && -n "$path" ]] || continue
+    [[ "$path" == "$SELF" ]] && continue
+    dest="$BLOB_DIR/$sha/$path"
+    mkdir -p "${dest%/*}"
+    git cat-file blob "$sha" >"$dest"
+    FILES+=("$sha/$path")
+  done < <(git cat-file --batch-check='%(objecttype) %(objectname) %(rest)' <"$TMP_ROOT/objects")
+  while IFS= read -r -d '' f; do
+    [[ -n "$f" ]] && ALL_PATHS+=("$f")
+  done < <(git log -z --format= --name-only --no-renames -m --diff-filter=d "${REVS[@]}" | sort -z -u)
+  cd "$BLOB_DIR"
+fi
+
+# history モードの表示名: "<blob>/<path>" → "<path> @ <そのファイル版を最初に含んだコミット>"
+display_path() {
+  local blob rel commit
+  if [[ "$MODE" == history && "$1" =~ ^([0-9a-f]{40}|[0-9a-f]{64})/(.+)$ ]]; then
+    blob="${BASH_REMATCH[1]}"
+    rel="${BASH_REMATCH[2]}"
+    commit="$(git -C "$ROOT_DIR" log --format=%h --find-object="$blob" "${REVS[@]}" -- 2>/dev/null | tail -n 1 || true)"
+    printf '%s @ %s' "$rel" "${commit:-blob ${blob:0:12}}"
+  else
+    printf '%s' "$1"
+  fi
+}
 
 FINDINGS=0
 report() { # path line rule message
   FINDINGS=$((FINDINGS + 1))
+  local where
+  where="$(display_path "$1")"
   if [[ -n "$2" ]]; then
-    echo "${RED}✗${RESET} $1:$2  [$3] $4"
+    echo "${RED}✗${RESET} ${where}:$2  [$3] $4"
   else
-    echo "${RED}✗${RESET} $1  [$3] $4"
+    echo "${RED}✗${RESET} ${where}  [$3] $4"
   fi
 }
 
@@ -86,9 +168,6 @@ PLACEHOLDER_RE='dummy|example|placeholder|changeme|change-me|your[-_]|xxxxxx|\*\
 
 # ローカル既定値とみなす DB ホスト
 LOCAL_DB_HOST_RE='@(127\.0\.0\.1|localhost|\[::1\]|0\.0\.0\.0|host\.docker\.internal|db|postgres|supabase_db_[A-Za-z0-9_-]*)([:/"'"'"'[:space:]]|$)'
-
-hits_file="$(mktemp)"
-trap 'rm -f "$hits_file"' EXIT
 
 # grep で候補行を $hits_file に書き出す。形式: path:line:content
 grep_candidates() { # [-i] regex
@@ -165,7 +244,18 @@ scan_jwt() {
   done <"$hits_file"
 }
 
-echo "シークレットチェック: ${#FILES[@]} ファイルを走査します"
+if [[ "$MODE" == history ]]; then
+  echo "シークレットチェック（履歴: ${REVS[*]}）: ${COMMIT_COUNT} コミット / ${#FILES[@]} ファイル版を走査します"
+else
+  echo "シークレットチェック: ${#FILES[@]} ファイルを走査します"
+fi
+
+# history モード: そのパスを最初に追加したコミット付きの表示名
+history_path_label() {
+  local commit
+  commit="$(git -C "$ROOT_DIR" log --format=%h --diff-filter=A "${REVS[@]}" -- "$1" 2>/dev/null | tail -n 1 || true)"
+  printf '%s @ %s' "$1" "${commit:-?}"
+}
 
 # ---------------------------------------------------------------------------
 # 1. コミットされ得るファイル名のチェック
@@ -173,7 +263,9 @@ echo "シークレットチェック: ${#FILES[@]} ファイルを走査しま�
 for f in "${ALL_PATHS[@]}"; do
   base="${f##*/}"
   if [[ "$base" =~ ^\.env($|\.) ]] && [[ ! "$base" =~ ^\.env\.example$ ]]; then
-    if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+    if [[ "$MODE" == history ]]; then
+      report "$(history_path_label "$f")" "" "env-file" ".env ファイルが過去のコミットに含まれています（.env.example 以外は禁止）"
+    elif git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
       report "$f" "" "env-file" ".env ファイルが git 管理されています（.env.example 以外は禁止）"
     else
       report "$f" "" "env-file" ".env ファイルが .gitignore されていません"
@@ -182,7 +274,11 @@ for f in "${ALL_PATHS[@]}"; do
   if [[ "$base" =~ \.(pem|key|p12|pfx|jks|keystore|ppk)$ ]] ||
     [[ "$base" =~ ^id_(rsa|dsa|ecdsa|ed25519)$ ]] ||
     [[ "$base" =~ ^(credentials|service[-_]?account.*)\.json$ ]]; then
-    report "$f" "" "key-file" "秘密鍵・証明書・認証情報ファイルはコミットしないこと"
+    if [[ "$MODE" == history ]]; then
+      report "$(history_path_label "$f")" "" "key-file" "秘密鍵・証明書・認証情報ファイルが過去のコミットに含まれています"
+    else
+      report "$f" "" "key-file" "秘密鍵・証明書・認証情報ファイルはコミットしないこと"
+    fi
   fi
 done
 
@@ -220,9 +316,10 @@ scan "bunny-b2-key" "Bunny.net / Backblaze B2 のキー・トークンに文字�
 scan "bunny-b2-key" "Bunny.net / Backblaze B2 のキー・トークンに値が設定されています（env / YAML / shell）" \
   '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?(BUNNY|B2|BACKBLAZE)[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_=-]{8,}(["'"'"'[:space:]]|$)' \
   "$PLACEHOLDER_RE" "" skip-tests
+# secret_name（Fly.io の [[files]] 等）はシークレットの「名前」を指定するキーなので対象外
 scan "secret-literal" "シークレット名の変数に文字列リテラルが代入されています" \
   '(secret|password|passwd|private_?key|api_?key|auth_?key|access_?key|service_?role_?key|access_?token|auth_?token)[A-Za-z0-9_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'[:space:]]{16,}["'"'"']' \
-  "$PLACEHOLDER_RE" -i skip-tests
+  "${PLACEHOLDER_RE}|(^|[^A-Za-z0-9_])secret_?name[\"']?[[:space:]]*[:=]" -i skip-tests
 scan "secret-assignment" "シークレット名の環境変数に値が設定されています（env / YAML / shell）" \
   '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?[A-Z0-9_]*(SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_KEY|ACCESS_KEY|SERVICE_ROLE_KEY|ACCESS_TOKEN|AUTH_TOKEN|_DSN)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_=.@:-]{8,}(["'"'"'[:space:]]|$)' \
   "$PLACEHOLDER_RE" "" skip-tests
@@ -266,6 +363,10 @@ if [[ $FINDINGS -gt 0 ]]; then
   echo "${RED}${FINDINGS} 件の問題が見つかりました。${RESET}"
   echo "シークレットは環境変数（.env.local / apps/api/.env / Vercel / ホストの設定）で渡してください（H7）。"
   echo "テスト用のダミー値であれば、テストファイルの該当行に 'check-secrets: allow'（理由付き）を付けてください。"
+  if [[ "$MODE" == history ]]; then
+    echo "履歴のシークレットは後のコミットで消しても残ります。本物の鍵なら無効化（ローテーション）し、"
+    echo "未マージのブランチならコミットを作り直して（rebase / squash）履歴から取り除いてください。"
+  fi
   exit 1
 fi
 echo "${GREEN}OK${RESET}: シークレットは見つかりませんでした"
