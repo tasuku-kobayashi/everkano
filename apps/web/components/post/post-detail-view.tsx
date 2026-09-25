@@ -49,7 +49,7 @@ export function PostDetailHeader({ handle }: { handle?: string }) {
       title={
         <span className="flex flex-col items-center">
           {handle ? (
-            <span className="text-ig-secondary max-w-full truncate text-[12px] leading-4 font-semibold uppercase">
+            <span className="max-w-full truncate text-[12px] leading-4 font-semibold text-ig-secondary uppercase">
               {handle}
             </span>
           ) : null}

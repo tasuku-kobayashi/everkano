@@ -56,8 +56,8 @@ export function AppHeader(props: AppHeaderProps) {
   return (
     <header
       className={cn(
-        "pt-safe bg-ig-bg/95 supports-[backdrop-filter]:bg-ig-bg/85 sticky top-0 z-30 backdrop-blur-md",
-        props.bordered && "border-ig-separator border-b",
+        "sticky top-0 z-30 bg-ig-bg/95 pt-safe backdrop-blur-md supports-[backdrop-filter]:bg-ig-bg/85",
+        props.bordered && "border-b border-ig-separator",
         props.className,
       )}
     >
@@ -75,7 +75,7 @@ export function AppHeader(props: AppHeaderProps) {
 
 function LogoContent() {
   return (
-    <Link href="/" aria-label="everkano ホーム" className="pressable -mb-1 flex items-center pl-1">
+    <Link href="/" aria-label="everkano ホーム" className="-mb-1 flex items-center pl-1 pressable">
       <Wordmark height={30} />
     </Link>
   );
@@ -88,7 +88,7 @@ function BackButton({ backHref, onBack }: Pick<BackHeaderProps, "backHref" | "on
       type="button"
       onClick={onBack ?? goBack}
       aria-label="戻る"
-      className="pressable -ml-1 flex size-10 shrink-0 items-center justify-center"
+      className="-ml-1 flex size-10 shrink-0 items-center justify-center pressable"
     >
       <ChevronLeftIcon size={26} strokeWidth={2.2} />
     </button>
@@ -122,7 +122,7 @@ function BackContent({
             <h1 className="max-w-full truncate text-[16px] leading-5 font-bold">{title}</h1>
           ) : null}
           {subtitle ? (
-            <p className="text-ig-secondary max-w-full truncate text-[12px] leading-4">
+            <p className="max-w-full truncate text-[12px] leading-4 text-ig-secondary">
               {subtitle}
             </p>
           ) : null}

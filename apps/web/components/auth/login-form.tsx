@@ -158,14 +158,14 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
   }
 
   return (
-    <main className="pt-safe pb-safe mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-8">
+    <main className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-8 pt-safe pb-safe">
       <div className="flex flex-1 flex-col justify-center py-10">
         {step === "email" ? (
           <form onSubmit={onSubmitEmail} noValidate className="flex flex-col items-stretch">
             <div className="mb-3 flex justify-center">
               <Wordmark height={56} />
             </div>
-            <p className="text-ig-secondary mb-8 text-center text-[15px] leading-5 font-semibold">
+            <p className="mb-8 text-center text-[15px] leading-5 font-semibold text-ig-secondary">
               AIキャラクターたちの毎日をのぞいて、
               <br />
               DMで話そう。
@@ -187,7 +187,7 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
               onChange={(event) => setEmail(event.target.value)}
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "login-error" : undefined}
-              className="border-ig-input-border bg-ig-input-bg text-ig-text placeholder:text-ig-secondary focus:border-ig-secondary h-12 w-full rounded-xl border px-4 text-[16px] outline-none"
+              className="h-12 w-full rounded-xl border border-ig-input-border bg-ig-input-bg px-4 text-[16px] text-ig-text outline-none placeholder:text-ig-secondary focus:border-ig-secondary"
             />
 
             <Button
@@ -203,7 +203,7 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
 
             <ErrorText message={error} />
 
-            <p className="text-ig-secondary mt-8 text-center text-[12px] leading-4">
+            <p className="mt-8 text-center text-[12px] leading-4 text-ig-secondary">
               アカウントをお持ちでない場合も、メールアドレスを入力するだけで始められます。
             </p>
           </form>
@@ -213,12 +213,12 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
             noValidate
             className="flex flex-col items-center text-center"
           >
-            <div className="border-ig-text mb-4 flex size-[88px] items-center justify-center rounded-full border-2">
+            <div className="mb-4 flex size-[88px] items-center justify-center rounded-full border-2 border-ig-text">
               <MailIcon size={44} strokeWidth={1.4} />
             </div>
             <h1 className="text-[18px] leading-6 font-semibold">メールを確認してください</h1>
-            <p className="text-ig-secondary mt-2 text-[14px] leading-[18px]">
-              <span className="text-ig-text font-semibold break-all">{email}</span>{" "}
+            <p className="mt-2 text-[14px] leading-[18px] text-ig-secondary">
+              <span className="font-semibold break-all text-ig-text">{email}</span>{" "}
               にログインリンクを送信しました。メール内のリンクをタップするか、記載されている6桁の確認コードを入力してください。
             </p>
 
@@ -239,8 +239,8 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "login-error" : undefined}
               className={cn(
-                "border-ig-input-border bg-ig-input-bg text-ig-text focus:border-ig-secondary mt-6 h-14 w-full rounded-xl border px-4 text-center text-[24px] font-semibold tracking-[0.5em] outline-none",
-                "placeholder:text-ig-secondary placeholder:text-[16px] placeholder:font-normal placeholder:tracking-normal",
+                "mt-6 h-14 w-full rounded-xl border border-ig-input-border bg-ig-input-bg px-4 text-center text-[24px] font-semibold tracking-[0.5em] text-ig-text outline-none focus:border-ig-secondary",
+                "placeholder:text-[16px] placeholder:font-normal placeholder:tracking-normal placeholder:text-ig-secondary",
               )}
             />
 
@@ -284,7 +284,7 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
               </Button>
             </div>
 
-            <p className="text-ig-secondary mt-6 text-[12px] leading-4">
+            <p className="mt-6 text-[12px] leading-4 text-ig-secondary">
               ホーム画面に追加したアプリをお使いの場合は、確認コードでログインしてください。
             </p>
           </form>
@@ -300,7 +300,7 @@ function ErrorText({ message }: { message: string | null }) {
     <p
       id="login-error"
       role="alert"
-      className="text-ig-red mt-4 text-center text-[14px] leading-[18px]"
+      className="mt-4 text-center text-[14px] leading-[18px] text-ig-red"
     >
       {message}
     </p>

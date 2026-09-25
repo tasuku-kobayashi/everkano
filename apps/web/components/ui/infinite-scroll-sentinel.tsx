@@ -79,7 +79,7 @@ export function InfiniteScrollSentinel({
     <div className={cn("w-full", className)}>
       <div ref={ref} aria-hidden="true" className="h-px w-full" />
       {showSpinner && options.loading ? (
-        <div className="text-ig-secondary flex justify-center py-4">
+        <div className="flex justify-center py-4 text-ig-secondary">
           <Spinner size={24} />
         </div>
       ) : null}

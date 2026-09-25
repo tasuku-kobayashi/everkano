@@ -9,17 +9,17 @@ export interface TypingIndicatorProps {
 export function TypingIndicator({ avatarUrl, name }: TypingIndicatorProps) {
   return (
     <div
-      className="animate-fade-in mt-2 flex items-end gap-2 pr-16 pl-3"
+      className="mt-2 flex animate-fade-in items-end gap-2 pr-16 pl-3"
       role="status"
       aria-label={`${name}が入力中`}
     >
       <Avatar src={avatarUrl} alt={name} size={28} />
-      <div className="bg-ig-elevated flex h-[38px] items-center gap-[5px] rounded-[22px] px-4">
+      <div className="flex h-[38px] items-center gap-[5px] rounded-[22px] bg-ig-elevated px-4">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
             aria-hidden="true"
-            className="animate-typing-dot bg-ig-secondary size-[7px] rounded-full"
+            className="size-[7px] animate-typing-dot rounded-full bg-ig-secondary"
             style={{ animationDelay: `${i * 0.18}s` }}
           />
         ))}

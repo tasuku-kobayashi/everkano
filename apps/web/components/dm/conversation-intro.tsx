@@ -18,11 +18,11 @@ export function ConversationIntro({ character }: ConversationIntroProps) {
     >
       <Avatar src={character.avatar_url} alt={character.name} size={96} />
       <h2 className="mt-3 text-[20px] leading-6 font-bold">{character.name}</h2>
-      <p className="text-ig-secondary mt-1 text-[14px] leading-[18px]">
+      <p className="mt-1 text-[14px] leading-[18px] text-ig-secondary">
         {character.handle} · everkano
       </p>
       {character.follower_count > 0 ? (
-        <p className="text-ig-secondary text-[14px] leading-[18px]">
+        <p className="text-[14px] leading-[18px] text-ig-secondary">
           フォロワー{formatCount(character.follower_count)}人
         </p>
       ) : null}

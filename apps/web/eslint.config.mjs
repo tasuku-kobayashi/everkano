@@ -1,9 +1,17 @@
 // ESLint flat config（eslint-config-next 15 は eslintrc 形式のため FlatCompat で読み込む）
+import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FlatCompat } from "@eslint/eslintrc";
 
-const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
+const require = createRequire(import.meta.url);
+
+// pnpm は依存を公開ホイストしないため、eslint-config-next が参照するプラグイン
+// （react-hooks / jsx-a11y など）は eslint-config-next 自身の位置から解決させる。
+const compat = new FlatCompat({
+  baseDirectory: dirname(fileURLToPath(import.meta.url)),
+  resolvePluginsRelativeTo: dirname(require.resolve("eslint-config-next/package.json")),
+});
 
 const config = [
   {

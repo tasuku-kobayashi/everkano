@@ -45,7 +45,7 @@ export function UiCatalog() {
           {ICONS.map(([name, Icon]) => (
             <div key={name} className="flex flex-col items-center gap-1">
               <Icon />
-              <span className="text-ig-secondary w-full truncate text-center text-[9px]">
+              <span className="w-full truncate text-center text-[9px] text-ig-secondary">
                 {name.replace("Icon", "")}
               </span>
             </div>
@@ -125,7 +125,7 @@ export function UiCatalog() {
           description="気になるキャラのプロフィールから「DMする」を押してみよう。"
         />
         <ErrorState onRetry={() => toast.show("再読み込み")} />
-        <p className="text-ig-secondary px-4 text-[12px]">
+        <p className="px-4 text-[12px] text-ig-secondary">
           {formatRelativeTime(new Date(Date.now() - 5 * 60_000))} /{" "}
           {formatRelativeTime("2026-09-03T01:00:00Z")}
         </p>
@@ -147,7 +147,7 @@ export function UiCatalog() {
         open={modal}
         onClose={() => setModal(false)}
         icon={
-          <div className="border-ig-text flex size-16 items-center justify-center rounded-full border-2">
+          <div className="flex size-16 items-center justify-center rounded-full border-2 border-ig-text">
             <Icons.LockIcon size={30} strokeWidth={1.6} />
           </div>
         }
@@ -227,7 +227,7 @@ function ApiCheck() {
       </Button>
       <pre
         data-testid="api-check-result"
-        className="text-ig-secondary mt-3 overflow-x-auto text-[11px] leading-4 whitespace-pre-wrap"
+        className="mt-3 overflow-x-auto text-[11px] leading-4 whitespace-pre-wrap text-ig-secondary"
       >
         {lines.join("\n")}
       </pre>
@@ -237,8 +237,8 @@ function ApiCheck() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-ig-separator border-b px-4 py-4">
-      <h2 className="text-ig-secondary mb-3 text-[12px] font-semibold tracking-wide uppercase">
+    <section className="border-b border-ig-separator px-4 py-4">
+      <h2 className="mb-3 text-[12px] font-semibold tracking-wide text-ig-secondary uppercase">
         {title}
       </h2>
       {children}

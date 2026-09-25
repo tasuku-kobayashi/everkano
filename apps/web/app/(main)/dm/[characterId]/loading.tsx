@@ -10,7 +10,7 @@ export default function DmConversationLoading() {
   ];
   return (
     <div className="flex flex-1 flex-col" aria-busy="true" aria-label="読み込み中">
-      <div className="pt-safe bg-ig-bg border-ig-separator sticky top-0 z-30 border-b">
+      <div className="sticky top-0 z-30 border-b border-ig-separator bg-ig-bg pt-safe">
         <div className="flex h-[var(--header-h)] items-center gap-2.5 px-3">
           <span className="size-10" />
           <Skeleton shape="circle" className="size-7" />

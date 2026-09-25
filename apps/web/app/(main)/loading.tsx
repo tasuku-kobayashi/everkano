@@ -4,7 +4,7 @@ import { PostCardSkeleton, Skeleton } from "@/components/ui/skeleton";
 export default function MainLoading() {
   return (
     <div aria-busy="true" aria-label="読み込み中">
-      <div className="pt-safe bg-ig-bg sticky top-0 z-30">
+      <div className="sticky top-0 z-30 bg-ig-bg pt-safe">
         <div className="flex h-[var(--header-h)] items-center px-4">
           <Skeleton shape="text" className="h-4 w-28" />
         </div>

@@ -85,13 +85,13 @@ export function HomeFeed() {
 function AllCaughtUp() {
   return (
     <div className="flex flex-col items-center px-8 pt-6 pb-10 text-center" data-testid="feed-end">
-      <span className="ig-story-ring flex size-[58px] items-center justify-center rounded-full p-[2px]">
-        <span className="bg-ig-bg flex size-full items-center justify-center rounded-full">
+      <span className="flex size-[58px] items-center justify-center rounded-full ig-story-ring p-[2px]">
+        <span className="flex size-full items-center justify-center rounded-full bg-ig-bg">
           <CheckIcon size={28} strokeWidth={2.4} className="text-[#d62976]" />
         </span>
       </span>
       <p className="mt-3 text-[16px] leading-5 font-semibold">すべて確認済みです</p>
-      <p className="text-ig-secondary mt-1 text-[14px] leading-[18px]">
+      <p className="mt-1 text-[14px] leading-[18px] text-ig-secondary">
         新しい投稿はまだありません。
       </p>
     </div>

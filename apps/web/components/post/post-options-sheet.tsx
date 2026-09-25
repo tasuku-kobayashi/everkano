@@ -30,13 +30,13 @@ export function ActionSheet({
       {header}
       <ul className="flex flex-col">
         {actions.map((action) => (
-          <li key={action.label} className="border-ig-sheet-separator border-b">
+          <li key={action.label} className="border-b border-ig-sheet-separator">
             <button
               type="button"
               onClick={action.onClick}
               className={cn(
-                "active:bg-ig-elevated flex h-[52px] w-full items-center justify-center px-4 text-[16px]",
-                action.destructive && "text-ig-red font-semibold",
+                "flex h-[52px] w-full items-center justify-center px-4 text-[16px] active:bg-ig-elevated",
+                action.destructive && "font-semibold text-ig-red",
               )}
             >
               {action.label}
@@ -47,7 +47,7 @@ export function ActionSheet({
           <button
             type="button"
             onClick={onClose}
-            className="active:bg-ig-elevated flex h-[52px] w-full items-center justify-center px-4 text-[16px]"
+            className="flex h-[52px] w-full items-center justify-center px-4 text-[16px] active:bg-ig-elevated"
           >
             キャンセル
           </button>

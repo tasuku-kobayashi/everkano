@@ -84,9 +84,9 @@ export function CdnImage({
   );
 
   return (
-    <span className={cn("bg-ig-elevated relative block overflow-hidden", className)}>
+    <span className={cn("relative block overflow-hidden bg-ig-elevated", className)}>
       {failed ? (
-        <span className="text-ig-secondary absolute inset-0 flex items-center justify-center">
+        <span className="absolute inset-0 flex items-center justify-center text-ig-secondary">
           <ImageIcon size={32} strokeWidth={1.5} />
           <span className="sr-only">{alt}</span>
         </span>

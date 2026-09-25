@@ -75,7 +75,7 @@ export function BottomSheet({
         aria-hidden="true"
         onClick={onClose}
         className={cn(
-          "bg-ig-overlay absolute inset-0 transition-opacity duration-200",
+          "absolute inset-0 bg-ig-overlay transition-opacity duration-200",
           visible ? "opacity-100" : "opacity-0",
         )}
       />
@@ -91,7 +91,7 @@ export function BottomSheet({
           transition: dragging ? "none" : undefined,
         }}
         className={cn(
-          "bg-ig-sheet text-ig-text absolute bottom-0 flex max-h-[85dvh] w-full max-w-[480px] flex-col rounded-t-2xl shadow-[0_-4px_24px_rgb(0_0_0/0.12)] transition-transform duration-200 ease-out outline-none",
+          "absolute bottom-0 flex max-h-[85dvh] w-full max-w-[480px] flex-col rounded-t-2xl bg-ig-sheet text-ig-text shadow-[0_-4px_24px_rgb(0_0_0/0.12)] transition-transform duration-200 ease-out outline-none",
           className,
         )}
       >
@@ -102,11 +102,11 @@ export function BottomSheet({
           onPointerUp={onPointerEnd}
           onPointerCancel={onPointerEnd}
         >
-          <span aria-hidden="true" className="bg-ig-secondary/40 h-1 w-10 rounded-full" />
+          <span aria-hidden="true" className="h-1 w-10 rounded-full bg-ig-secondary/40" />
           {title ? (
             <h2
               id={titleId}
-              className="border-ig-sheet-separator w-full border-b px-4 pt-3 pb-3 text-center text-[16px] font-bold"
+              className="w-full border-b border-ig-sheet-separator px-4 pt-3 pb-3 text-center text-[16px] font-bold"
             >
               {title}
             </h2>
@@ -118,7 +118,7 @@ export function BottomSheet({
           {children}
         </div>
         {footer ? <div className="shrink-0 px-4 pt-2">{footer}</div> : null}
-        <div className="pb-safe shrink-0">
+        <div className="shrink-0 pb-safe">
           <div className="h-3" />
         </div>
       </div>

@@ -119,7 +119,7 @@ function ProfileHeader({ character }: { character: PublicCharacter }) {
           <Link
             href={`/posts/${story.latestPost.id}`}
             aria-label={`${character.name}の最新の投稿`}
-            className="pressable shrink-0"
+            className="shrink-0 pressable"
           >
             {avatar}
           </Link>
@@ -137,7 +137,7 @@ function ProfileHeader({ character }: { character: PublicCharacter }) {
       </div>
       <h2 className="mt-3 text-[14px] leading-[18px] font-semibold">{character.name}</h2>
       {character.bio ? (
-        <p className="text-wrap-anywhere text-[14px] leading-[18px] whitespace-pre-line">
+        <p className="text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line">
           {character.bio}
         </p>
       ) : null}
@@ -232,7 +232,7 @@ function ProfileSkeleton() {
         <Skeleton shape="text" className="mt-2 w-3/5" />
         <Skeleton className="mt-4 h-8 w-full rounded-lg" />
       </div>
-      <div className="border-ig-separator mt-4 flex h-11 border-b" />
+      <div className="mt-4 flex h-11 border-b border-ig-separator" />
       <PostGridSkeleton rows={2} />
     </div>
   );

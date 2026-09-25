@@ -93,10 +93,10 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
     };
 
     return (
-      <div className="pb-safe bg-ig-bg fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[480px]">
+      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[480px] bg-ig-bg pb-safe">
         <div ref={innerRef} className="px-3 pt-1.5 pb-2">
           <form
-            className="bg-ig-elevated flex min-h-11 items-end rounded-[22px] pr-1 pl-4"
+            className="flex min-h-11 items-end rounded-[22px] bg-ig-elevated pr-1 pl-4"
             onSubmit={(event) => {
               event.preventDefault();
               submit();
@@ -116,7 +116,7 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
               placeholder="メッセージ…"
               enterKeyHint="enter"
               autoComplete="off"
-              className="placeholder:text-ig-secondary text-ig-text min-w-0 flex-1 resize-none bg-transparent text-[16px] leading-[22px] outline-none focus-visible:outline-none"
+              className="min-w-0 flex-1 resize-none bg-transparent text-[16px] leading-[22px] text-ig-text outline-none placeholder:text-ig-secondary focus-visible:outline-none"
               style={{ paddingTop: PADDING_Y, paddingBottom: PADDING_Y }}
             />
             {trimmed ? (
@@ -126,7 +126,7 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
                 // 送信ボタンを押してもキーボードを閉じない
                 onPointerDown={(event) => event.preventDefault()}
                 className={cn(
-                  "text-ig-blue mb-[5px] h-[34px] shrink-0 px-3 text-[15px] font-semibold transition-opacity",
+                  "mb-[5px] h-[34px] shrink-0 px-3 text-[15px] font-semibold text-ig-blue transition-opacity",
                   !canSend && "opacity-40",
                 )}
               >
@@ -141,7 +141,7 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
                 onClick={() => {
                   if (!sendDisabled) onSend("❤️");
                 }}
-                className="pressable text-ig-text mb-[5px] flex size-[34px] shrink-0 items-center justify-center disabled:opacity-40"
+                className="mb-[5px] flex size-[34px] shrink-0 items-center justify-center text-ig-text pressable disabled:opacity-40"
               >
                 <HeartIcon size={24} />
               </button>

@@ -69,7 +69,7 @@ function SearchResults({ query }: { query: string }) {
   }
   if (data.length === 0 && !isPlaceholderData) {
     return (
-      <p className="text-ig-secondary px-8 py-10 text-center text-[14px]" role="status">
+      <p className="px-8 py-10 text-center text-[14px] text-ig-secondary" role="status">
         「{query}」の検索結果はありません
       </p>
     );
@@ -94,13 +94,13 @@ function SearchResultRow({ character }: { character: PublicCharacter }) {
   return (
     <Link
       href={`/c/${character.handle}`}
-      className="active:bg-ig-elevated flex items-center gap-3 px-4 py-2"
+      className="flex items-center gap-3 px-4 py-2 active:bg-ig-elevated"
       data-testid="search-result"
     >
       <Avatar src={character.avatar_url} alt={character.name} size="md" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14px] leading-[18px] font-semibold">{character.handle}</p>
-        <p className="text-ig-secondary truncate text-[14px] leading-[18px]">
+        <p className="truncate text-[14px] leading-[18px] text-ig-secondary">
           {character.name} • フォロワー{formatCount(character.follower_count)}人
         </p>
       </div>

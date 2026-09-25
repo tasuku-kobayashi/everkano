@@ -195,6 +195,28 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- 退会（論理削除）は一方向。クライアント（authenticated）からの deleted_at の解除・変更を禁止する。
+-- 復旧が必要な場合は運用者が postgres ロールで deleted_at を NULL に戻す（docs/handover 参照）。
+create or replace function public.guard_profile_withdrawal()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if old.deleted_at is not null
+     and new.deleted_at is distinct from old.deleted_at
+     and current_user in ('authenticated', 'anon') then
+    raise exception 'withdrawn profile cannot be restored by the user'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger profiles_guard_withdrawal
+  before update on public.profiles
+  for each row execute function public.guard_profile_withdrawal();
+
 -- likes → posts.like_count
 create or replace function public.sync_post_like_count()
 returns trigger
@@ -260,7 +282,7 @@ begin
       'author_type', old.author_type,
       'author_user_id', old.author_user_id,
       'body', old.body,
-      'deleted_by_role', coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb ->> 'role'
+      'deleted_by_role', coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'role'
     )
   );
   return old;
@@ -450,7 +472,10 @@ grant select, delete on public.comments to authenticated;
 
 create policy "comments: 公開投稿のコメントを参照" on public.comments
   for select to authenticated
-  using (exists (select 1 from public.posts p where p.id = comments.post_id));
+  using (
+    created_at <= now() -- 予約投稿に付けたシードコメントは、その時刻になってから順に表示される
+    and exists (select 1 from public.posts p where p.id = comments.post_id)
+  );
 
 create policy "comments: 本人のコメントのみ削除" on public.comments
   for delete to authenticated

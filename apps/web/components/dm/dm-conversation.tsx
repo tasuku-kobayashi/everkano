@@ -266,7 +266,7 @@ function ConversationBody({
                 <div
                   key={row.key}
                   data-row-key={row.key}
-                  className="text-ig-secondary pt-4 pb-2 text-center text-[12px] leading-4 font-semibold"
+                  className="pt-4 pb-2 text-center text-[12px] leading-4 font-semibold text-ig-secondary"
                 >
                   {row.label}
                 </div>
@@ -282,7 +282,7 @@ function ConversationBody({
                     retryDisabled={sender.pending !== null}
                   />
                   {row.key === seenKey ? (
-                    <p className="text-ig-secondary mt-1 pr-4 text-right text-[12px] leading-4">
+                    <p className="mt-1 pr-4 text-right text-[12px] leading-4 text-ig-secondary">
                       既読
                     </p>
                   ) : null}
@@ -308,7 +308,7 @@ function ConversationBody({
           <button
             type="button"
             onClick={() => scroll.scrollToBottom("smooth")}
-            className="bg-ig-sheet text-ig-blue animate-fade-in pointer-events-auto flex h-9 items-center gap-1 rounded-full px-4 text-[14px] font-semibold shadow-[0_2px_12px_rgb(0_0_0/0.18)]"
+            className="pointer-events-auto flex h-9 animate-fade-in items-center gap-1 rounded-full bg-ig-sheet px-4 text-[14px] font-semibold text-ig-blue shadow-[0_2px_12px_rgb(0_0_0/0.18)]"
           >
             新しいメッセージ
             <ChevronDownIcon size={16} strokeWidth={2.4} />
@@ -328,15 +328,15 @@ function ConversationBody({
 /** 「〇〇があなたのことを覚えました」（返答で新しい記憶が作られたとき。タップでメモリパネル） */
 function MemoryNotice({ name, onOpen }: { name: string; onOpen: () => void }) {
   return (
-    <div className="animate-fade-in flex justify-center px-6 pt-2 pb-1">
+    <div className="flex animate-fade-in justify-center px-6 pt-2 pb-1">
       <button
         type="button"
         onClick={onOpen}
-        className="pressable text-ig-secondary flex items-center gap-1 text-[12px] leading-4"
+        className="flex items-center gap-1 text-[12px] leading-4 text-ig-secondary pressable"
       >
         <BookmarkIcon size={13} strokeWidth={2.2} />
         <span>{name}があなたのことを覚えました</span>
-        <span className="text-ig-blue font-semibold">・見る</span>
+        <span className="font-semibold text-ig-blue">・見る</span>
       </button>
     </div>
   );

@@ -53,8 +53,8 @@ export function DmInbox() {
       <AppHeader variant="title" title={title} />
 
       <div className="px-4 pt-1 pb-3">
-        <label className="bg-ig-elevated flex h-9 items-center gap-2 rounded-[10px] px-3">
-          <SearchIcon size={16} strokeWidth={2.2} className="text-ig-secondary shrink-0" />
+        <label className="flex h-9 items-center gap-2 rounded-[10px] bg-ig-elevated px-3">
+          <SearchIcon size={16} strokeWidth={2.2} className="shrink-0 text-ig-secondary" />
           <span className="sr-only">メッセージを検索</span>
           <input
             type="search"
@@ -62,14 +62,14 @@ export function DmInbox() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="検索"
             enterKeyHint="search"
-            className="placeholder:text-ig-secondary min-w-0 flex-1 bg-transparent text-[16px] leading-5 outline-none [&::-webkit-search-cancel-button]:hidden"
+            className="min-w-0 flex-1 bg-transparent text-[16px] leading-5 outline-none placeholder:text-ig-secondary [&::-webkit-search-cancel-button]:hidden"
           />
           {query ? (
             <button
               type="button"
               aria-label="検索をクリア"
               onClick={() => setQuery("")}
-              className="text-ig-secondary shrink-0"
+              className="shrink-0 text-ig-secondary"
             >
               <CloseIcon size={14} strokeWidth={2.6} />
             </button>
@@ -98,16 +98,16 @@ export function DmInbox() {
           />
         ) : threads.length === 0 ? (
           <div className="flex flex-col items-center px-8 pt-6 pb-8 text-center">
-            <div className="border-ig-text mb-4 flex size-[62px] items-center justify-center rounded-full border-2">
+            <div className="mb-4 flex size-[62px] items-center justify-center rounded-full border-2 border-ig-text">
               <PaperPlaneIcon size={30} strokeWidth={1.6} />
             </div>
             <p className="text-[18px] leading-6 font-bold">メッセージはまだありません</p>
-            <p className="text-ig-secondary mt-1.5 text-[14px] leading-[18px]">
+            <p className="mt-1.5 text-[14px] leading-[18px] text-ig-secondary">
               気になるキャラクターにメッセージを送ってみよう。
             </p>
           </div>
         ) : visibleThreads.length === 0 ? (
-          <p className="text-ig-secondary px-4 py-6 text-center text-[14px]">
+          <p className="px-4 py-6 text-center text-[14px] text-ig-secondary">
             「{query.trim()}」に一致する会話はありません
           </p>
         ) : (
@@ -135,7 +135,7 @@ export function DmInbox() {
           </ul>
         </section>
       ) : suggestionsQuery.isError ? (
-        <p className="text-ig-secondary px-4 py-4 text-center text-[13px]">
+        <p className="px-4 py-4 text-center text-[13px] text-ig-secondary">
           おすすめを読み込めませんでした
         </p>
       ) : null}
@@ -160,7 +160,7 @@ function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
     <Link
       href={`/dm/${thread.character_id}`}
       aria-label={label}
-      className="active:bg-ig-elevated flex items-center gap-3 px-4 py-2 transition-colors"
+      className="flex items-center gap-3 px-4 py-2 transition-colors active:bg-ig-elevated"
     >
       <Avatar src={thread.character_avatar_url} alt={thread.character_name} size="lg" />
       <div className="min-w-0 flex-1">
@@ -170,7 +170,7 @@ function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
         <p
           className={cn(
             "flex min-w-0 text-[14px] leading-[18px]",
-            unread ? "text-ig-text font-bold" : "text-ig-secondary",
+            unread ? "font-bold text-ig-text" : "text-ig-secondary",
           )}
         >
           <span className="truncate">
@@ -185,7 +185,7 @@ function ThreadRow({ thread, now }: { thread: DmThread; now: Date }) {
         </p>
       </div>
       {unread ? (
-        <span aria-hidden="true" className="bg-ig-blue size-2 shrink-0 rounded-full" />
+        <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-ig-blue" />
       ) : null}
     </Link>
   );
@@ -196,14 +196,14 @@ function SuggestionRow({ character }: { character: PublicCharacter }) {
     <Link
       href={`/dm/${character.id}`}
       aria-label={`${character.name}にメッセージを送る`}
-      className="active:bg-ig-elevated flex items-center gap-3 px-4 py-2 transition-colors"
+      className="flex items-center gap-3 px-4 py-2 transition-colors active:bg-ig-elevated"
     >
       <Avatar src={character.avatar_url} alt={character.name} size="lg" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14px] leading-[18px] font-semibold">{character.name}</p>
-        <p className="text-ig-secondary truncate text-[14px] leading-[18px]">{character.handle}</p>
+        <p className="truncate text-[14px] leading-[18px] text-ig-secondary">{character.handle}</p>
       </div>
-      <span className="bg-ig-elevated text-ig-text flex h-8 shrink-0 items-center rounded-lg px-3 text-[14px] font-semibold">
+      <span className="flex h-8 shrink-0 items-center rounded-lg bg-ig-elevated px-3 text-[14px] font-semibold text-ig-text">
         メッセージ
       </span>
     </Link>

@@ -59,9 +59,9 @@ export function StoriesRow() {
   if (isError) return null; // フィード本体の表示を優先（エラーはコンソールに出ている）
 
   return (
-    <nav aria-label="ストーリーズ" className="border-ig-separator border-b">
+    <nav aria-label="ストーリーズ" className="border-b border-ig-separator">
       <ul
-        className="flex scrollbar-none gap-2.5 overflow-x-auto px-2.5 pt-2.5 pb-2"
+        className="scrollbar-none flex gap-2.5 overflow-x-auto px-2.5 pt-2.5 pb-2"
         data-testid="stories-row"
       >
         {isPending
@@ -97,7 +97,7 @@ function StoryBubble({
     <Link
       href={href}
       onClick={onOpen}
-      className="pressable flex w-[76px] flex-col items-center gap-1"
+      className="flex w-[76px] flex-col items-center gap-1 pressable"
       aria-label={`${item.character.name}の${item.latestPost ? "最新の投稿" : "プロフィール"}`}
       data-testid="story"
     >
@@ -111,7 +111,7 @@ function StoryBubble({
         className={
           active
             ? "w-full truncate text-center text-[12px] leading-4"
-            : "text-ig-secondary w-full truncate text-center text-[12px] leading-4"
+            : "w-full truncate text-center text-[12px] leading-4 text-ig-secondary"
         }
       >
         {item.character.handle}

@@ -34,19 +34,19 @@ export function DmHeader({ character, onOpenInfo }: DmHeaderProps) {
       {character ? (
         <Link
           href={`/c/${encodeURIComponent(character.handle)}`}
-          className="pressable flex min-w-0 items-center gap-2.5"
+          className="flex min-w-0 items-center gap-2.5 pressable"
           aria-label={`${character.name}のプロフィール`}
         >
           <span className="relative shrink-0">
             <Avatar src={character.avatar_url} alt={character.name} size={28} />
             <span
               aria-hidden="true"
-              className="border-ig-bg absolute -right-0.5 -bottom-0.5 size-[11px] rounded-full border-2 bg-[#1cd14f]"
+              className="absolute -right-0.5 -bottom-0.5 size-[11px] rounded-full border-2 border-ig-bg bg-[#1cd14f]"
             />
           </span>
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-[16px] leading-5 font-bold">{character.name}</span>
-            <span className="text-ig-secondary truncate text-[12px] leading-4">アクティブ中</span>
+            <span className="truncate text-[12px] leading-4 text-ig-secondary">アクティブ中</span>
           </span>
         </Link>
       ) : character === null ? null : (

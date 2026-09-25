@@ -13,7 +13,7 @@ export function MainShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const showTabBar = !isTabBarHiddenPath(pathname);
   return (
-    <div className="bg-ig-bg relative mx-auto flex min-h-dvh w-full max-w-[480px] flex-col">
+    <div className="relative mx-auto flex min-h-dvh w-full max-w-[480px] flex-col bg-ig-bg">
       <div className={cn("flex flex-1 flex-col", showTabBar && "pb-tabbar")}>{children}</div>
       <TabBar />
     </div>

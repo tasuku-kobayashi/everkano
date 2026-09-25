@@ -42,7 +42,7 @@ export function Spinner({ size = 20, className, label = "読み込み中" }: Spi
 /** 画面中央に大きめのスピナー */
 export function PageSpinner({ className }: { className?: string }) {
   return (
-    <div className={cn("text-ig-secondary flex w-full justify-center py-10", className)}>
+    <div className={cn("flex w-full justify-center py-10 text-ig-secondary", className)}>
       <Spinner size={28} />
     </div>
   );

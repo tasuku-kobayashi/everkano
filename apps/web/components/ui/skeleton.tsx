@@ -15,7 +15,7 @@ export function Skeleton({ className, shape = "rect", style }: SkeletonProps) {
       aria-hidden="true"
       style={style}
       className={cn(
-        "skeleton block",
+        "block skeleton",
         shape === "circle" && "rounded-full",
         shape === "rect" && "rounded",
         shape === "text" && "h-3 rounded-full",

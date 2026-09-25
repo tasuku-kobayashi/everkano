@@ -90,7 +90,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
         <Link
           href={profilePath}
           aria-label={`${post.character.name}のプロフィール`}
-          className="pressable shrink-0"
+          className="shrink-0 pressable"
         >
           <Avatar src={post.character.avatar_url} alt={post.character.name} size="sm" />
         </Link>
@@ -106,7 +106,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
           type="button"
           onClick={() => setOptionsOpen(true)}
           aria-label="その他のオプション"
-          className="pressable flex size-10 shrink-0 items-center justify-center"
+          className="flex size-10 shrink-0 items-center justify-center pressable"
         >
           <MoreIcon size={24} />
         </button>
@@ -127,7 +127,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
           onClick={toggleLike}
           aria-label={post.liked ? "「いいね！」を取り消す" : "「いいね！」する"}
           aria-pressed={post.liked}
-          className="pressable flex size-10 items-center justify-center"
+          className="flex size-10 items-center justify-center pressable"
           data-testid="like-button"
         >
           {post.liked ? (
@@ -144,7 +144,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
           <Link
             href={postPath}
             aria-label="コメントを見る"
-            className="pressable flex size-10 items-center justify-center"
+            className="flex size-10 items-center justify-center pressable"
           >
             <CommentIcon size={25} />
           </Link>
@@ -153,7 +153,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
             type="button"
             onClick={onCommentClick}
             aria-label="コメントする"
-            className="pressable flex size-10 items-center justify-center"
+            className="flex size-10 items-center justify-center pressable"
           >
             <CommentIcon size={25} />
           </button>
@@ -162,7 +162,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
           type="button"
           onClick={() => void share(postPath, `${post.character.name}の投稿`)}
           aria-label="シェア"
-          className="pressable flex size-10 items-center justify-center"
+          className="flex size-10 items-center justify-center pressable"
         >
           <ShareIcon size={24} />
         </button>
@@ -170,7 +170,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
           type="button"
           onClick={() => toast.show("保存機能は現在準備中です")}
           aria-label="保存（準備中）"
-          className="pressable ml-auto flex size-10 items-center justify-center"
+          className="ml-auto flex size-10 items-center justify-center pressable"
         >
           <BookmarkIcon size={24} />
         </button>
@@ -189,7 +189,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
       {isFeed && post.comment_count > 0 ? (
         <Link
           href={postPath}
-          className="text-ig-secondary mt-1 block px-3 text-[14px] leading-[18px]"
+          className="mt-1 block px-3 text-[14px] leading-[18px] text-ig-secondary"
         >
           コメント{formatCount(post.comment_count)}件をすべて見る
         </Link>
@@ -197,7 +197,7 @@ export function PostCard({ post, variant = "feed", priority, onCommentClick }: P
 
       <time
         dateTime={post.published_at}
-        className="text-ig-secondary mt-1 block px-3 text-[12px] leading-4"
+        className="mt-1 block px-3 text-[12px] leading-4 text-ig-secondary"
       >
         {formatRelativeTime(post.published_at)}
       </time>

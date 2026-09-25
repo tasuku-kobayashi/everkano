@@ -72,7 +72,7 @@ export function Modal({
         aria-hidden="true"
         onClick={close}
         className={cn(
-          "bg-ig-overlay absolute inset-0 transition-opacity duration-150",
+          "absolute inset-0 bg-ig-overlay transition-opacity duration-150",
           visible ? "opacity-100" : "opacity-0",
         )}
       />
@@ -84,7 +84,7 @@ export function Modal({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
-          "bg-ig-sheet text-ig-text relative w-full max-w-[400px] overflow-hidden rounded-xl transition-[opacity,transform] duration-150 ease-out outline-none",
+          "relative w-full max-w-[400px] overflow-hidden rounded-xl bg-ig-sheet text-ig-text transition-[opacity,transform] duration-150 ease-out outline-none",
           visible ? "scale-100 opacity-100" : "scale-110 opacity-0",
           className,
         )}
@@ -100,7 +100,7 @@ export function Modal({
             {description ? (
               <p
                 id={descriptionId}
-                className="text-ig-secondary mt-2 text-[14px] leading-[18px] text-balance"
+                className="mt-2 text-[14px] leading-[18px] text-balance text-ig-secondary"
               >
                 {description}
               </p>
@@ -117,7 +117,7 @@ export function Modal({
                 onClick={action.onClick}
                 disabled={action.disabled || action.loading}
                 className={cn(
-                  "border-ig-sheet-separator enabled:active:bg-ig-elevated flex min-h-12 items-center justify-center border-t px-4 py-3 text-[14px] disabled:opacity-50",
+                  "flex min-h-12 items-center justify-center border-t border-ig-sheet-separator px-4 py-3 text-[14px] enabled:active:bg-ig-elevated disabled:opacity-50",
                   ACTION_CLASSES[action.variant ?? "default"],
                 )}
               >

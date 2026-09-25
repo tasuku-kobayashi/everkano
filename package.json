@@ -19,12 +19,24 @@
     "db:stop": "supabase stop --workdir infra",
     "db:reset": "supabase db reset --workdir infra",
     "db:status": "supabase status --workdir infra",
-    "db:types": "supabase gen types typescript --local --workdir infra --schema public > packages/shared/src/database.types.ts && prettier --write packages/shared/src/database.types.ts"
+    "db:types": "supabase gen types typescript --local --workdir infra --schema public > packages/shared/src/database.types.ts && prettier --write packages/shared/src/database.types.ts",
+    "setup:env": "bash scripts/setup-env.sh",
+    "db:test": "bash scripts/test-db.sh",
+    "db:types:check": "bash scripts/check-db-types.sh",
+    "check:secrets": "bash scripts/check-secrets.sh",
+    "check:scope": "bash scripts/check-scope.sh",
+    "personas:validate": "pnpm --filter @everkano/personas validate"
   },
   "devDependencies": {
     "prettier": "3.9.9",
     "prettier-plugin-tailwindcss": "0.8.1",
     "turbo": "2.11.4",
     "typescript": "5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
   }
 }

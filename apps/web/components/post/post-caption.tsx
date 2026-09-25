@@ -88,7 +88,7 @@ export function PostCaption({
     <div ref={wrapperRef} className="relative px-3">
       <p
         className={cn(
-          "text-wrap-anywhere text-[14px] leading-[18px] whitespace-pre-line",
+          "text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line",
           // 計測前・計測できない環境でも 2 行を超えないように
           collapsed && "line-clamp-2",
         )}
@@ -117,7 +117,7 @@ export function PostCaption({
         <p
           ref={measureRef}
           aria-hidden="true"
-          className="text-wrap-anywhere pointer-events-none invisible absolute inset-x-3 top-0 text-[14px] leading-[18px] whitespace-pre-line"
+          className="pointer-events-none invisible absolute inset-x-3 top-0 text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line"
         >
           {content(
             <span ref={measureTextRef} />,

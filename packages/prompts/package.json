@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "LLM プロンプトテンプレート（apps/api が読み込んで描画する。仕様 §8.2）",
-  "files": ["templates", "README.md"]
+  "files": [
+    "templates",
+    "README.md"
+  ]
 }

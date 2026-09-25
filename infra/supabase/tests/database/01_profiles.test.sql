@@ -9,7 +9,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(15);
+select plan(18);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures（postgres ロールで作成。rollback で消える）
@@ -85,6 +85,18 @@ select lives_ok(
   'A は自分の deleted_at を設定（退会）できる'
 );
 
+select throws_ok(
+  $$ update public.profiles set deleted_at = null where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' $$,
+  '42501', 'withdrawn profile cannot be restored by the user',
+  '退会は一方向: A は自分の deleted_at を NULL に戻せない'
+);
+
+select throws_ok(
+  $$ update public.profiles set deleted_at = now() + interval '1 day' where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' $$,
+  '42501', 'withdrawn profile cannot be restored by the user',
+  '退会後の deleted_at を別の値に書き換えることもできない'
+);
+
 -- ---------------------------------------------------------------------------
 -- User B として
 -- ---------------------------------------------------------------------------
@@ -128,6 +140,11 @@ select is(
 select ok(
   (select deleted_at is null from public.profiles where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
   'B の deleted_at は変更されていない'
+);
+
+select lives_ok(
+  $$ update public.profiles set deleted_at = null where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' $$,
+  '運用者（postgres ロール）は退会を取り消せる'
 );
 
 select * from finish();

@@ -217,7 +217,7 @@ export function PostComments({
   return (
     <section
       aria-label="コメント"
-      className="border-ig-separator border-t pt-2"
+      className="border-t border-ig-separator pt-2"
       style={
         {
           paddingBottom: `calc(${footerHeight + 12}px + env(safe-area-inset-bottom))`,
@@ -237,7 +237,7 @@ export function PostComments({
       ) : threads.length === 0 ? (
         <div className="flex flex-col items-center px-8 py-10 text-center">
           <p className="text-[20px] leading-6 font-bold">まだコメントはありません</p>
-          <p className="text-ig-secondary mt-2 text-[14px]">会話を始めましょう。</p>
+          <p className="mt-2 text-[14px] text-ig-secondary">会話を始めましょう。</p>
         </div>
       ) : (
         <ul data-testid="comment-list">
@@ -259,9 +259,9 @@ export function PostComments({
                       })
                     }
                     aria-expanded={!isCollapsed}
-                    className="text-ig-secondary pressable flex items-center gap-3 py-1.5 pl-[60px] text-[12px] leading-4 font-semibold"
+                    className="flex items-center gap-3 py-1.5 pl-[60px] text-[12px] leading-4 font-semibold text-ig-secondary pressable"
                   >
-                    <span aria-hidden="true" className="bg-ig-secondary h-px w-6" />
+                    <span aria-hidden="true" className="h-px w-6 bg-ig-secondary" />
                     {isCollapsed ? `返信${count}件を表示` : "返信を非表示"}
                   </button>
                 ) : null}

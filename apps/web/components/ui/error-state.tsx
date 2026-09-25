@@ -33,7 +33,7 @@ export function ErrorState({
         role="alert"
         className={cn("flex flex-col items-center gap-2 px-6 py-6 text-center", className)}
       >
-        <p className="text-ig-secondary text-[14px]">{message}</p>
+        <p className="text-[14px] text-ig-secondary">{message}</p>
         {onRetry ? (
           <Button variant="ghost" size="sm" onClick={onRetry} loading={retrying}>
             再読み込み
@@ -47,11 +47,11 @@ export function ErrorState({
       role="alert"
       className={cn("flex flex-col items-center px-8 py-14 text-center", className)}
     >
-      <div className="border-ig-text mb-4 flex size-[62px] items-center justify-center rounded-full border-2">
+      <div className="mb-4 flex size-[62px] items-center justify-center rounded-full border-2 border-ig-text">
         <AlertIcon size={30} strokeWidth={1.6} />
       </div>
       <h2 className="text-[20px] leading-6 font-bold">{title}</h2>
-      <p className="text-ig-secondary mt-2 max-w-[320px] text-[14px] leading-[18px] text-balance">
+      <p className="mt-2 max-w-[320px] text-[14px] leading-[18px] text-balance text-ig-secondary">
         {message}
       </p>
       {onRetry ? (

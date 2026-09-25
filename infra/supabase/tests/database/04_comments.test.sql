@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(17);
+select plan(18);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -59,6 +59,10 @@ values
    'character', null, 'c1c1c1c1-0000-4000-8000-000000000001', '予約投稿へのコメント'),
   ('e1000000-0000-4000-8000-0000000000d1', 'd3000000-0000-4000-8000-000000000003', null,
    'user', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', null, '無効キャラ投稿へのコメント');
+insert into public.comments (id, post_id, parent_comment_id, author_type, author_user_id, author_character_id, body, created_at)
+values
+  ('e1000000-0000-4000-8000-0000000000e9', 'd1000000-0000-4000-8000-000000000001', null,
+   'character', null, 'c1c1c1c1-0000-4000-8000-000000000001', '未来時刻のコメント', now() + interval '2 hours');
 
 -- ---------------------------------------------------------------------------
 -- User A
@@ -75,6 +79,11 @@ select set_eq(
     'e1000000-0000-4000-8000-0000000000b1', 'e1000000-0000-4000-8000-0000000000c2'
   ]::uuid[],
   '公開投稿のコメント（他ユーザー・キャラのものを含む）は見える'
+);
+
+select is_empty(
+  $$ select 1 from public.comments where id = 'e1000000-0000-4000-8000-0000000000e9' $$,
+  'created_at が未来のコメントはその時刻まで見えない（予約投稿のシードコメントを順に表示するため）'
 );
 
 select is_empty(
@@ -196,23 +205,15 @@ select lives_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 既知の問題（TODO）
---   audit_comment_delete() は coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb
---   を評価するが、同一セッションで一度でも request.jwt.claims を設定したことがあると、
---   トランザクション終了後の値は NULL ではなく空文字 '' になり、''::jsonb が失敗する。
---   その結果、そのセッション（例: set_config で claims を設定したことのある API / テストの接続）
---   から claims 無しでコメント（や投稿・キャラの cascade）を削除するとエラーになる。
---   修正案: coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
---   マイグレーション修正後、このテストは "TODO passed" になるので todo_start/todo_end を外すこと。
+-- 回帰テスト: 同一セッションで request.jwt.claims を設定したことがあると、
+--   以後の値は NULL ではなく空文字 '' になる。audit_comment_delete() は nullif で吸収する。
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '';
 
-select todo_start('audit_comment_delete の空文字 claims 対応（マイグレーション修正待ち）');
 select lives_ok(
   $$ delete from public.comments where id = 'e1000000-0000-4000-8000-0000000000c2' $$,
   'request.jwt.claims が空文字のセッションからでもコメントを削除できる'
 );
-select todo_end();
 
 select * from finish();
 rollback;

@@ -7,10 +7,10 @@ export function PageUnavailable() {
       <h2 className="text-[18px] leading-6 font-bold text-balance">
         このページはご利用いただけません
       </h2>
-      <p className="text-ig-secondary mt-3 max-w-[320px] text-[14px] leading-[18px] text-balance">
+      <p className="mt-3 max-w-[320px] text-[14px] leading-[18px] text-balance text-ig-secondary">
         リンクに問題があるか、ページが削除された可能性があります。
       </p>
-      <Link href="/" className="text-ig-blue pressable mt-6 text-[14px] font-semibold">
+      <Link href="/" className="mt-6 text-[14px] font-semibold text-ig-blue pressable">
         ホームに戻る
       </Link>
     </div>

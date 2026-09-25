@@ -66,7 +66,7 @@ export function Avatar({
 
   const inner = (
     <span
-      className="bg-ig-elevated text-ig-secondary relative flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-ig-elevated text-ig-secondary"
       style={{ width: px, height: px }}
     >
       {showImage ? (
@@ -89,7 +89,7 @@ export function Avatar({
         <span
           aria-label={alt}
           role="img"
-          className="text-ig-secondary font-semibold"
+          className="font-semibold text-ig-secondary"
           style={{ fontSize: Math.max(10, Math.round(px * 0.42)) }}
         >
           {initial}
@@ -121,7 +121,7 @@ export function Avatar({
       )}
       style={{ padding: ringWidth }}
     >
-      <span className="bg-ig-bg inline-flex rounded-full" style={{ padding: gap }}>
+      <span className="inline-flex rounded-full bg-ig-bg" style={{ padding: gap }}>
         {inner}
       </span>
     </span>

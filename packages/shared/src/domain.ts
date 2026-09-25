@@ -28,5 +28,4 @@ export const PUBLIC_CHARACTER_COLUMNS =
 export const PUBLIC_MEMORY_COLUMNS =
   "id, user_id, character_id, content, importance, tags, source_message_id, is_user_edited, created_at, updated_at" as const;
 
-export type DmThread =
-  Database["public"]["Functions"]["list_dm_threads"]["Returns"][number];
+export type DmThread = Database["public"]["Functions"]["list_dm_threads"]["Returns"][number];

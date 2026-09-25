@@ -49,7 +49,7 @@ export function MessageBubble({
   const bubble = (
     <div
       className={cn(
-        "text-wrap-anywhere max-w-[75%] text-[15px] leading-5 whitespace-pre-wrap",
+        "max-w-[75%] text-[15px] leading-5 text-wrap-anywhere whitespace-pre-wrap",
         emojiOnly
           ? "px-1 py-0.5 text-[40px] leading-[48px]"
           : cn(
@@ -69,7 +69,7 @@ export function MessageBubble({
     const content = (
       <div className="flex items-center justify-end gap-2">
         {failed ? (
-          <span className="text-ig-red shrink-0" aria-hidden="true">
+          <span className="shrink-0 text-ig-red" aria-hidden="true">
             <AlertIcon size={20} />
           </span>
         ) : null}
@@ -87,10 +87,10 @@ export function MessageBubble({
             disabled={retryDisabled}
             onClick={() => onRetry?.(message.localId!)}
             aria-label={`送信できませんでした。タップで再送: ${message.body}`}
-            className="pressable block w-full text-left disabled:cursor-default"
+            className="block w-full text-left pressable disabled:cursor-default"
           >
             {content}
-            <p className="text-ig-red mt-1 text-right text-[12px] leading-4">
+            <p className="mt-1 text-right text-[12px] leading-4 text-ig-red">
               送信できませんでした・タップで再送
             </p>
           </button>

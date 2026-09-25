@@ -87,12 +87,12 @@ function MeContent({ account }: { account: MyAccount }) {
   return (
     <div className="flex flex-col">
       <section className="flex items-center gap-6 px-4 pt-3 pb-4">
-        <span className="brand-gradient flex size-[86px] shrink-0 items-center justify-center rounded-full text-[36px] font-bold text-white">
+        <span className="flex size-[86px] shrink-0 items-center justify-center rounded-full brand-gradient text-[36px] font-bold text-white">
           {displayName.charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] leading-5 font-semibold">{displayName}</p>
-          <p className="text-ig-secondary mt-1 truncate text-[14px] leading-[18px]">
+          <p className="mt-1 truncate text-[14px] leading-[18px] text-ig-secondary">
             {account.email ?? "メールアドレス未設定"}
           </p>
         </div>
@@ -105,35 +105,35 @@ function MeContent({ account }: { account: MyAccount }) {
       </div>
 
       <SectionTitle>アカウント</SectionTitle>
-      <ul className="border-ig-separator border-y">
+      <ul className="border-y border-ig-separator">
         <Row label="メールアドレス" value={account.email ?? "—"} />
         <Row label="表示名" value={displayName} onClick={() => setEditOpen(true)} />
       </ul>
 
       <SectionTitle>ログイン</SectionTitle>
-      <ul className="border-ig-separator border-y">
+      <ul className="border-y border-ig-separator">
         <li>
           <button
             type="button"
             onClick={() => void logout()}
             disabled={loggingOut}
-            className="text-ig-blue enabled:active:bg-ig-elevated flex min-h-12 w-full items-center px-4 text-left text-[15px] disabled:opacity-50"
+            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-blue enabled:active:bg-ig-elevated disabled:opacity-50"
           >
             {loggingOut ? "ログアウト中…" : "ログアウト"}
           </button>
         </li>
-        <li className="border-ig-separator border-t">
+        <li className="border-t border-ig-separator">
           <button
             type="button"
             onClick={() => setWithdrawOpen(true)}
-            className="text-ig-red active:bg-ig-elevated flex min-h-12 w-full items-center px-4 text-left text-[15px]"
+            className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-ig-red active:bg-ig-elevated"
           >
             退会する
           </button>
         </li>
       </ul>
 
-      <p className="text-ig-secondary px-4 pt-6 pb-8 text-center text-[12px]">
+      <p className="px-4 pt-6 pb-8 text-center text-[12px] text-ig-secondary">
         everkano v{APP_VERSION}
       </p>
 
@@ -165,7 +165,7 @@ function MeContent({ account }: { account: MyAccount }) {
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h2 className="text-ig-secondary px-4 pt-4 pb-2 text-[14px] leading-[18px] font-semibold">
+    <h2 className="px-4 pt-4 pb-2 text-[14px] leading-[18px] font-semibold text-ig-secondary">
       {children}
     </h2>
   );
@@ -175,17 +175,17 @@ function Row({ label, value, onClick }: { label: string; value: string; onClick?
   const content = (
     <>
       <span className="shrink-0 text-[15px]">{label}</span>
-      <span className="text-ig-secondary ml-auto min-w-0 truncate pl-4 text-[15px]">{value}</span>
-      {onClick ? <ChevronRightIcon size={18} className="text-ig-secondary shrink-0" /> : null}
+      <span className="ml-auto min-w-0 truncate pl-4 text-[15px] text-ig-secondary">{value}</span>
+      {onClick ? <ChevronRightIcon size={18} className="shrink-0 text-ig-secondary" /> : null}
     </>
   );
   return (
-    <li className="border-ig-separator border-t first:border-t-0">
+    <li className="border-t border-ig-separator first:border-t-0">
       {onClick ? (
         <button
           type="button"
           onClick={onClick}
-          className="active:bg-ig-elevated flex min-h-12 w-full items-center gap-2 px-4 text-left"
+          className="flex min-h-12 w-full items-center gap-2 px-4 text-left active:bg-ig-elevated"
         >
           {content}
         </button>
@@ -242,7 +242,7 @@ function EditDisplayNameSheet({
           if (!invalid) save.mutate(trimmed);
         }}
       >
-        <label htmlFor="display-name" className="text-ig-secondary text-[12px]">
+        <label htmlFor="display-name" className="text-[12px] text-ig-secondary">
           表示名（コメント欄で自分にだけ表示されます）
         </label>
         <input
@@ -251,7 +251,7 @@ function EditDisplayNameSheet({
           onChange={(event) => setValue(event.target.value)}
           maxLength={DISPLAY_NAME_MAX + 10}
           autoComplete="nickname"
-          className="border-ig-input-border bg-ig-input-bg focus:border-ig-secondary mt-2 h-12 w-full rounded-xl border px-4 text-[16px] outline-none"
+          className="mt-2 h-12 w-full rounded-xl border border-ig-input-border bg-ig-input-bg px-4 text-[16px] outline-none focus:border-ig-secondary"
         />
         <p
           className={cn(

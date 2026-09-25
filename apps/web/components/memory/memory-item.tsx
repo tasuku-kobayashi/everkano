@@ -33,13 +33,13 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
 
   return (
     <li
-      className={cn("border-ig-sheet-separator border-b px-4 pt-2 pb-3.5", saving && "opacity-60")}
+      className={cn("border-b border-ig-sheet-separator px-4 pt-2 pb-3.5", saving && "opacity-60")}
       aria-busy={saving || undefined}
     >
       <div className="mb-1 flex min-h-8 items-center gap-1.5">
         {summary ? <Badge>🗒 会話の要約</Badge> : null}
         {memory.is_user_edited ? <Badge>編集済み</Badge> : null}
-        <span className="text-ig-secondary text-[12px] leading-4">
+        <span className="text-[12px] leading-4 text-ig-secondary">
           {saving ? "保存中…" : formatRelativeTime(memory.created_at)}
         </span>
         {editing ? null : (
@@ -48,7 +48,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
               type="button"
               disabled={saving}
               onClick={() => setEditing(true)}
-              className="pressable text-ig-text h-8 px-2 text-[13px] font-semibold disabled:opacity-40"
+              className="h-8 px-2 text-[13px] font-semibold text-ig-text pressable disabled:opacity-40"
             >
               編集
             </button>
@@ -57,7 +57,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
               disabled={saving}
               onClick={() => onDelete(memory)}
               aria-label="この記憶を削除"
-              className="pressable text-ig-secondary flex size-8 items-center justify-center disabled:opacity-40"
+              className="flex size-8 items-center justify-center text-ig-secondary pressable disabled:opacity-40"
             >
               <TrashIcon size={18} />
             </button>
@@ -75,7 +75,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
           }}
         />
       ) : (
-        <p className="text-wrap-anywhere text-[15px] leading-5 whitespace-pre-wrap">
+        <p className="text-[15px] leading-5 text-wrap-anywhere whitespace-pre-wrap">
           {memory.content}
         </p>
       )}
@@ -102,7 +102,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
 
 function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="border-ig-sheet-separator text-ig-secondary inline-flex h-5 items-center rounded border px-1.5 text-[11px] leading-none font-semibold">
+    <span className="inline-flex h-5 items-center rounded border border-ig-sheet-separator px-1.5 text-[11px] leading-none font-semibold text-ig-secondary">
       {children}
     </span>
   );
@@ -146,10 +146,10 @@ function EditForm({
         maxLength={MEMORY_CONTENT_MAX}
         rows={3}
         onChange={(event) => setValue(event.target.value)}
-        className="border-ig-input-border bg-ig-input-bg focus:border-ig-secondary w-full resize-none rounded-lg border px-3 py-2 text-[16px] leading-[22px] outline-none"
+        className="w-full resize-none rounded-lg border border-ig-input-border bg-ig-input-bg px-3 py-2 text-[16px] leading-[22px] outline-none focus:border-ig-secondary"
       />
       <div className="mt-2 flex items-center justify-end gap-2">
-        <span className="text-ig-secondary mr-auto text-[12px]">
+        <span className="mr-auto text-[12px] text-ig-secondary">
           {value.length}/{MEMORY_CONTENT_MAX}
         </span>
         <Button variant="secondary" size="sm" onClick={onCancel}>

@@ -37,7 +37,7 @@ export function ProfileTabs({
       role="tablist"
       aria-label="投稿の種類"
       onKeyDown={onKeyDown}
-      className="bg-ig-bg top-header border-ig-separator sticky z-20 mt-4 flex border-b"
+      className="sticky top-header z-20 mt-4 flex border-b border-ig-separator bg-ig-bg"
     >
       {TABS.map((tab, index) => {
         const active = tab.value === value;
@@ -63,7 +63,7 @@ export function ProfileTabs({
             {tab.icon}
             <span>{tab.label}</span>
             {active ? (
-              <span aria-hidden="true" className="bg-ig-text absolute inset-x-0 -bottom-px h-px" />
+              <span aria-hidden="true" className="absolute inset-x-0 -bottom-px h-px bg-ig-text" />
             ) : null}
           </button>
         );

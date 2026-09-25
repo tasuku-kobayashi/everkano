@@ -110,7 +110,7 @@ function MemoryPanelContent({
 
   return (
     <div ref={rootRef} tabIndex={-1} className="pb-4 outline-none">
-      <p className="text-ig-secondary px-4 pt-3 pb-1 text-[13px] leading-[18px]">
+      <p className="px-4 pt-3 pb-1 text-[13px] leading-[18px] text-ig-secondary">
         {characterName}
         は、あなたとの会話で大切だと感じたことを覚えています。覚えていてほしいことを追加したり、忘れてほしいことを削除したりできます。
       </p>
@@ -147,7 +147,7 @@ function MemoryPanelContent({
         />
       ) : ordered.length === 0 ? (
         <div className="flex flex-col items-center px-8 pt-10 pb-6 text-center">
-          <div className="border-ig-text mb-3 flex size-14 items-center justify-center rounded-full border-2">
+          <div className="mb-3 flex size-14 items-center justify-center rounded-full border-2 border-ig-text">
             <BookmarkIcon size={26} strokeWidth={1.6} />
           </div>
           <p className="text-[15px] leading-5 font-semibold">
@@ -157,7 +157,7 @@ function MemoryPanelContent({
       ) : (
         <ul
           aria-label={`${characterName}が覚えていること`}
-          className="border-ig-sheet-separator border-t"
+          className="border-t border-ig-sheet-separator"
         >
           {ordered.map((memory) => (
             <MemoryItem
@@ -215,9 +215,9 @@ function AddMemoryForm({
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="pressable flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left pressable"
       >
-        <span className="border-ig-text flex size-11 shrink-0 items-center justify-center rounded-full border">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-ig-text">
           <PlusIcon size={22} strokeWidth={1.8} />
         </span>
         <span className="text-[15px] font-semibold">覚えてほしいことを追加</span>
@@ -246,14 +246,14 @@ function AddMemoryForm({
         maxLength={MEMORY_CONTENT_MAX}
         onChange={(event) => setContent(event.target.value)}
         placeholder="例: 来週の金曜日は大事なプレゼンがある"
-        className="border-ig-input-border bg-ig-input-bg placeholder:text-ig-secondary focus:border-ig-secondary w-full resize-none rounded-lg border px-3 py-2 text-[16px] leading-[22px] outline-none"
+        className="w-full resize-none rounded-lg border border-ig-input-border bg-ig-input-bg px-3 py-2 text-[16px] leading-[22px] outline-none placeholder:text-ig-secondary focus:border-ig-secondary"
       />
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <PriorityControl value={level} onChange={setLevel} />
         <SecretChip active={secret} onToggle={setSecret} />
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
-        <span className="text-ig-secondary mr-auto text-[12px]">
+        <span className="mr-auto text-[12px] text-ig-secondary">
           {content.length}/{MEMORY_CONTENT_MAX}
         </span>
         <Button variant="secondary" size="sm" onClick={reset}>
@@ -269,9 +269,9 @@ function AddMemoryForm({
 
 function MemoryListSkeleton() {
   return (
-    <div className="border-ig-sheet-separator border-t" aria-busy="true" aria-label="読み込み中">
+    <div className="border-t border-ig-sheet-separator" aria-busy="true" aria-label="読み込み中">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="border-ig-sheet-separator space-y-2 border-b px-4 py-4">
+        <div key={i} className="space-y-2 border-b border-ig-sheet-separator px-4 py-4">
           <Skeleton shape="text" className="h-2.5 w-16" />
           <Skeleton shape="text" className="w-11/12" />
           <Skeleton shape="text" className="w-2/3" />

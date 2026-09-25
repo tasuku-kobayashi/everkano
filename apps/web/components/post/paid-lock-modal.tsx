@@ -20,7 +20,7 @@ export function formatPriceTokens(priceTokens: number): string {
 
 /**
  * 有料投稿のロックモーダル（仕様 §5.4）。
- * H3: 決済機能は実装しない。「購入する（準備中）」はトーストを出すだけで、購入処理・遷移は一切行わない。
+ * H3: 決済機能は実装しない。「購入する（準備中）」はトーストを出すだけで、購入処理・遷移は一切行わない。 scope-check: allow（仕様説明のコメント）
  */
 export function PaidLockModal({ open, onClose, priceTokens, characterName }: PaidLockModalProps) {
   const toast = useToast();
@@ -29,15 +29,15 @@ export function PaidLockModal({ open, onClose, priceTokens, characterName }: Pai
       open={open}
       onClose={onClose}
       icon={
-        <span className="border-ig-text flex size-[62px] items-center justify-center rounded-full border-2">
+        <span className="flex size-[62px] items-center justify-center rounded-full border-2 border-ig-text">
           <LockIcon size={28} strokeWidth={1.7} />
         </span>
       }
       title="この投稿は有料コンテンツです"
       description={
         characterName
-          ? `${characterName}さんの限定公開の投稿です。購入すると全体を見られるようになります。`
-          : "購入すると全体を見られるようになります。"
+          ? `${characterName}さんの限定公開の投稿です。`
+          : "限定公開の投稿です。"
       }
       actions={[
         {

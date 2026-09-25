@@ -81,16 +81,16 @@ export function CommentComposer({
   return (
     <div
       ref={containerRef}
-      className="pb-safe bg-ig-bg border-ig-separator fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[480px] border-t"
+      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[480px] border-t border-ig-separator bg-ig-bg pb-safe"
     >
       {replyingTo ? (
-        <div className="bg-ig-elevated text-ig-secondary flex h-10 items-center justify-between pr-2 pl-4 text-[13px]">
+        <div className="flex h-10 items-center justify-between bg-ig-elevated pr-2 pl-4 text-[13px] text-ig-secondary">
           <span className="truncate">{replyingTo}さんに返信中</span>
           <button
             type="button"
             onClick={onCancelReply}
             aria-label="返信をキャンセル"
-            className="pressable flex size-8 items-center justify-center"
+            className="flex size-8 items-center justify-center pressable"
           >
             <CloseIcon size={16} />
           </button>
@@ -103,7 +103,7 @@ export function CommentComposer({
             type="button"
             onClick={() => insertEmoji(emoji)}
             aria-label={`${emoji}を入力`}
-            className="pressable flex size-9 items-center justify-center text-[24px] leading-none"
+            className="flex size-9 items-center justify-center text-[24px] leading-none pressable"
           >
             {emoji}
           </button>
@@ -111,7 +111,7 @@ export function CommentComposer({
       </div>
       <form onSubmit={handleSubmit} className="flex items-center gap-3 px-4 py-2">
         <Avatar src={null} alt={myName || "自分"} size="sm" />
-        <div className="border-ig-input-border flex h-11 min-w-0 flex-1 items-center rounded-full border pr-1 pl-4">
+        <div className="flex h-11 min-w-0 flex-1 items-center rounded-full border border-ig-input-border pr-1 pl-4">
           <input
             ref={inputRef}
             type="text"
@@ -122,13 +122,13 @@ export function CommentComposer({
             maxLength={COMMENT_MAX_LENGTH}
             enterKeyHint="send"
             autoComplete="off"
-            className="placeholder:text-ig-secondary min-w-0 flex-1 bg-transparent text-[16px] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-ig-secondary"
             data-testid="comment-input"
           />
           <button
             type="submit"
             disabled={!canSubmit}
-            className="text-ig-blue flex h-9 shrink-0 items-center px-3 text-[14px] font-semibold disabled:opacity-40"
+            className="flex h-9 shrink-0 items-center px-3 text-[14px] font-semibold text-ig-blue disabled:opacity-40"
             data-testid="comment-submit"
           >
             {submitting ? <Spinner size={18} label="投稿中" /> : "投稿する"}

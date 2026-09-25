@@ -42,7 +42,7 @@ export function PriorityControl({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span id={labelId} className="text-ig-secondary text-[12px] leading-4">
+      <span id={labelId} className="text-[12px] leading-4 text-ig-secondary">
         {label}
       </span>
       <div
@@ -50,7 +50,7 @@ export function PriorityControl({
         aria-labelledby={labelId}
         onKeyDown={onKeyDown}
         className={cn(
-          "border-ig-sheet-separator inline-flex rounded-lg border p-0.5",
+          "inline-flex rounded-lg border border-ig-sheet-separator p-0.5",
           disabled && "opacity-50",
         )}
       >
@@ -70,7 +70,7 @@ export function PriorityControl({
               }}
               className={cn(
                 "h-6 min-w-8 rounded-md px-2 text-[13px] leading-none transition-colors",
-                selected ? "bg-ig-text text-ig-bg font-semibold" : "text-ig-secondary",
+                selected ? "bg-ig-text font-semibold text-ig-bg" : "text-ig-secondary",
               )}
             >
               {option.label}

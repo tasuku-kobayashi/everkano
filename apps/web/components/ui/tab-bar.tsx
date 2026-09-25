@@ -76,7 +76,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="メインメニュー"
-      className="pb-safe border-ig-separator bg-ig-bg fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[480px] border-t"
+      className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[480px] border-t border-ig-separator bg-ig-bg pb-safe"
     >
       <ul className="flex h-[var(--tab-bar-h)] items-stretch">
         <Tab href="/" label="ホーム" active={active === "home"} pathname={pathname}>
@@ -94,7 +94,7 @@ export function TabBar() {
           <span className="relative">
             {active === "dm" ? <PaperPlaneFilledIcon size={26} /> : <PaperPlaneIcon size={26} />}
             {unread > 0 ? (
-              <span className="border-ig-bg bg-ig-badge absolute -top-1.5 -right-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 px-1 text-[11px] leading-none font-bold text-white">
+              <span className="absolute -top-1.5 -right-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-ig-bg bg-ig-badge px-1 text-[11px] leading-none font-bold text-white">
                 {unread > 9 ? "9+" : unread}
               </span>
             ) : null}
@@ -104,7 +104,7 @@ export function TabBar() {
           <span
             className={cn(
               "flex size-[28px] items-center justify-center rounded-full",
-              active === "me" ? "ring-ig-text ring-2" : "ring-ig-separator ring-1",
+              active === "me" ? "ring-2 ring-ig-text" : "ring-1 ring-ig-separator",
             )}
           >
             <span
@@ -145,7 +145,7 @@ function Tab({
           // 表示中のタブをもう一度タップしたら先頭へスクロール（Instagram と同じ）
           if (pathname === href) window.scrollTo({ top: 0, behavior: "smooth" });
         }}
-        className="text-ig-text flex flex-1 items-center justify-center transition-transform active:scale-90"
+        className="flex flex-1 items-center justify-center text-ig-text transition-transform active:scale-90"
       >
         {children}
       </Link>

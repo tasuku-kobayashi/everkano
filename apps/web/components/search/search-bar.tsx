@@ -22,7 +22,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
   const showCancel = focused || value.length > 0;
 
   return (
-    <div className="pt-safe bg-ig-bg sticky top-0 z-30">
+    <div className="sticky top-0 z-30 bg-ig-bg pt-safe">
       <form
         role="search"
         onSubmit={(event) => {
@@ -32,8 +32,8 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
         }}
         className="flex h-[52px] items-center gap-3 px-4"
       >
-        <label className="bg-ig-elevated relative flex h-9 min-w-0 flex-1 items-center rounded-[10px]">
-          <span className="text-ig-secondary pointer-events-none absolute left-3 flex">
+        <label className="relative flex h-9 min-w-0 flex-1 items-center rounded-[10px] bg-ig-elevated">
+          <span className="pointer-events-none absolute left-3 flex text-ig-secondary">
             <SearchIcon size={16} strokeWidth={2.4} />
           </span>
           <input
@@ -51,7 +51,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
             autoCapitalize="none"
             spellCheck={false}
             maxLength={100}
-            className="placeholder:text-ig-secondary h-full w-full min-w-0 bg-transparent pr-9 pl-9 text-[16px] outline-none [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-full w-full min-w-0 bg-transparent pr-9 pl-9 text-[16px] outline-none placeholder:text-ig-secondary [&::-webkit-search-cancel-button]:appearance-none"
             data-testid="search-input"
           />
           {value ? (
@@ -72,7 +72,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={onCancel}
-            className="pressable shrink-0 text-[16px]"
+            className="shrink-0 text-[16px] pressable"
           >
             キャンセル
           </button>

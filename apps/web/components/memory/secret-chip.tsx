@@ -19,7 +19,7 @@ export function SecretChip({ active, onToggle, disabled = false }: SecretChipPro
       onClick={() => onToggle(!active)}
       className={cn(
         "inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] leading-none font-semibold transition-colors disabled:opacity-50",
-        active ? "brand-gradient text-white" : "border-ig-sheet-separator text-ig-secondary border",
+        active ? "brand-gradient text-white" : "border border-ig-sheet-separator text-ig-secondary",
       )}
     >
       {active ? <LockFilledIcon size={13} /> : <LockIcon size={13} />}

@@ -95,14 +95,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div
         aria-live="polite"
         aria-atomic="true"
-        className="bottom-toast pointer-events-none fixed inset-x-0 z-[60] mx-auto flex max-w-[480px] justify-center px-3"
+        className="pointer-events-none fixed inset-x-0 bottom-toast z-[60] mx-auto flex max-w-[480px] justify-center px-3"
       >
         {toast ? (
           <div
             key={toast.id}
             role={toast.variant === "error" ? "alert" : "status"}
             className={cn(
-              "bg-ig-toast text-ig-toast-text pointer-events-auto flex w-full items-center gap-3 rounded-lg px-4 py-3 text-[14px] leading-[18px] shadow-[0_4px_12px_rgb(0_0_0/0.15)] transition-[opacity,transform] duration-200",
+              "pointer-events-auto flex w-full items-center gap-3 rounded-lg bg-ig-toast px-4 py-3 text-[14px] leading-[18px] text-ig-toast-text shadow-[0_4px_12px_rgb(0_0_0/0.15)] transition-[opacity,transform] duration-200",
               visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
             )}
           >
@@ -110,7 +110,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {toast.action ? (
               <button
                 type="button"
-                className="text-ig-blue shrink-0 font-semibold"
+                className="shrink-0 font-semibold text-ig-blue"
                 onClick={() => {
                   toast.action?.onClick();
                   dismiss();

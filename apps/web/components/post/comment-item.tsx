@@ -80,14 +80,14 @@ export function CommentItem({
         <p className="text-[13px] leading-[18px]">
           {linkTo(label, "font-semibold")}
           {isPostAuthor ? <span className="text-ig-secondary"> • 作成者</span> : null}
-          <time dateTime={comment.created_at} className="text-ig-secondary ml-2 text-[12px]">
+          <time dateTime={comment.created_at} className="ml-2 text-[12px] text-ig-secondary">
             {formatRelativeTimeShort(comment.created_at)}
           </time>
         </p>
-        <p className="text-wrap-anywhere text-[14px] leading-[18px] whitespace-pre-line">
+        <p className="text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line">
           {comment.body}
         </p>
-        <div className="text-ig-secondary mt-1 flex items-center gap-4 text-[12px] leading-4 font-semibold">
+        <div className="mt-1 flex items-center gap-4 text-[12px] leading-4 font-semibold text-ig-secondary">
           <button type="button" onClick={onReply} className="pressable">
             返信する
           </button>
@@ -124,7 +124,7 @@ export function CommentTypingRow({ name, avatarUrl }: { name: string; avatarUrl:
       data-testid="reply-typing"
     >
       <Avatar src={avatarUrl} alt={name} size="xs" />
-      <p className="text-ig-secondary flex items-center gap-1.5 text-[12px] leading-4">
+      <p className="flex items-center gap-1.5 text-[12px] leading-4 text-ig-secondary">
         <span>
           {name}さんが返信を書いています<span className="sr-only">…</span>
         </span>
@@ -132,7 +132,7 @@ export function CommentTypingRow({ name, avatarUrl }: { name: string; avatarUrl:
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="animate-typing-dot bg-ig-secondary size-1 rounded-full"
+              className="size-1 animate-typing-dot rounded-full bg-ig-secondary"
               style={{ animationDelay: `${i * 0.15}s` }}
             />
           ))}
