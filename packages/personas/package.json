@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "validate": "uv run --with pyyaml python scripts/validate_personas.py",
-    "seed:generate": "uv run --with pyyaml python scripts/generate_seed.py"
+    "seed:generate": "uv run --with pyyaml python scripts/generate_seed.py",
+    "lint": "uv run --with pyyaml python scripts/validate_personas.py"
   }
 }

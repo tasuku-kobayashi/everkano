@@ -12,11 +12,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -71,6 +73,16 @@ def comment_uuid(character_index: int, post_index: int, comment_index: int, repl
     return f"00000000-0000-4000-8002-{character_index:06d}{post_index:02d}{comment_index:02d}{reply_index:02d}"
 
 
+def opaque_image_key(kind: str, slug: str) -> str:
+    """有料投稿の画像シード。slug を含まず、プレビュー（kind="preview"）と本体（kind="private"）で無関係な値にする。
+
+    クライアントに見えるのはプレビューの URL だけなので、そこから本体の URL を導けないようにする（出力は決定的）。
+    本番の Bunny オブジェクトキーも同じ方針で、previews/<uuid>.jpg と private/<別の uuid>.jpg のように
+    互いに推測できないキーを使う（連番・slug・同じ uuid の使い回しは不可）。
+    """
+    return hashlib.sha256(f"everkano-seed/{kind}/{slug}".encode()).hexdigest()[:24]
+
+
 # -----------------------------------------------------------------------------
 # データモデル
 # -----------------------------------------------------------------------------
@@ -123,13 +135,20 @@ class Post:
         return self.price > 0
 
     @property
-    def full_image_url(self) -> str:
-        return f"https://picsum.photos/seed/{self.slug}/1080/1080"
+    def image_url(self) -> str:
+        """posts.image_url。無料投稿は本体画像、有料投稿は別に用意した低解像度のぼかしプレビュー。
+
+        有料投稿のプレビューは本体の URL から派生させない（例: 本体URL + "?blur=10" はクエリを外すだけで
+        本体に到達できるので不可）。本体は private_image_url（post_private_assets）に置く。
+        """
+        if not self.is_paid:
+            return f"https://picsum.photos/seed/{self.slug}/1080/1080"
+        return f"https://picsum.photos/seed/{opaque_image_key('preview', self.slug)}/400/400?blur=10"
 
     @property
-    def image_url(self) -> str:
-        # 有料投稿は posts.image_url にぼかし済みプレビューを置き、本体は post_private_assets に置く
-        return f"{self.full_image_url}?blur=10" if self.is_paid else self.full_image_url
+    def private_image_url(self) -> str:
+        """post_private_assets.image_url（有料投稿の本体画像。クライアントから到達不能）。"""
+        return f"https://picsum.photos/seed/{opaque_image_key('private', self.slug)}/1080/1080"
 
 
 @dataclass(frozen=True)
@@ -305,7 +324,7 @@ def _parse_post(
             f"してください（{total}件）"
         )
 
-    return Post(
+    post = Post(
         id=post_uuid(character_index, post_index),
         slug=slug,
         schedule=schedule,
@@ -314,6 +333,28 @@ def _parse_post(
         caption=caption,
         comments=tuple(comments),
     )
+    if post.is_paid:
+        _check_private_asset_unguessable(post, where)
+    return post
+
+
+def _check_private_asset_unguessable(post: Post, where: str) -> None:
+    """有料投稿のプレビュー URL（クライアントに見える）から本体の URL を導けないことを確認する。"""
+    preview = urlsplit(post.image_url)
+    private = urlsplit(post.private_image_url)
+    # 本体 URL のうち固有の部分（seed の値など。"seed" や "1080" のような共通部分は除く）
+    private_tokens = [segment for segment in private.path.split("/") if len(segment) >= 8]
+    if (
+        post.image_url == post.private_image_url
+        or (preview.netloc, preview.path) == (private.netloc, private.path)  # クエリを外すだけで本体になる
+        or any(token in post.image_url for token in private_tokens)
+        or post.slug in post.image_url
+        or post.slug in post.private_image_url
+    ):
+        raise SeedError(
+            f"{where}: 有料投稿のプレビュー URL から本体の URL を推測できます。"
+            "プレビューは本体と無関係なキーの低解像度画像にしてください"
+        )
 
 
 def load_characters() -> list[Character]:
@@ -497,7 +538,9 @@ HEADER = f"""\
 --   avatar_url / image_url は開発用のプレースホルダURL（api.dicebear.com のイラスト / picsum.photos）。
 --   Web は StorageAdapter（NEXT_PUBLIC_STORAGE_DRIVER）経由で解決する。http(s) の絶対URLはそのまま使われ、
 --   本番（bunny ドライバ）ではここをオブジェクトキー（例: characters/misaki/avatar.jpg）に置き換える。
---   有料投稿の posts.image_url はぼかし済みプレビュー（?blur=10）で、本体は post_private_assets に置く。
+--   有料投稿の posts.image_url は別に用意した低解像度のぼかしプレビューで、本体は post_private_assets に置く。
+--   プレビューと本体は互いに推測できない別キーにする（本体URL + "?blur=10" のようにクエリを外すだけで本体に
+--   届く形は不可）。本番の Bunny でも previews/<uuid>.jpg と private/<別の uuid>.jpg のように分けること。
 --
 -- BEGIN/COMMIT は書かない（supabase CLI 側で制御する）。
 -- =============================================================================
@@ -617,7 +660,7 @@ from resolved as r;
 
     # ---- post_private_assets ----------------------------------------------------
     asset_rows = [
-        f"  ({sql_str(post.id)}, {sql_str(post.full_image_url)})"
+        f"  ({sql_str(post.id)}, {sql_str(post.private_image_url)})"
         for c in characters
         for post in c.posts
         if post.is_paid

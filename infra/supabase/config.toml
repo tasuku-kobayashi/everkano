@@ -151,6 +151,8 @@ max_indexes = 5
 # Vector Buckets is available to Supabase Pro plan.
 # [storage.vector.buckets.documents-openai]
 
+# [auth] 以下はローカル専用。ホスト版（staging / 本番）にはダッシュボードで同じ設定を手で行う
+# （Site URL / Redirect URLs は Web の本番ドメインにする）。項目の対応表: docs/handover/supabase-auth.md
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
@@ -222,7 +224,15 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# [セキュリティ] 必ず true（本番もダッシュボードの Authentication → Sign In / Providers → Email の「Confirm email」を ON）。
+# ログインはマジックリンク / 6桁コードのみだが、POST /auth/v1/signup {email, password} は誰でも呼べる。
+# false だと他人のメールアドレスで即座にセッションが発行され（メール所有の確認なし）、本人が後からマジックリンクで
+# ログインしても攻撃者のパスワードが残る = アカウントの事前乗っ取り・使い捨てアカウントの量産（レート制限の回避）ができる。
+# true にすると signup の応答にセッションは含まれず、確認前のパスワードはマイグレーションの
+# on_auth_user_email_verified トリガーが確認時に破棄する（infra/supabase/tests/database/08_*.test.sql）。
+# 新規ユーザーの初回ログインでは magic_link ではなく confirmation テンプレートのメールが送られる（下で同じ内容に設定）。
+# テスト用ユーザーは管理 API（email_confirm: true）か auth.users への直接 INSERT で作るため影響しない。
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -243,12 +253,15 @@ otp_expiry = 3600
 # sender_name = "Admin"
 
 # マジックリンク（ログイン）メール。リンク（/auth/confirm）と6桁コードの両方を含める。
-# 本番環境では Supabase ダッシュボードの Email Templates に同内容を設定すること（docs/handover 参照）。
+# 本番環境では Supabase ダッシュボードの Email Templates に同内容を設定すること。
+# この [auth] 以下の設定はホスト版には自動で反映されない。本番の設定項目は docs/handover/supabase-auth.md のチェックリスト参照。
 [auth.email.template.magic_link]
 subject = "everkano ログイン用リンク"
 content_path = "./supabase/templates/magic_link.html"
 
-# 新規ユーザーの初回ログイン時に送られる確認メール。マジックリンクと同一内容にする。
+# 新規ユーザーの初回ログイン時に送られる確認メール（enable_confirmations = true のとき）。マジックリンクと同一内容にする。
+# リンクの type=email / 6桁コードの verifyOtp({ type: 'email' }) は確認トークンにもマジックリンクのトークンにも使える。
+# 本番でも Email Templates の「Confirm signup」に同じ内容を設定すること。
 [auth.email.template.confirmation]
 subject = "everkano ログイン用リンク"
 content_path = "./supabase/templates/magic_link.html"

@@ -3,8 +3,8 @@
  *
  * - ここが Web 側から見た API 契約の単一の正（Single Source of Truth）。
  * - Python 側は apps/api/app/models/*.py の Pydantic モデルが同じ形を持つ。
- * - 乖離は `pnpm --filter @everkano/shared check:api`（OpenAPI 突合）と
- *   apps/api/tests/test_openapi_contract.py で検知する。
+ * - 乖離は apps/api/tests/test_openapi_contract.py（Pydantic ↔ この型のフィールド突合）と
+ *   `pnpm --filter @everkano/api openapi:check`（docs/api/openapi.json の更新漏れ）で検知する。
  * - JSON のキーはすべて snake_case。日時は ISO 8601 文字列（UTC）。
  */
 

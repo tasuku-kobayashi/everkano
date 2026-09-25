@@ -10,7 +10,8 @@
 #   joined_days_ago  : characters.created_at = now() - N日
 #
 # ■ posts.<key>[]（1キャラ4〜6件。うち1〜2件を有料にする）
-#   slug     : 画像URLのシード（https://picsum.photos/seed/<slug>/1080/1080）。英小文字・数字・ハイフン。全体で一意
+#   slug     : 画像URLのシード（無料投稿は https://picsum.photos/seed/<slug>/1080/1080）。英小文字・数字・ハイフン。全体で一意
+#              有料投稿の画像URLには slug を使わない（プレビュー / 本体とも slug から作った別々のハッシュ値）
 #   at       : 公開日時。日本時間（Asia/Tokyo）で、キャラの schedule_pattern に合う時刻を書く
 #                {day: 0, time: "22:40"}   … 直近に過ぎた 22:40（= 必ず24時間以内。ストーリー枠に出る）
 #                {day: -3, time: "10:05"}  … 3日前の 10:05
@@ -19,7 +20,8 @@
 #                       … その曜日に当たるまで、過去の投稿は前へ・予約投稿は後ろへずらす（day: 0 では指定不可）
 #                {lead: "3 hours"}         … now() + 3時間（時刻を問わない内容の予約投稿用）
 #   likes    : いいね数の初期値（有料投稿・予約投稿は少なめに）
-#   price    : 指定すると有料投稿（price_tokens。80〜200）。image_url はぼかしプレビュー、本体は post_private_assets
+#   price    : 指定すると有料投稿（price_tokens。80〜200）。image_url は本体と無関係なキーの低解像度ぼかしプレビュー、
+#              本体は post_private_assets（プレビューの URL から本体の URL を推測できないこと）
 #   caption  : 本文（1〜4行）。キャラの口調・絵文字ルールに合わせる
 #   comments : 2〜5件（返信を含む）。by = コメントしたキャラの key（投稿者本人は不可）
 #              after = 投稿から何分後か（1〜240）。replies = 投稿者本人からの返信（after は親より後）

@@ -62,7 +62,7 @@ create table public.posts (
 );
 create index posts_published_at_idx on public.posts (published_at desc);
 create index posts_character_id_is_paid_idx on public.posts (character_id, is_paid);
-comment on column public.posts.image_url is '無料投稿は本体画像。有料投稿はプレビュー画像（本体は post_private_assets に保持しクライアントから到達不能）。';
+comment on column public.posts.image_url is '無料投稿は本体画像。有料投稿はプレビュー画像（本体は post_private_assets に保持しクライアントから到達不能）。プレビューは別に用意した低解像度画像で、そのキー / URL から本体のキーを推測できないこと（クエリを外すだけで本体になる等は不可）。';
 comment on column public.posts.published_at is '公開日時。未来日時の投稿は RLS により公開時刻まで表示されない（予約投稿）。';
 
 -- [追加] 有料投稿の本体アセット。RLS有効・ポリシー無し = クライアントから一切読めない。
@@ -194,6 +194,37 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- [セキュリティ] メールアドレスの所有確認より前に設定されたパスワードを、確認の時点で破棄する（事前乗っ取り対策）。
+-- ログインはマジックリンク / 6桁コードのみでパスワードは使わないが、Supabase Auth の POST /auth/v1/signup は
+-- email + password を誰でも受け付ける。攻撃者が他人のメールアドレスでパスワード付きの未確認ユーザーを先に作り、
+-- 本人が後からマジックリンクでログイン（= メール確認）すると、同じユーザーに攻撃者のパスワードが残ってしまう
+-- （GoTrue は確認時にパスワードを消さない）。そこで、メールで送ったトークン（確認メール = confirmation_sent_at、
+-- マジックリンク / 再設定 = recovery_sent_at）によって未確認 → 確認済みになる UPDATE で encrypted_password を NULL にする。
+-- 管理 API（service role）で email_confirm: true を指定して作るユーザー（テスト用）はメールのトークンを経由しない
+-- （sent_at が NULL）ため対象外で、パスワードでのログインを引き続き使える。
+-- config.toml の [auth.email] enable_confirmations = true（本番はダッシュボードの「Confirm email」ON）が前提。
+-- 自動確認のままだと signup の応答でそのままセッションが発行され、このトリガーでは防げない。
+create or replace function public.discard_unverified_password()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.encrypted_password := null;
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_email_verified
+  before update on auth.users
+  for each row
+  when (
+    old.email_confirmed_at is null
+    and new.email_confirmed_at is not null
+    and (old.confirmation_sent_at is not null or old.recovery_sent_at is not null)
+  )
+  execute function public.discard_unverified_password();
 
 -- 退会（論理削除）は一方向。クライアント（authenticated）からの deleted_at の解除・変更を禁止する。
 -- 復旧が必要な場合は運用者が postgres ロールで deleted_at を NULL に戻す（docs/handover 参照）。
@@ -533,3 +564,14 @@ begin
   end if;
 end;
 $$;
+
+-- anon には主キー列（id）の SELECT だけを付与する（Realtime 専用。行はどこからも読めない）。
+-- Realtime（postgres_changes）は、購読者のロールが主キー列の SELECT 権限を持たないと RLS を評価せず、
+-- 本文を除いた「Error 401: Unauthorized」イベントを全行分そのまま配信する（realtime.apply_rls の仕様）。
+-- そのままだと anon key だけで messages を購読した未ログインのクライアントに、全ユーザーの DM の件数・時刻が漏れる。
+-- 主キー列の権限があれば RLS の評価経路に乗り、anon 向けのポリシーは無い（すべて to authenticated）ため
+-- イベントは配信されない。REST（PostgREST）でも RLS により 0 行しか返らない。
+-- publication にテーブルを追加するときは、この anon への主キー列 grant も必ずセットで書くこと（00_privileges で検査）。
+-- 注意: DELETE イベントは Realtime の仕様で RLS が適用されず、全購読者に主キーだけが配信される（本文は含まれない）。
+grant select (id) on public.messages to anon;
+grant select (id) on public.comments to anon;

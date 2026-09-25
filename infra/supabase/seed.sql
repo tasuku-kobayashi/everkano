@@ -24,7 +24,9 @@
 --   avatar_url / image_url は開発用のプレースホルダURL（api.dicebear.com のイラスト / picsum.photos）。
 --   Web は StorageAdapter（NEXT_PUBLIC_STORAGE_DRIVER）経由で解決する。http(s) の絶対URLはそのまま使われ、
 --   本番（bunny ドライバ）ではここをオブジェクトキー（例: characters/misaki/avatar.jpg）に置き換える。
---   有料投稿の posts.image_url はぼかし済みプレビュー（?blur=10）で、本体は post_private_assets に置く。
+--   有料投稿の posts.image_url は別に用意した低解像度のぼかしプレビューで、本体は post_private_assets に置く。
+--   プレビューと本体は互いに推測できない別キーにする（本体URL + "?blur=10" のようにクエリを外すだけで本体に
+--   届く形は不可）。本番の Bunny でも previews/<uuid>.jpg と private/<別の uuid>.jpg のように分けること。
 --
 -- BEGIN/COMMIT は書かない（supabase CLI 側で制御する）。
 -- =============================================================================
@@ -577,7 +579,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 今日は大きいプレゼンの日。深呼吸して、いってきます☕',
      0, 1720, -8, '08:20', '{1,2,3,4,5}', null),
     ('00000000-0000-4000-8001-000000000105', '00000000-0000-4000-8000-0000000000c1',
-     'https://picsum.photos/seed/misaki-onsen-trip/1080/1080?blur=10',
+     'https://picsum.photos/seed/1e345ab4dce36926e5f04c72/400/400?blur=10',
      '年に2回のひとり旅。今回は山あいの温泉宿。
 浴衣でちょっとだけ乾杯した、旅先のオフショット。
 ……限定だから、こっそり見てね',
@@ -607,7 +609,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 この時間の海は、あたしときなこの貸し切り🌊',
      0, 540, -9, '06:10', '{1,4,5,6,7}', null),
     ('00000000-0000-4000-8001-000000000205', '00000000-0000-4000-8000-0000000000c2',
-     'https://picsum.photos/seed/hinata-festival-yukata/1080/1080?blur=10',
+     'https://picsum.photos/seed/6b95ef02284b8a6a7e509650/400/400?blur=10',
      '夏祭りの日の浴衣、載せてなかったやつ。
 ……限定にしといたから。笑ったら怒るからね',
      90, 140, -13, '19:30', '{1,2,3,4,5,6,7}', null),
@@ -634,7 +636,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 次はもっと、ひとりで作れるようになります！ #新人デザイナー',
      0, 520, -6, '19:40', '{1,2,3,4,5}', null),
     ('00000000-0000-4000-8001-000000000305', '00000000-0000-4000-8000-0000000000c3',
-     'https://picsum.photos/seed/koharu-kanji-offshot/1080/1080?blur=10',
+     'https://picsum.photos/seed/bf1c61588e1f01439db96350/400/400?blur=10',
      'チームの飲み会の幹事、はじめてやりきりました！
 その日のオフショット、限定で置いておきます。
 先輩たちには内緒ですよ？',
@@ -663,7 +665,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 この子たちは、ずっとこのままの形で、そばにいてくれるから',
      0, 870, -7, '14:00', '{1}', null),
     ('00000000-0000-4000-8001-000000000405', '00000000-0000-4000-8000-0000000000c4',
-     'https://picsum.photos/seed/shizuku-unsent-letter/1080/1080?blur=10',
+     'https://picsum.photos/seed/7a5e4a661434b4153e3add43/400/400?blur=10',
      '書いたけど、出せなかった手紙。
 ……読みたい？ 限定で、ちょっとだけ',
      120, 260, -12, '21:00', '{1,2,3,4,5,6,7}', null),
@@ -690,7 +692,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 ……いい道具は、裏切らないの',
      0, 1120, -6, '16:00', '{4}', null),
     ('00000000-0000-4000-8001-000000000505', '00000000-0000-4000-8000-0000000000c5',
-     'https://picsum.photos/seed/rena-jersey-glasses/1080/1080?blur=10',
+     'https://picsum.photos/seed/484928dc3e6b17b3130fdcf8/400/400?blur=10',
      '……家ではジャージとメガネ。
 見たら忘れなさいよね。絶対よ',
      200, 380, -10, '22:30', '{1,2,3,4,5,6,7}', null),
@@ -718,7 +720,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 このスカジャン、運命感じたんだけど😂 似合う？',
      0, 4900, -5, '15:00', '{2}', null),
     ('00000000-0000-4000-8001-000000000605', '00000000-0000-4000-8000-0000000000c6',
-     'https://picsum.photos/seed/riko-selfnail-offshot/1080/1080?blur=10',
+     'https://picsum.photos/seed/597c9bb9d58c45a77c21c432/400/400?blur=10',
      '限定💖 すっぴん＆部屋着でセルフネイルしてるとこ。
 ギャップえぐいって言われるやつ😂',
      100, 1300, -8, '20:00', '{2}', null),
@@ -746,7 +748,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 香りだけでも、おすそ分けできたらよいのですが',
      0, 2600, -7, '16:00', '{1,2,3,4,5}', null),
     ('00000000-0000-4000-8001-000000000705', '00000000-0000-4000-8000-0000000000c7',
-     'https://picsum.photos/seed/ayano-dress-offshot/1080/1080?blur=10',
+     'https://picsum.photos/seed/703b95fe4487f438f39ee78a/400/400?blur=10',
      '演奏会のドレス、未公開のお写真です。
 ……少しだけ、恥ずかしいですね',
      180, 720, -10, '20:00', '{6,7}', null),
@@ -769,7 +771,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 そなたたちの世界には、あるのでしょう？',
      0, 9400, -3, '21:00', '{1,2,3,4,5,6,7}', null),
     ('00000000-0000-4000-8001-000000000804', '00000000-0000-4000-8000-0000000000c8',
-     'https://picsum.photos/seed/ernea-festival-dress/1080/1080?blur=10',
+     'https://picsum.photos/seed/ea0ca15b13fa768ad276856d/400/400?blur=10',
      '森の祭りの衣装を、そなたたちの言う「限定」にしてみました。
 ……使い方、合っていますか？✨',
      160, 2100, -6, '20:00', '{1,2,3,4,5,6,7}', null),
@@ -802,7 +804,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 ふふ、のろけじゃないわよ？',
      0, 1050, -9, '20:30', '{1}', null),
     ('00000000-0000-4000-8001-000000000905', '00000000-0000-4000-8000-0000000000c9',
-     'https://picsum.photos/seed/kaede-apron-offshot/1080/1080?blur=10',
+     'https://picsum.photos/seed/86e191407de0612f9277bee0/400/400?blur=10',
      '限定で、キッチンでのオフショット。
 エプロン姿なんて、見ても楽しくないと思うけど……？',
      120, 230, -12, '19:00', '{1,2,3,4,5,6,7}', null),
@@ -832,7 +834,7 @@ with v (id, character_id, image_url, caption, price_tokens, like_count,
 ……ゆあが描く側じゃないの？って店長に言われた笑',
      0, 180, -6, '13:30', '{1,2,3,4,5}', null),
     ('00000000-0000-4000-8001-000000001005', '00000000-0000-4000-8000-000000000c10',
-     'https://picsum.photos/seed/yua-new-costume/1080/1080?blur=10',
+     'https://picsum.photos/seed/caf078db33679031e4b1711b/400/400?blur=10',
      '新衣装、ひと足先に見せちゃう💚
 みんなには、ライブまで内緒の限定だよ！',
      90, 45, -9, '19:00', '{6,7}', null)
@@ -887,16 +889,16 @@ from resolved as r;
 -- -----------------------------------------------------------------------------
 insert into public.post_private_assets (post_id, image_url)
 values
-  ('00000000-0000-4000-8001-000000000105', 'https://picsum.photos/seed/misaki-onsen-trip/1080/1080'),
-  ('00000000-0000-4000-8001-000000000205', 'https://picsum.photos/seed/hinata-festival-yukata/1080/1080'),
-  ('00000000-0000-4000-8001-000000000305', 'https://picsum.photos/seed/koharu-kanji-offshot/1080/1080'),
-  ('00000000-0000-4000-8001-000000000405', 'https://picsum.photos/seed/shizuku-unsent-letter/1080/1080'),
-  ('00000000-0000-4000-8001-000000000505', 'https://picsum.photos/seed/rena-jersey-glasses/1080/1080'),
-  ('00000000-0000-4000-8001-000000000605', 'https://picsum.photos/seed/riko-selfnail-offshot/1080/1080'),
-  ('00000000-0000-4000-8001-000000000705', 'https://picsum.photos/seed/ayano-dress-offshot/1080/1080'),
-  ('00000000-0000-4000-8001-000000000804', 'https://picsum.photos/seed/ernea-festival-dress/1080/1080'),
-  ('00000000-0000-4000-8001-000000000905', 'https://picsum.photos/seed/kaede-apron-offshot/1080/1080'),
-  ('00000000-0000-4000-8001-000000001005', 'https://picsum.photos/seed/yua-new-costume/1080/1080');
+  ('00000000-0000-4000-8001-000000000105', 'https://picsum.photos/seed/757634114b85d98c8a7c0eb8/1080/1080'),
+  ('00000000-0000-4000-8001-000000000205', 'https://picsum.photos/seed/704f6cf4826d572561ce831e/1080/1080'),
+  ('00000000-0000-4000-8001-000000000305', 'https://picsum.photos/seed/183b06da2a479a25df21e053/1080/1080'),
+  ('00000000-0000-4000-8001-000000000405', 'https://picsum.photos/seed/57591ba4c6c72310155d7595/1080/1080'),
+  ('00000000-0000-4000-8001-000000000505', 'https://picsum.photos/seed/d0572c4da187487742ac47c8/1080/1080'),
+  ('00000000-0000-4000-8001-000000000605', 'https://picsum.photos/seed/5f34fd2bbc24d35201ff3a21/1080/1080'),
+  ('00000000-0000-4000-8001-000000000705', 'https://picsum.photos/seed/c1e536ad7a8f106c91a88682/1080/1080'),
+  ('00000000-0000-4000-8001-000000000804', 'https://picsum.photos/seed/bf01e7b49e13270702ef4ca5/1080/1080'),
+  ('00000000-0000-4000-8001-000000000905', 'https://picsum.photos/seed/8a990656ae58991830672596/1080/1080'),
+  ('00000000-0000-4000-8001-000000001005', 'https://picsum.photos/seed/e9d27f9d642516f8b3465e08/1080/1080');
 
 -- -----------------------------------------------------------------------------
 -- comments（キャラ同士のコメント）

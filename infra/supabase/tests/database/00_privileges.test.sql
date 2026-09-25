@@ -12,7 +12,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(12);
+select plan(14);
 
 -- ---------------------------------------------------------------------------
 -- RLS
@@ -52,8 +52,21 @@ select is_empty(
        join pg_class c on c.oid = att.attrelid
        cross join lateral aclexplode(att.attacl) x
       where c.relnamespace = 'public'::regnamespace
-        and x.grantee in ('anon'::regrole, 0::oid) $$,
-  'anon / PUBLIC には列単位の権限も無い'
+        and x.grantee = 0::oid $$,
+  'PUBLIC には列単位の権限も無い'
+);
+
+-- anon の列権限は Realtime 用の主キー列のみ（RLS の評価経路に乗せて 401 イベントの配信を止めるため）。
+-- anon 向けポリシーは無いので、この権限で読める行は無い（06 で確認）。
+select set_eq(
+  $$ select c.relname::text, att.attname::text, x.privilege_type::text
+       from pg_attribute att
+       join pg_class c on c.oid = att.attrelid
+       cross join lateral aclexplode(att.attacl) x
+      where c.relnamespace = 'public'::regnamespace
+        and x.grantee = 'anon'::regrole $$,
+  $$ values ('comments', 'id', 'SELECT'), ('messages', 'id', 'SELECT') $$,
+  'anon の列単位権限は Realtime 対象テーブルの主キー列（messages.id / comments.id）の SELECT のみ'
 );
 
 select set_eq(
@@ -162,6 +175,23 @@ select set_eq(
         and schemaname = 'public' $$,
   array['comments', 'messages'],
   'supabase_realtime publication の public テーブルは messages / comments のみ'
+);
+
+-- 購読者のロールが主キー列を SELECT できないと、Realtime は RLS を評価せずに本文なしの
+-- 「Error 401: Unauthorized」イベントを全行分配信してしまう（anon key だけで DM の件数・時刻が漏れる）。
+-- publication に追加したテーブルは、anon / authenticated の両方が主キー列を SELECT できること。
+select is_empty(
+  $$ select pt.tablename, att.attname, r.rolname
+       from pg_publication_tables pt
+       join pg_constraint con
+         on con.conrelid = format('%I.%I', pt.schemaname, pt.tablename)::regclass and con.contype = 'p'
+       cross join lateral unnest(con.conkey) as k(attnum)
+       join pg_attribute att on att.attrelid = con.conrelid and att.attnum = k.attnum
+       cross join (values ('anon'::name), ('authenticated'::name)) as r(rolname)
+      where pt.pubname = 'supabase_realtime'
+        and pt.schemaname = 'public'
+        and not has_column_privilege(r.rolname, con.conrelid, att.attname, 'SELECT') $$,
+  'Realtime 対象テーブルの主キー列は anon / authenticated が SELECT できる（RLS で判定させ、401 イベントを配信させない）'
 );
 
 select * from finish();

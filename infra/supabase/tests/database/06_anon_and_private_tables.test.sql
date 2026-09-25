@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(24);
+select plan(29);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures（アクセスを試みる対象が存在する状態にしておく）
@@ -35,6 +35,13 @@ values ('f0a00000-0000-4000-8000-00000000000a', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaa
 insert into public.audit_logs (event_type, user_id, payload)
 values ('chat.request', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '{"request_id":"pgtap"}');
 
+insert into public.messages (id, conversation_id, sender_type, body)
+values ('e6000000-0000-4000-8000-000000000001', 'f0a00000-0000-4000-8000-00000000000a', 'user', 'anon には見えない DM');
+
+insert into public.comments (id, post_id, author_type, author_character_id, body)
+values ('e6000000-0000-4000-8000-000000000002', 'd4000000-0000-4000-8000-000000000004', 'character',
+        'c1c1c1c1-0000-4000-8000-000000000001', 'anon には見えないコメント');
+
 -- ---------------------------------------------------------------------------
 -- anon（ログインしていないクライアント = anon key のみ）
 -- ---------------------------------------------------------------------------
@@ -57,6 +64,21 @@ select throws_ok($$ select * from public.conversations $$, '42501',
   'permission denied for table conversations', 'anon: conversations 不可');
 select throws_ok($$ select * from public.messages $$, '42501', 'permission denied for table messages',
   'anon: messages 不可');
+-- anon は Realtime 用に messages.id / comments.id だけ SELECT できるが、anon 向けポリシーが無いので行は 0 件
+select throws_ok($$ select body from public.messages $$, '42501', 'permission denied for table messages',
+  'anon: messages の本文は列権限で不可');
+select throws_ok($$ select body, author_user_id from public.comments $$, '42501',
+  'permission denied for table comments', 'anon: comments の本文・作成者は列権限で不可');
+select is((select count(*)::int from public.messages), 0,
+  'anon: messages は主キー列を指定しても RLS で 0 行（REST でも取得できない）');
+select is((select count(*)::int from public.comments), 0,
+  'anon: comments は主キー列を指定しても RLS で 0 行（REST でも取得できない）');
+-- Realtime（realtime.apply_rls）が購読者ごとに実行する判定と同じ形のクエリ
+select is(
+  (select exists (select 1 from public.messages where id = 'e6000000-0000-4000-8000-000000000001')),
+  false,
+  'anon: Realtime の RLS 判定（主キーで存在確認）は false → 他人の DM の INSERT イベントは配信されない'
+);
 select throws_ok($$ select id, content from public.memories $$, '42501',
   'permission denied for table memories', 'anon: memories 不可');
 select throws_ok($$ select * from public.audit_logs $$, '42501', 'permission denied for table audit_logs',

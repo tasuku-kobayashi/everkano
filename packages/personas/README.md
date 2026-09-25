@@ -100,7 +100,13 @@ pnpm db:reset                                     # ローカルDBを作り直�
 `avatar_url` / `image_url` は開発用のプレースホルダ（`api.dicebear.com` / `picsum.photos`）。Web は StorageAdapter
 （`NEXT_PUBLIC_STORAGE_DRIVER`）経由で解決し、http(s) の絶対URLはそのまま使う。本番（`bunny` ドライバ）では
 オブジェクトキー（例: `characters/misaki/avatar.jpg`）に置き換える。有料投稿の `posts.image_url` は
-`?blur=10` のぼかしプレビューで、本体は `post_private_assets.image_url`。
+別に用意した低解像度のぼかしプレビュー（`…/400/400?blur=10`）で、本体は `post_private_assets.image_url`。
+
+**プレビューのURL / キーから本体のURL / キーを推測できないようにする**（クライアントに見えるのはプレビューだけ）。
+「本体URL + `?blur=10`」のようにクエリを外すだけで本体に届く形や、slug・連番を含むキーは不可。シードでは
+プレビューと本体に別々のハッシュ値（`opaque_image_key("preview" | "private", slug)`）を使い、`generate_seed.py`
+が推測できないことを検証する。本番の Bunny でも `previews/<uuid>.jpg` と `private/<別の uuid>.jpg` のように
+無関係なキーにすること。
 
 ## キャラクターを追加する手順
 
