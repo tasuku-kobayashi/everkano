@@ -10,8 +10,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final
 
-import httpx
-import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,8 +18,10 @@ from app.container import build_services
 from app.core.config import Settings, get_settings
 from app.core.db import Pool, create_pool
 from app.core.errors import register_exception_handlers
+from app.core.http import create_jwks_client, create_upstream_client
 from app.core.logging import configure_logging, get_logger
-from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.core.middleware import REQUEST_ID_HEADER, BodySizeLimitMiddleware, RequestContextMiddleware
+from app.core.observability import init_sentry
 from app.routers import chat, comments, conversations, health, memories
 from app.services.embedding import EmbeddingClient
 from app.services.llm import LLMClient
@@ -48,34 +48,30 @@ def create_app(
     """アプリを生成する。テストでは settings / llm / embedder を差し替えられる。"""
     settings = settings or get_settings()
     configure_logging(settings.log_level)
-    if settings.sentry_dsn:
-        sentry_sdk.init(
-            dsn=settings.sentry_dsn,
-            environment=settings.app_env,
-            release=f"everkano-api@{__version__}",
-            send_default_pii=False,
-            traces_sample_rate=0.0,
-        )
+    # 本文・トークン・ローカル変数・監査ログを送らない設定で初期化する（app/core/observability.py）
+    init_sentry(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # ペルソナ・テンプレートは起動時に検証（不正なら起動しない）
         personas = PersonaRepository.load_dir(settings.resolved_personas_dir)
         prompts = PromptBuilder.load_dir(settings.resolved_prompts_dir)
-        http = httpx.AsyncClient(
-            timeout=httpx.Timeout(settings.llm_timeout_seconds),
-            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-        )
+        # LLM・埋め込み用（接続数は fly.toml の同時リクエスト上限 × 2 以上）と JWKS 用は別クライアント
+        # （app/core/http.py）
+        http = create_upstream_client(settings.llm_timeout_seconds)
+        jwks_http = create_jwks_client()
         try:
             pool = await create_pool(settings)
         except BaseException:
             await http.aclose()
+            await jwks_http.aclose()
             raise
         try:
             services = build_services(
                 settings=settings,
                 pool=pool,
                 http=http,
+                jwks_http=jwks_http,
                 personas=personas,
                 prompts=prompts,
                 llm=llm,
@@ -83,6 +79,8 @@ def create_app(
             )
             app.state.services = services
             await _log_persona_coverage(services.pool, personas)
+            # 起動直後の最初のリクエストが JWKS の取得を待たないよう先に取得しておく（失敗しても起動は続ける）
+            await services.jwks.warm_up()
             logger.info(
                 "startup complete",
                 extra={
@@ -92,6 +90,8 @@ def create_app(
                         "llm_mode": settings.llm_mode,
                         "llm_model": services.llm.model_name,
                         "embedding_mode": settings.embedding_mode,
+                        # DB 接続の TLS（接続文字列そのものはパスワードを含むので出さない）
+                        "database_sslmode": settings.database_sslmode or "prefer (default)",
                         "personas": len(personas),
                         "personas_dir": str(settings.resolved_personas_dir),
                         "prompts_dir": str(settings.resolved_prompts_dir),
@@ -103,6 +103,7 @@ def create_app(
         finally:
             await pool.close()
             await http.aclose()
+            await jwks_http.aclose()
             logger.info("shutdown complete")
 
     app = FastAPI(
@@ -114,6 +115,9 @@ def create_app(
         redoc_url=None,
     )
     register_exception_handlers(app)
+    # 後に追加したものほど外側。外 → 内: CORS → RequestContext → BodySizeLimit → ルーター
+    # 本文の上限は認証より前（FastAPI は依存関係の解決前に本文を読む）に効かせる。413 にも X-Request-ID と CORS が付く
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
     app.add_middleware(RequestContextMiddleware, client_ip_header=settings.client_ip_header)
     # CORS は最外周（エラー応答にも CORS ヘッダを付けるため最後に追加）
     app.add_middleware(

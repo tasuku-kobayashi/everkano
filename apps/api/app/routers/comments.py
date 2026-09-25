@@ -37,7 +37,11 @@ async def create_comment(
 @router.post(
     "/generate",
     summary="投稿者キャラがコメントに返信",
-    description="出力が Gate #1 でヒットした場合は保存せず comment=null を返す。",
+    description=(
+        "指定できるのは自分のコメントだけ（他人のコメント・存在しないコメントは 404、キャラのコメントは 422）。"
+        "キャラの返信はコメント1件につき1件までで、既に返信があれば生成せずにその返信を返す。"
+        "出力が Gate #1（URL・ドメイン名を含む）でヒットした場合は保存せず comment=null を返す。"
+    ),
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE, **LLM_UNAVAILABLE_RESPONSE},
 )
 async def generate_comment(

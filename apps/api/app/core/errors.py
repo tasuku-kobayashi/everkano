@@ -2,7 +2,8 @@
 
 `packages/shared/src/api.ts` の `ApiErrorCode` と HTTP ステータスの対応:
 401 unauthorized / 403 forbidden・account_deleted / 404 not_found /
-422 validation_error・moderation_blocked / 429 rate_limited / 503 llm_unavailable / 500 internal_error
+413・422 validation_error / 422 moderation_blocked / 429 rate_limited / 503 llm_unavailable / 500 internal_error
+（503 internal_error は認証サーバー（JWKS）に一時的に接続できない場合。401 と違いクライアントはログアウトしない）
 """
 
 from __future__ import annotations
@@ -37,10 +38,13 @@ DEFAULT_MESSAGES: Final[dict[str, str]] = {
     "not_found": "見つかりませんでした。",
     "validation_error": "入力内容に誤りがあります。内容を確認してください。",
     "moderation_blocked": "この内容は投稿できません。表現を変えて再度お試しください。",
-    "rate_limited": "送信が多すぎます。少し時間をおいてから再度お試しください。",
-    "llm_unavailable": "ただいま返信できません。少し時間をおいてから再度お試しください。",
-    "internal_error": "サーバーでエラーが発生しました。時間をおいて再度お試しください。",
+    "rate_limited": "送信が多すぎます。しばらくしてから再度お試しください。",
+    "llm_unavailable": "ただいま返信できません。しばらくしてから再度お試しください。",
+    "internal_error": "サーバーでエラーが発生しました。しばらくしてから再度お試しください。",
 }
+
+PAYLOAD_TOO_LARGE_MESSAGE: Final[str] = "送信内容が大きすぎます。内容を短くして再度お試しください。"
+AUTH_UNAVAILABLE_MESSAGE: Final[str] = "ただいまログイン状態を確認できません。しばらくしてから再度お試しください。"
 
 _STATUS_TO_CODE: Final[dict[int, ApiErrorCode]] = {
     400: "validation_error",
@@ -48,6 +52,7 @@ _STATUS_TO_CODE: Final[dict[int, ApiErrorCode]] = {
     403: "forbidden",
     404: "not_found",
     405: "not_found",
+    413: "validation_error",
     422: "validation_error",
     429: "rate_limited",
     503: "llm_unavailable",
@@ -153,7 +158,8 @@ async def _http_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     status = exc.status_code
     code: ApiErrorCode = _STATUS_TO_CODE.get(status, "internal_error" if status >= 500 else "validation_error")
     headers = dict(exc.headers) if exc.headers else None
-    return error_response(status, code, DEFAULT_MESSAGES[code], headers)
+    message = PAYLOAD_TOO_LARGE_MESSAGE if status == 413 else DEFAULT_MESSAGES[code]
+    return error_response(status, code, message, headers)
 
 
 def _safe_errors(exc: RequestValidationError) -> list[dict[str, Any]]:

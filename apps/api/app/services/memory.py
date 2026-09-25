@@ -13,11 +13,19 @@
 
 Gate #1（入力）で差し止めたユーザー発言も messages には保存されるが、LLM に渡す履歴・記憶抽出の文脈・
 中期要約には本文を渡さない（`sanitize_history`）。
+
+中期要約は古い順に「会話ログの文字数上限（TRANSCRIPT_MAX_CHARS）に収まる分」ずつ要約し、カーソルは実際に要約に
+含めたメッセージまでしか進めない（収まらなかった分は次のチャンクで要約する）。失敗は会話ごとに指数バックオフし、
+同じチャンクで失敗が続く・内容で拒否される（4xx）場合はそのチャンクを飛ばしてカーソルを進める（永久に再試行しない）。
+
+ペアあたりの記憶の上限は `memory_capacity.py`（MEMORY_MAX_PER_CHARACTER）。
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Final
@@ -30,11 +38,12 @@ from app.core.db import VECTOR_COSINE_DISTANCE, Connection, Pool, vector_literal
 from app.core.logging import get_logger
 from app.services.audit import AuditLogger
 from app.services.characters import to_numeric
-from app.services.embedding import EmbeddingClient, EmbeddingError
+from app.services.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
 from app.services.llm import LLMClient, LLMError, LLMRequest, MockHints, parse_json_object
+from app.services.memory_capacity import EvictedMemory, lock_pair, make_room
 from app.services.moderation import Moderator
 from app.services.persona import Persona
-from app.services.prompt import ChatMessage, PromptBuilder
+from app.services.prompt import ChatMessage, PromptBuilder, fit_transcript_prefix
 from app.services.types import MEMORY_TAG_SUMMARY, HistoryItem, MemoryCandidate, RetrievedMemory
 
 logger = get_logger("memory")
@@ -48,6 +57,19 @@ EXTRACTION_MAX_TOKENS: Final[int] = 600
 SUMMARY_MAX_TOKENS: Final[int] = 800
 # Gate #1（入力）で差し止めた発言を LLM に渡すときの置き換え文
 MODERATED_PLACEHOLDER: Final[str] = "（不適切な発言のため省略）"
+
+# 中期要約: 1回に DB から読む未要約メッセージの上限（この中から文字数上限に収まる分だけを1チャンクとして要約する）
+SUMMARY_FETCH_LIMIT: Final[int] = 200
+# 1回のバックグラウンド処理で要約するチャンク数の上限（溜まった分は以後のチャットで少しずつ消化する）
+MAX_SUMMARY_CHUNKS_PER_RUN: Final[int] = 3
+# 同じチャンクでこの回数失敗したら、そのチャンクは飛ばしてカーソルを進める
+SUMMARY_MAX_ATTEMPTS_PER_CHUNK: Final[int] = 3
+# 失敗後の再試行までの待ち（指数バックオフ）
+SUMMARY_RETRY_BASE_SECONDS: Final[float] = 60.0
+SUMMARY_RETRY_MAX_SECONDS: Final[float] = 3600.0
+# 内容が原因で拒否されたとみなす LLM の HTTP ステータス（同じ内容で再試行しても通らない）
+_CONTENT_REJECTION_STATUS: Final[frozenset[int]] = frozenset({400, 413, 422})
+_SUMMARY_FAILURE_STATE_MAX: Final[int] = 10_000
 
 # 演算子名は定数のみを埋め込む（利用者入力は含まない）
 _RETRIEVE_SQL: Final[str] = f"""
@@ -205,15 +227,43 @@ def parse_candidates(text: str) -> list[MemoryCandidate]:
 
 
 def parse_summary(text: str) -> str:
+    """要約 LLM の出力から要約文を取り出す。空なら ""。"""
     try:
         data = parse_json_object(text)
     except ValueError:
-        data = None
-    summary = data.get("summary") if isinstance(data, dict) else None
-    if not isinstance(summary, str) or not summary.strip():
         # JSON で返らなかった場合は本文をそのまま要約とみなす
-        summary = text
+        return text.strip()[:SUMMARY_MAX_CHARS]
+    summary = data.get("summary") if isinstance(data, dict) else None
+    if not isinstance(summary, str):
+        # JSON だが summary が無い・文字列でない（{"summary": ""} や別の形）→ JSON 文字列を要約として保存しない
+        return ""
     return summary.strip()[:SUMMARY_MAX_CHARS]
+
+
+def is_content_rejection(exc: LLMError) -> bool:
+    """同じ入力で再試行しても通らない失敗か（プロバイダのコンテンツフィルタ・入力長超過など）。"""
+    return exc.status_code in _CONTENT_REJECTION_STATUS
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryChunk:
+    """中期要約の1チャンク。"""
+
+    cursor: datetime | None  # 読み込んだ時点の conversations.summary_cursor
+    transcript: list[HistoryItem]  # 要約に渡す発言（差し止めたターンは除外済み・文字数上限内）
+    last: HistoryItem  # このチャンクで扱った最後のメッセージ（カーソルをここまで進める）
+    covered: int  # このチャンクで「要約済み」になるメッセージ数（除外したターンを含む）
+
+    @property
+    def excluded(self) -> int:
+        return self.covered - len(self.transcript)
+
+
+@dataclass(slots=True)
+class _SummaryFailure:
+    cursor: datetime | None
+    failures: int
+    retry_at: float
 
 
 class MemoryEngine:
@@ -227,6 +277,7 @@ class MemoryEngine:
         prompts: PromptBuilder,
         audit: AuditLogger,
         moderator: Moderator,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
         self._pool = pool
@@ -235,7 +286,10 @@ class MemoryEngine:
         self._prompts = prompts
         self._audit = audit
         self._moderator = moderator
+        self._clock = clock
         self._summarizing: set[UUID] = set()
+        # 会話ごとの中期要約の失敗状態（プロセス内。再起動で消えても次のチャットで再判定されるだけ）
+        self._summary_failures: dict[UUID, _SummaryFailure] = {}
 
     # ------------------------------------------------------------------ 短期
     async def fetch_short_term(self, conn: Connection, conversation_id: UUID) -> list[HistoryItem]:
@@ -261,13 +315,43 @@ class MemoryEngine:
         return sanitize_history(items, self._moderator)
 
     # ------------------------------------------------------------------ 長期（検索）
-    async def embed_query(self, text: str) -> list[float] | None:
+    async def embed_query(
+        self, text: str, *, user_id: UUID, character_id: UUID, conversation_id: UUID
+    ) -> list[float] | None:
+        """検索用の埋め込み。失敗・EMBEDDING_TIMEOUT_SECONDS 超過なら None（長期記憶の検索を省略してチャットは続ける）。
+
+        失敗は audit `llm.error`（purpose=embedding_query）に残す（チャットは 200 のままなので、埋め込み障害で
+        「何も思い出さない」状態が続いていることを監査ログ・アラートから分かるようにする）。
+        ここでの TimeoutError は内側の asyncio.timeout のもので、呼び出し側の締め切り（CHAT_DEADLINE_SECONDS）の
+        失効は CancelledError として外へ伝わる（asyncio.timeout は入れ子にしても区別される）。
+        """
+        timeout = self._settings.embedding_timeout_seconds
         try:
-            [vector] = await self._embedder.embed([text])
-        except EmbeddingError as exc:
-            logger.error("query embedding failed; skipping long-term retrieval", extra={"fields": {"error": str(exc)}})
+            async with asyncio.timeout(timeout):
+                [vector] = await self._embedder.embed([text])
+        except (EmbeddingError, TimeoutError) as exc:
+            failure = embedding_failure_payload(exc, timeout_seconds=timeout)
+            logger.error("query embedding failed; skipping long-term retrieval", extra={"fields": failure})
+            await self.log_embedding_error(
+                "embedding_query",
+                failure,
+                user_id=user_id,
+                character_id=character_id,
+                conversation_id=conversation_id,
+            )
             return None
         return vector
+
+    async def log_embedding_error(
+        self, purpose: str, failure: dict[str, Any], *, user_id: UUID, character_id: UUID, **context: Any
+    ) -> None:
+        """埋め込みの失敗を audit `llm.error` に残す（ADR-0013: LLM・埋め込みの失敗。障害のアラートに使う）。"""
+        await self._audit.log(
+            "llm.error",
+            user_id=user_id,
+            character_id=character_id,
+            payload={"purpose": purpose, **context, **failure, "embedding_model": self._embedder.model_name},
+        )
 
     async def retrieve(
         self, conn: Connection, *, user_id: UUID, character_id: UUID, query_embedding: Sequence[float] | None
@@ -391,10 +475,15 @@ class MemoryEngine:
         created: list[tuple[UUID, MemoryCandidate]] = []
         updated: list[tuple[UUID, MemoryCandidate]] = []
         skipped: list[UUID] = []
+        evicted: list[EvictedMemory] = []
+        dropped_over_capacity = 0
+        capacity = self._settings.memory_max_per_character
         async with self._pool.acquire() as conn:
             for candidate, vector in zip(selected, vectors, strict=True):
                 literal = vector_literal(vector)
                 async with conn.transaction():
+                    # 同じペアの同時保存（重複判定 → 追加）を直列化する
+                    await lock_pair(conn, user_id, character_id)
                     near = await conn.fetchrow(_NEAREST_SQL, user_id, character_id, literal, MEMORY_TAG_SUMMARY)
                     if near is not None and _to_float(near["similarity"]) >= self._settings.memory_dedup_similarity:
                         if near["is_user_edited"]:
@@ -418,6 +507,13 @@ class MemoryEngine:
                         )
                         updated.append((near["id"], candidate))
                         continue
+                    has_room, removed = await make_room(
+                        conn, user_id=user_id, character_id=character_id, capacity=capacity
+                    )
+                    evicted.extend(removed)
+                    if not has_room:
+                        dropped_over_capacity += 1
+                        continue
                     memory_id: UUID = await conn.fetchval(
                         """
                         insert into public.memories (user_id, character_id, content, importance, tags,
@@ -433,6 +529,19 @@ class MemoryEngine:
                         source_message_id,
                     )
                     created.append((memory_id, candidate))
+        await self._log_evictions(evicted, user_id=user_id, character_id=character_id)
+        if dropped_over_capacity:
+            logger.warning(
+                "extracted memories dropped: pair is at capacity and nothing is evictable",
+                extra={
+                    "fields": {
+                        "user_id": str(user_id),
+                        "character_id": str(character_id),
+                        "dropped": dropped_over_capacity,
+                        "capacity": capacity,
+                    }
+                },
+            )
         for memory_id, candidate in created:
             await self._audit.log(
                 "memory.create",
@@ -471,46 +580,76 @@ class MemoryEngine:
             skipped_user_edited=skipped,
         )
 
+    async def _log_evictions(self, evicted: Sequence[EvictedMemory], *, user_id: UUID, character_id: UUID) -> None:
+        """上限による入れ替えで削除した自動記憶を監査ログに残す（ユーザーが消したものと区別できるように）。"""
+        for memory in evicted:
+            await self._audit.log(
+                "memory.delete",
+                user_id=user_id,
+                character_id=character_id,
+                payload={
+                    "memory_id": memory.id,
+                    "source": "capacity_eviction",
+                    "content": memory.content,
+                    "importance": memory.importance,
+                    "tags": memory.tags,
+                    "capacity": self._settings.memory_max_per_character,
+                    "was_user_edited": False,
+                },
+            )
+
     # ------------------------------------------------------------------ 中期（要約）
     async def maybe_summarize(
         self, *, conversation_id: UUID, user_id: UUID, character_id: UUID, persona: Persona, now: datetime
     ) -> UUID | None:
-        """未要約メッセージが閾値を超えていれば、短期ウィンドウより古い部分を1件の要約記憶にする。"""
+        """未要約メッセージが閾値を超えていれば、短期ウィンドウより古い部分を古い順にチャンクで要約する。
+
+        BackgroundTask で動くため例外は外に出さない。戻り値は最後に作成した要約記憶の ID（無ければ None）。
+        """
         if conversation_id in self._summarizing:
             return None
-        self._summarizing.add(conversation_id)
-        try:
-            return await self._summarize(
-                conversation_id=conversation_id,
-                user_id=user_id,
-                character_id=character_id,
-                persona=persona,
-                now=now,
-            )
-        except (EmbeddingError, LLMError) as exc:
-            logger.error(
-                "mid-term summarization failed",
-                extra={"fields": {"conversation_id": str(conversation_id), "error": str(exc)}},
-            )
-            await self._audit.log(
-                "llm.error",
-                user_id=user_id,
-                character_id=character_id,
-                payload={"purpose": "memory_summary", "conversation_id": conversation_id, "error": str(exc)},
-            )
+        failure = self._summary_failures.get(conversation_id)
+        if failure is not None and self._clock() < failure.retry_at:
+            # 直近に失敗している → バックオフ中は LLM を呼ばない（毎メッセージで失敗し続けない）
             return None
+        self._summarizing.add(conversation_id)
+        created: UUID | None = None
+        try:
+            for _ in range(MAX_SUMMARY_CHUNKS_PER_RUN):
+                chunk = await self._next_summary_chunk(conversation_id, user_id, persona)
+                if chunk is None:
+                    break
+                try:
+                    progressed, memory_id = await self._summarize_chunk(
+                        chunk,
+                        conversation_id=conversation_id,
+                        user_id=user_id,
+                        character_id=character_id,
+                        persona=persona,
+                        now=now,
+                    )
+                except LLMError as exc:
+                    await self._on_summary_failure(
+                        exc, chunk, conversation_id=conversation_id, user_id=user_id, character_id=character_id
+                    )
+                    break
+                self._summary_failures.pop(conversation_id, None)
+                if memory_id is not None:
+                    created = memory_id
+                if not progressed:
+                    break
+            return created
         except Exception:
             # BackgroundTask 内で動くため、ここで必ずログに残す（チャット応答には影響させない）
             logger.exception(
                 "mid-term summarization crashed", extra={"fields": {"conversation_id": str(conversation_id)}}
             )
-            return None
+            return created
         finally:
             self._summarizing.discard(conversation_id)
 
-    async def _summarize(
-        self, *, conversation_id: UUID, user_id: UUID, character_id: UUID, persona: Persona, now: datetime
-    ) -> UUID | None:
+    async def _next_summary_chunk(self, conversation_id: UUID, user_id: UUID, persona: Persona) -> SummaryChunk | None:
+        """要約すべきなら次のチャンク（古い順・文字数上限内）を返す。不要なら None。"""
         async with self._pool.acquire() as conn:
             cursor: datetime | None = await conn.fetchval(
                 "select summary_cursor from public.conversations where id = $1 and user_id = $2",
@@ -547,55 +686,111 @@ class MemoryEngine:
                    and created_at > coalesce($2::timestamptz, '-infinity'::timestamptz)
                    and created_at < $3
                  order by created_at asc
+                 limit $4
                 """,
                 conversation_id,
                 cursor,
                 boundary,
+                SUMMARY_FETCH_LIMIT,
             )
-        if not rows:
-            return None
         raw = [
             HistoryItem(id=r["id"], sender_type=r["sender_type"], body=r["body"], created_at=r["created_at"])
             for r in rows
         ]
+        # 末尾が差し止めたユーザー発言なら、直後の定型返答（範囲外）と一緒に次回に回す（ターンごと除外するため）
+        if raw and raw[-1].sender_type == "user" and self._moderator.check(raw[-1].body).flagged:
+            raw.pop()
+        if not raw:
+            return None
         # 差し止めたターンは要約（= 以後ずっと注入される記憶）に入れない。カーソルは除外分も含めて進める
         transcript = sanitize_history(raw, self._moderator, drop=True)
-        last = raw[-1]
-        if not transcript:
-            return None
+        fitted = fit_transcript_prefix(transcript, persona)
+        if fitted >= len(transcript):
+            last = raw[-1]
+        else:
+            # 文字数上限に収まらない分は要約に含めず、カーソルも含めた分までしか進めない（次のチャンクで要約する）
+            transcript = transcript[:fitted]
+            last = transcript[-1]
+        covered = sum(1 for item in raw if item.created_at <= last.created_at)
+        return SummaryChunk(cursor=cursor, transcript=transcript, last=last, covered=covered)
+
+    async def _summarize_chunk(
+        self,
+        chunk: SummaryChunk,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        character_id: UUID,
+        persona: Persona,
+        now: datetime,
+    ) -> tuple[bool, UUID | None]:
+        """1チャンクを要約して保存する。
+
+        戻り値: (カーソルを進めたか, 作成した要約記憶の ID)。LLMError は呼び出し側（maybe_summarize）で扱う。
+        """
+        if not chunk.transcript:
+            # 範囲がすべて差し止めたターン → 要約せずにカーソルだけ進める
+            advanced = await self._advance_cursor(conversation_id, user_id, chunk)
+            logger.info(
+                "mid-term summary chunk had only moderated turns; cursor advanced",
+                extra={"fields": {"conversation_id": str(conversation_id), "messages": chunk.covered}},
+            )
+            return advanced, None
+        messages = self._prompts.summary_messages(persona, transcript=chunk.transcript)
         result = await self._llm.complete(
             LLMRequest(
                 purpose="memory_summary",
-                messages=self._prompts.summary_messages(persona, transcript=transcript),
+                messages=messages,
                 temperature=0.0,
                 max_tokens=SUMMARY_MAX_TOKENS,
                 json_mode=True,
-                hints=MockHints(persona=persona, now=now, history=tuple(transcript)),
+                hints=MockHints(persona=persona, now=now, history=tuple(chunk.transcript)),
             )
         )
         summary = parse_summary(result.text)
         if not summary:
-            logger.warning(
-                "mid-term summary was empty; skipped",
-                extra={
-                    "fields": {
-                        "conversation_id": str(conversation_id),
-                        "model": result.model,
-                        "output": result.text[:300],
-                    }
-                },
+            # temperature 0 で空 → 同じ入力で再試行しても空になる。チャンクを飛ばして先へ進める
+            await self._skip_chunk(
+                chunk,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                character_id=character_id,
+                error=f"empty summary from {result.model}",
+                status_code=None,
+                attempts=1,
+                failures=1,
             )
-            return None
-        [vector] = await self._embedder.embed([summary])
+            return True, None
+        vector: list[float] | None
+        embedding_failure: dict[str, Any] | None = None
+        try:
+            [vector] = await self._embedder.embed([summary])
+        except EmbeddingError as exc:
+            # 要約は最新2件が常に注入されるので、埋め込みが無くても使われる（類似検索の対象外になるだけ。
+            # scripts/reembed_memories.py で後から埋め込める）。LLM の要約をやり直すより保存を優先する
+            embedding_failure = embedding_failure_payload(exc)
+            logger.error(
+                "embedding for mid-term summary failed; saving without embedding",
+                extra={"fields": {"conversation_id": str(conversation_id), **embedding_failure}},
+            )
+            vector = None
+        evicted: list[EvictedMemory] = []
         async with self._pool.acquire() as conn, conn.transaction():
             current = await conn.fetchrow(
                 "select summary_cursor from public.conversations where id = $1 and user_id = $2 for update",
                 conversation_id,
                 user_id,
             )
-            if current is None or current["summary_cursor"] != cursor:
+            if current is None or current["summary_cursor"] != chunk.cursor:
                 # 他のワーカーが先に要約した
-                return None
+                return False, None
+            # 要約は上限を超えても保存する（入れ替えられる自動記憶があれば入れ替える）
+            _, evicted = await make_room(
+                conn,
+                user_id=user_id,
+                character_id=character_id,
+                capacity=self._settings.memory_max_per_character,
+            )
             memory_id: UUID = await conn.fetchval(
                 """
                 insert into public.memories
@@ -608,32 +803,161 @@ class MemoryEngine:
                 summary,
                 to_numeric(SUMMARY_IMPORTANCE),
                 [MEMORY_TAG_SUMMARY],
-                vector_literal(vector),
-                last.id,
+                vector_literal(vector) if vector is not None else None,
+                chunk.last.id,
             )
             await conn.execute(
                 "update public.conversations set summary_cursor = $1 where id = $2 and user_id = $3",
-                last.created_at,
+                chunk.last.created_at,
                 conversation_id,
                 user_id,
             )
+        await self._log_evictions(evicted, user_id=user_id, character_id=character_id)
+        if embedding_failure is not None:
+            await self.log_embedding_error(
+                "memory_summary_embedding",
+                embedding_failure,
+                user_id=user_id,
+                character_id=character_id,
+                conversation_id=conversation_id,
+                memory_id=memory_id,
+            )
+        payload: dict[str, Any] = {
+            "memory_id": memory_id,
+            "conversation_id": conversation_id,
+            "summarized_messages": chunk.covered,
+            "excluded_moderated_messages": chunk.excluded,
+            "summary_cursor": chunk.last.created_at,
+            "content": summary,
+            "model": result.model,
+            "latency_ms": result.latency_ms,
+            "usage": result.usage,
+            "embedded": vector is not None,
+        }
+        if self._settings.audit_log_prompts:
+            # 他の生成（chat.response / 抽出 / comment.generate）と同じく、入力と生出力を残す（H6）
+            payload["prompt_messages"] = messages
+            payload["raw_output"] = result.text
+        await self._audit.log("memory.summary", user_id=user_id, character_id=character_id, payload=payload)
+        logger.info(
+            "conversation summarized",
+            extra={"fields": {"conversation_id": str(conversation_id), "messages": len(chunk.transcript)}},
+        )
+        return True, memory_id
+
+    async def _on_summary_failure(
+        self, exc: LLMError, chunk: SummaryChunk, *, conversation_id: UUID, user_id: UUID, character_id: UUID
+    ) -> None:
+        """要約の失敗: 内容による拒否か、同じチャンクで失敗が続いたら飛ばす。それ以外は指数バックオフで再試行。"""
+        previous = self._summary_failures.get(conversation_id)
+        failures = previous.failures + 1 if previous is not None and previous.cursor == chunk.cursor else 1
+        if is_content_rejection(exc) or failures >= SUMMARY_MAX_ATTEMPTS_PER_CHUNK:
+            self._summary_failures.pop(conversation_id, None)
+            await self._skip_chunk(
+                chunk,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                character_id=character_id,
+                error=str(exc),
+                status_code=exc.status_code,
+                attempts=exc.attempts,
+                failures=failures,
+            )
+            return
+        delay = min(SUMMARY_RETRY_BASE_SECONDS * 2 ** (failures - 1), SUMMARY_RETRY_MAX_SECONDS)
+        self._remember_failure(conversation_id, _SummaryFailure(chunk.cursor, failures, self._clock() + delay))
+        logger.error(
+            "mid-term summarization failed; will retry later",
+            extra={
+                "fields": {
+                    "conversation_id": str(conversation_id),
+                    "error": str(exc),
+                    "failures": failures,
+                    "retry_in_s": delay,
+                }
+            },
+        )
         await self._audit.log(
-            "memory.summary",
+            "llm.error",
             user_id=user_id,
             character_id=character_id,
             payload={
-                "memory_id": memory_id,
+                "purpose": "memory_summary",
                 "conversation_id": conversation_id,
-                "summarized_messages": len(raw),
-                "excluded_moderated_messages": len(raw) - len(transcript),
-                "summary_cursor": last.created_at,
-                "content": summary,
-                "model": result.model,
-                "latency_ms": result.latency_ms,
+                "error": str(exc),
+                "status_code": exc.status_code,
+                "attempts": exc.attempts,
+                "failures": failures,
+                "skipped": False,
+                "retry_in_seconds": delay,
             },
         )
-        logger.info(
-            "conversation summarized",
-            extra={"fields": {"conversation_id": str(conversation_id), "messages": len(transcript)}},
+
+    async def _skip_chunk(
+        self,
+        chunk: SummaryChunk,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        character_id: UUID,
+        error: str,
+        status_code: int | None,
+        attempts: int,
+        failures: int,
+    ) -> None:
+        """要約できないチャンクを飛ばしてカーソルを進める（同じ範囲で LLM を呼び続けない）。"""
+        advanced = await self._advance_cursor(conversation_id, user_id, chunk)
+        logger.error(
+            "mid-term summary chunk skipped",
+            extra={
+                "fields": {
+                    "conversation_id": str(conversation_id),
+                    "error": error,
+                    "failures": failures,
+                    "skipped_messages": chunk.covered,
+                    "cursor_advanced": advanced,
+                }
+            },
         )
-        return memory_id
+        await self._audit.log(
+            "llm.error",
+            user_id=user_id,
+            character_id=character_id,
+            payload={
+                "purpose": "memory_summary",
+                "conversation_id": conversation_id,
+                "error": error,
+                "status_code": status_code,
+                "attempts": attempts,
+                "failures": failures,
+                "skipped": True,
+                "skipped_messages": chunk.covered if advanced else 0,
+                "summary_cursor": chunk.last.created_at if advanced else None,
+            },
+        )
+
+    async def _advance_cursor(self, conversation_id: UUID, user_id: UUID, chunk: SummaryChunk) -> bool:
+        """カーソルを chunk.last まで進める（読み込み後に他のワーカーが進めていたら何もしない）。"""
+        async with self._pool.acquire() as conn, conn.transaction():
+            current = await conn.fetchrow(
+                "select summary_cursor from public.conversations where id = $1 and user_id = $2 for update",
+                conversation_id,
+                user_id,
+            )
+            if current is None or current["summary_cursor"] != chunk.cursor:
+                return False
+            await conn.execute(
+                "update public.conversations set summary_cursor = $1 where id = $2 and user_id = $3",
+                chunk.last.created_at,
+                conversation_id,
+                user_id,
+            )
+        return True
+
+    def _remember_failure(self, conversation_id: UUID, failure: _SummaryFailure) -> None:
+        if len(self._summary_failures) >= _SUMMARY_FAILURE_STATE_MAX:
+            # 放置された会話の失敗状態で無制限に増えないよう、再試行時刻を過ぎたものを捨てる
+            now = self._clock()
+            for key in [k for k, v in self._summary_failures.items() if v.retry_at <= now]:
+                del self._summary_failures[key]
+        self._summary_failures[conversation_id] = failure

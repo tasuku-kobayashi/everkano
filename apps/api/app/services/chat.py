@@ -4,8 +4,8 @@
 2. 会話の所有者・キャラ一致・キャラ有効を確認（不一致は 404）
 3. audit chat.request
 4. Gate #1（入力）。ヒット時は定型文で応答し LLM / 記憶抽出をスキップ
-5. 短期メモリ（直近 N ターン）
-6. 長期メモリ検索（厳密コサイン検索 → 重要度で再ランク + 最新要約）
+5. 短期メモリ（直近 N ターン）。検索用の埋め込みと並行して取得
+6. 長期メモリ検索（厳密コサイン検索 → 重要度で再ランク + 最新要約）。記憶抽出はこの時点で開始する
 7. プロンプト組立（ペルソナ YAML + テンプレート + 記憶 + 履歴）
 8. 応答生成と記憶抽出を並行実行
 9. Gate #1（出力）。ヒット時は定型文に差し替え
@@ -40,12 +40,13 @@ from app.core.security import CurrentUser
 from app.models.dm import ChatRequest, ChatResponse, MessageDTO
 from app.services.audit import AuditLogger
 from app.services.characters import MESSAGE_COLUMNS, character_from_row, message_dto
-from app.services.embedding import EmbeddingError
+from app.services.embedding import EmbeddingError, embedding_failure_payload
 from app.services.llm import LLMClient, LLMError, LLMRequest, MockHints, clean_reply
 from app.services.memory import ExtractionResult, MemoryEngine, SavedMemories
 from app.services.moderation import ModerationResult, Moderator
 from app.services.persona import Persona, PersonaRepository
 from app.services.prompt import PromptBuilder
+from app.services.types import HistoryItem
 
 logger = get_logger("chat")
 
@@ -137,10 +138,24 @@ class ChatService:
         budget = asyncio.timeout_at(deadline)
         try:
             async with budget:
-                # 5〜6. 短期・長期メモリ
-                async with self._pool.acquire() as conn:
-                    history = await self._memory.fetch_short_term(conn, conversation_id)
-                query_embedding = await self._memory.embed_query(request.message)
+                # 5. 短期メモリの取得と、長期メモリ検索用の埋め込みは互いに独立なので並行して行う
+                #    （埋め込みは EMBEDDING_TIMEOUT_SECONDS で打ち切り、失敗時は検索を省略する）
+                history, query_embedding = await self._load_history_and_embedding(
+                    conversation_id, request.message, user_id=user.id, character_id=character.id
+                )
+                # 8'. 記憶抽出は短期メモリだけで行えるので、長期メモリの検索・応答生成と並行して先に始める
+                extraction = asyncio.create_task(
+                    self._memory.extract_candidates(
+                        persona,
+                        history=history,
+                        user_message=request.message,
+                        now=now,
+                        user_id=user.id,
+                        character_id=character.id,
+                        conversation_id=conversation_id,
+                    )
+                )
+                # 6. 長期メモリ
                 async with self._pool.acquire() as conn:
                     memories = await self._memory.retrieve(
                         conn, user_id=user.id, character_id=character.id, query_embedding=query_embedding
@@ -164,18 +179,7 @@ class ChatService:
                     ),
                 )
 
-                # 8. 応答生成と記憶抽出を並行実行
-                extraction = asyncio.create_task(
-                    self._memory.extract_candidates(
-                        persona,
-                        history=history,
-                        user_message=request.message,
-                        now=now,
-                        user_id=user.id,
-                        character_id=character.id,
-                        conversation_id=conversation_id,
-                    )
-                )
+                # 8. 応答生成（記憶抽出は上で開始済み・並行実行）
                 result = await self._llm.complete(llm_request)
                 reply = clean_reply(result.text, persona.name, max_chars=REPLY_MAX_CHARS)
                 if not reply:
@@ -234,10 +238,12 @@ class ChatService:
         # 10. 保存（1トランザクション）
         user_message, character_message = await self._save_messages(conversation_id, request.message, reply)
 
-        # 11. 記憶の保存（失敗・時間切れでもチャット自体は成功扱い。ただしログは残す）
+        # 11. 記憶の保存（失敗・時間切れでもチャット自体は成功扱い。ただし監査ログには残す）
         saved = SavedMemories()
+        memory_save_error: str | None = None
+        save_timeout = max(deadline - loop.time(), SAVE_MEMORIES_MIN_SECONDS)
         try:
-            async with asyncio.timeout(max(deadline - loop.time(), SAVE_MEMORIES_MIN_SECONDS)):
+            async with asyncio.timeout(save_timeout):
                 saved = await self._memory.save_candidates(
                     user_id=user.id,
                     character_id=character.id,
@@ -245,10 +251,23 @@ class ChatService:
                     candidates=extracted.candidates,
                 )
         except (EmbeddingError, asyncpg.PostgresError, OSError, TimeoutError) as exc:
+            failure = embedding_failure_payload(exc, timeout_seconds=save_timeout)
+            memory_save_error = failure["error"]
             logger.error(
                 "failed to save extracted memories",
                 extra={"fields": {"conversation_id": str(conversation_id), "error": repr(exc)}},
             )
+            if isinstance(exc, EmbeddingError | TimeoutError):
+                # 埋め込み障害・時間切れは llm.error にも残す（抽出した記憶が失われたことを障害として検知できるように）
+                await self._memory.log_embedding_error(
+                    "memory_save",
+                    failure,
+                    user_id=user.id,
+                    character_id=character.id,
+                    conversation_id=conversation_id,
+                    user_message_id=user_message.id,
+                    lost_candidates=len(extracted.candidates),
+                )
 
         # 12. 中期要約（レスポンス送信後）
         background.add_task(
@@ -283,6 +302,11 @@ class ChatService:
                 include_prompt=self._settings.audit_log_prompts,
             ),
             "history_messages": len(history),
+            # 検索用の埋め込みに失敗して長期記憶を使わなかった / 抽出した記憶を保存できなかった（llm.error も残る）
+            "retrieval_skipped": query_embedding is None,
+            "memory_save_error": memory_save_error,
+            # LLM に渡したプロンプトの文字数（履歴は prompt.HISTORY_MAX_CHARS で打ち切る。待ち時間・費用の目安）
+            "prompt_chars": sum(len(m["content"]) for m in prompt_messages),
             "persona_key": persona.key,
             "persona_fallback": persona.is_fallback,
         }
@@ -299,6 +323,22 @@ class ChatService:
             character_message=character_message,
             moderated=moderated,
         )
+
+    async def _load_history_and_embedding(
+        self, conversation_id: UUID, message: str, *, user_id: UUID, character_id: UUID
+    ) -> tuple[list[HistoryItem], list[float] | None]:
+        embedding = asyncio.create_task(
+            self._memory.embed_query(
+                message, user_id=user_id, character_id=character_id, conversation_id=conversation_id
+            )
+        )
+        try:
+            async with self._pool.acquire() as conn:
+                history = await self._memory.fetch_short_term(conn, conversation_id)
+            return history, await embedding
+        finally:
+            # 履歴の取得に失敗した・締め切りで取り消された場合に、埋め込みだけが残って走り続けないようにする
+            await _cancel(embedding)
 
     async def _await_extraction(
         self,

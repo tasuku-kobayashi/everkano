@@ -31,7 +31,7 @@ async def test_unhandled_exception_becomes_internal_error_with_request_id() -> N
     assert res.json() == {
         "error": {
             "code": "internal_error",
-            "message": "サーバーでエラーが発生しました。時間をおいて再度お試しください。",
+            "message": "サーバーでエラーが発生しました。しばらくしてから再度お試しください。",
             "request_id": "trace-1",
         }
     }

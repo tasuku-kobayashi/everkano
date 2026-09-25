@@ -126,3 +126,72 @@ def test_prompts_dir_accepts_package_root() -> None:
 def test_missing_personas_dir_is_rejected() -> None:
     with pytest.raises(ValidationError, match="PERSONAS_DIR"):
         make_settings(personas_dir="/nonexistent/personas")
+
+
+def test_new_safety_limits_have_safe_defaults() -> None:
+    s = make_settings()
+    assert s.max_request_body_bytes == 64 * 1024
+    assert s.embedding_timeout_seconds == 5.0
+    assert s.embedding_max_retries == 1
+    # 検索用の埋め込みの打ち切りは /chat の締め切りより十分短い
+    assert s.embedding_timeout_seconds < s.chat_deadline_seconds / 2
+    assert s.memory_max_per_character == 500
+    assert s.rate_limit_memories_per_minute == 30
+    with pytest.raises(ValidationError):
+        make_settings(max_request_body_bytes=100)
+    with pytest.raises(ValidationError):
+        make_settings(memory_max_per_character=0)
+
+
+# 実在しないダミーの接続文字列（パスワードがエラー文面に出ないことの検査用）
+REMOTE_DB = (
+    "postgresql://postgres.abcdefgh:db-PASSWORD-sentinel@"  # check-secrets: allow（ダミー）
+    "aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
+)
+BAD_SCHEME_DB = "mysql://root:db-PASSWORD-sentinel@db.example.com/app"  # check-secrets: allow（ダミー）
+SECRET_SENTINEL = "sk-or-SECRET-sentinel-123"  # check-secrets: allow（ダミー）
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_deployed_env_requires_tls_to_a_remote_database(app_env: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """asyncpg の既定（prefer）は証明書を検証せず、TLS を張れなければ平文に落ちる → リモート DB では拒否する。"""
+    monkeypatch.delenv("PGSSLMODE", raising=False)
+    live = {"llm_mode": "live", "llm_api_key": "sk-test", **DEPLOYED}
+    for url in (REMOTE_DB, f"{REMOTE_DB}?sslmode=prefer", f"{REMOTE_DB}?sslmode=disable", f"{REMOTE_DB}?sslmode=allow"):
+        with pytest.raises(ValidationError, match="sslmode") as exc:
+            make_settings(app_env=app_env, database_url=url, **live)
+        # エラーの文面に DB のパスワードを出さない
+        assert "db-PASSWORD-sentinel" not in str(exc.value)
+    for mode in ("require", "verify-ca", "verify-full"):
+        ok = make_settings(app_env=app_env, database_url=f"{REMOTE_DB}?sslmode={mode}&application_name=x", **live)
+        assert ok.database_url.endswith("application_name=x")
+        assert ok.database_sslmode == mode  # 起動ログに出す値
+    # 後に書いた sslmode が有効（asyncpg と同じ解釈）
+    with pytest.raises(ValidationError, match="sslmode"):
+        make_settings(app_env=app_env, database_url=f"{REMOTE_DB}?sslmode=require&sslmode=prefer", **live)
+    # 環境変数 PGSSLMODE でもよい（asyncpg は DSN に無ければこれを使う）
+    monkeypatch.setenv("PGSSLMODE", "verify-full")
+    assert make_settings(app_env=app_env, database_url=REMOTE_DB, **live).app_env == app_env
+    # ループバック（サイドカーのプロキシ等）とローカル環境は対象外
+    monkeypatch.delenv("PGSSLMODE")
+    assert make_settings(app_env=app_env, **live).database_url.startswith("postgresql://postgres:postgres@127.0.0.1")
+    assert make_settings(app_env="local", database_url=REMOTE_DB).app_env == "local"
+
+
+def test_validation_errors_do_not_echo_secret_inputs() -> None:
+    """起動失敗のログ（Fly のログ・ログ転送先）に API キーや DB のパスワードが平文で出ない。
+
+    pydantic は既定で入力値（設定全体の dict）を末尾を残して省略表示するため、最後の項目の秘密値が残っていた。
+    """
+    for last in ("llm_api_key", "sentry_dsn"):
+        with pytest.raises(ValidationError) as exc:
+            # staging で SUPABASE_URL / CORS が未設定 → モデル全体の検証エラー（秘密値を最後の項目にする）
+            make_settings(app_env="staging", llm_mode="live", **{last: SECRET_SENTINEL})
+        message = str(exc.value)
+        assert "SUPABASE_URL" in message
+        assert "sentinel" not in message
+        assert "input_value" not in message
+    # 項目単位の検証エラー（URL の形式違い）でも入力値を出さない
+    with pytest.raises(ValidationError) as exc:
+        make_settings(database_url=BAD_SCHEME_DB)
+    assert "PASSWORD" not in str(exc.value)

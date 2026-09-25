@@ -2,7 +2,9 @@
 
 統合テスト（`@pytest.mark.integration`）はローカル Supabase の Postgres
 （既定: postgresql://postgres:postgres@127.0.0.1:54322/postgres, `TEST_DATABASE_URL` で変更可）
-に接続する。接続できない場合は skip する。
+に接続する。接続できない場合、ローカルでは skip する。
+ただし `REQUIRE_TEST_DB=1`（未設定時は CI 上＝環境変数 `CI=true` なら有効）のときは skip せずに
+テスト全体を失敗させる（所有者チェック等のセキュリティのテストが黙ってスキップされ、CI が緑になるのを防ぐ）。
 
 テストは自前で auth.users / characters / posts を作成し、終了時にすべて削除する
 （他の開発者が同じ DB を使っているため、db reset や DROP はしない）。
@@ -117,8 +119,22 @@ def _check_db() -> bool:
     return _db_available
 
 
+def db_required() -> bool:
+    """DB に接続できないとき skip ではなく失敗にするか（REQUIRE_TEST_DB。未設定なら CI 上で有効）。"""
+    flag = os.environ.get("REQUIRE_TEST_DB", "").strip().lower()
+    if flag:
+        return flag in {"1", "true", "yes"}
+    return os.environ.get("CI", "").strip().lower() in {"1", "true"}
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if any(item.get_closest_marker("integration") for item in items) and not _check_db():
+        if db_required():
+            pytest.exit(
+                f"database not reachable (or schema not applied): {DATABASE_URL}. "
+                "Integration tests are required here (REQUIRE_TEST_DB / CI); refusing to skip them.",
+                returncode=1,
+            )
         skip = pytest.mark.skip(reason=f"database not reachable: {DATABASE_URL}")
         for item in items:
             if item.get_closest_marker("integration"):

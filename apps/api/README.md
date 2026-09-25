@@ -48,14 +48,16 @@ uv run python scripts/validate_personas.py             # packages/personas/*.yam
 | GET | `/health` | 不要 | 死活監視（DB 疎通を含む） |
 | POST | `/conversations` | 要 | 会話の取得または作成（新規時はペルソナの `greeting` を保存） |
 | POST | `/chat` | 要 | DM 返答生成（§7 の処理フロー。レート制限 `RATE_LIMIT_CHAT_PER_MINUTE`） |
-| GET | `/memories?character_id=` | 要 | 自分の記憶一覧（重要度降順） |
-| POST | `/memories` | 要 | 記憶を追加（`is_user_edited=true`） |
-| PATCH | `/memories/{id}` | 要 | 内容・重要度・タグを更新（`is_user_edited=true`、内容変更時は再 embedding） |
+| GET | `/memories?character_id=` | 要 | 自分の記憶一覧（重要度降順。上限 `MEMORY_MAX_PER_CHARACTER` 件まで全件） |
+| POST | `/memories` | 要 | 記憶を追加（`is_user_edited=true`）。上限到達で 422、`summary` タグは指定不可。レート制限 `RATE_LIMIT_MEMORIES_PER_MINUTE` |
+| PATCH | `/memories/{id}` | 要 | 内容・重要度・タグを更新（`is_user_edited=true`、内容変更時は再 embedding）。レート制限は POST と共通 |
 | DELETE | `/memories/{id}` | 要 | 削除（204） |
 | POST | `/comments` | 要 | コメント投稿（Gate #1 で拒否なら 422 `moderation_blocked`）。確率で投稿者キャラが自動返信 |
-| POST | `/comments/generate` | 要 | 投稿者キャラが指定コメントに返信（出力が拒否されたら `comment: null`） |
+| POST | `/comments/generate` | 要 | 投稿者キャラが**自分の**コメントに返信（他人のコメントは 404。返信はコメント1件につき1件まで・既存があればそれを返す。出力が拒否されたら `comment: null`） |
 
 エラーはすべて `{"error": {"code", "message", "request_id"}}`（message は日本語）。全レスポンスに `X-Request-ID`。
+本文が `MAX_REQUEST_BODY_BYTES`（既定 64KiB）を超えるリクエストは、認証より前に本文を読まずに 413 `validation_error`。
+認証サーバー（JWKS）に接続できないときは 401 ではなく 503 `internal_error`（`Retry-After: 5`。Web はログアウトしない）。
 
 ## 構成
 
@@ -64,11 +66,13 @@ app/
   main.py              アプリファクトリ create_app()、lifespan（DB プール・ペルソナ/テンプレート読込・HTTP クライアント）
   container.py         サービスの組み立て（Services）とレート制限の依存関係
   core/                config（環境変数検証）/ security（Supabase JWT: ES256・RS256=JWKS, HS256=共有鍵）/
-                       logging（JSON Lines）/ db（asyncpg）/ errors / middleware（X-Request-ID・アクセスログ）
+                       logging（JSON Lines）/ db（asyncpg）/ errors / middleware（X-Request-ID・アクセスログ・本文サイズ上限）/
+                       http（LLM・埋め込み用と JWKS 用の httpx クライアント）/ observability（Sentry の初期化とスクラブ）
   routers/             薄いルーター（health / conversations / chat / memories / comments）
   services/
     chat.py            POST /chat のオーケストレーション
     memory.py          メモリエンジン（短期・長期検索・抽出/保存/重複排除・中期要約）
+    memory_capacity.py ユーザー × キャラあたりの記憶の上限（入れ替え・ペア単位ロック）
     llm.py             OpenAI 互換クライアント（リトライ付き）/ MockLLM
     embedding.py       OpenAI 互換 /embeddings / 文字 n-gram ハッシュ埋め込み
     persona.py         ペルソナ YAML の読込・検証（age >= 20）
@@ -96,8 +100,32 @@ tests/                 単体テスト + integration/（ローカル Supabase）
   **Web の `CHAT_TIMEOUT_MS`（45 秒）より必ず短くする**（クライアントが諦めた後に保存され、再送で二重になるのを防ぐ）。
 - Gate #1（入力）で差し止めた発言も `messages` には保存するが、以後の LLM 履歴・記憶抽出の文脈では本文を
   「（不適切な発言のため省略）」に置き換え、中期要約からはそのターンごと除く（`memory.sanitize_history`）。
+- 検索用の埋め込みは `EMBEDDING_TIMEOUT_SECONDS`（既定 5 秒・リトライ `EMBEDDING_MAX_RETRIES` = 1）で打ち切り、
+  失敗しても長期記憶の検索を省略して返答する（埋め込み障害で `/chat` 全体を 503 にしない）。
+  `/memories` の埋め込みは 10 秒で打ち切って 503（Web の 15 秒より前に返し、再送による二重保存を防ぐ）。
+  埋め込みの失敗はどれも audit `llm.error` に残す（`purpose`: `embedding_query` = 検索を省略 / `memory_save` =
+  抽出した記憶を保存できなかった / `user_memory` = メモリパネルの追加・編集が 503 / `memory_summary_embedding` =
+  要約を埋め込み無しで保存）。`chat.response` にも `retrieval_skipped` / `memory_save_error` を記録する。
+- 応答生成に渡す履歴（短期メモリ・直近 30 ターン）は合計 16,000 字まで（`prompt.HISTORY_MAX_CHARS`）。直近 6 件は全文、
+  それより古い発言は 500 字に切り詰め、上限を超える古い分は渡さない（長文の貼り付けでプロンプト・待ち時間・費用が
+  膨らまないように。`chat.response` の `prompt_chars` で監視できる）。
+- 中期要約は古い順に、会話ログの文字数上限（`TRANSCRIPT_MAX_CHARS` = 12000）に収まる分ずつ要約し、カーソルは要約に
+  含めた分までしか進めない（1 回のバックグラウンド処理で最大 3 チャンク）。失敗は会話ごとに指数バックオフ（60 秒〜1 時間）し、
+  同じチャンクで 3 回失敗するか内容で拒否（HTTP 400/413/422）されたらそのチャンクを飛ばす（audit `llm.error` の `skipped=true`）。
+  要約の埋め込みに失敗した場合は埋め込み無しで保存する（最新 2 件は常に注入されるため使われる）。
+- ユーザー × キャラの記憶は `MEMORY_MAX_PER_CHARACTER`（既定 500）件まで。ユーザーの追加は上限で 422、自動抽出・要約は
+  重要度の最も低い自動記憶（ユーザー編集済み・要約を除く）を入れ替える（audit `memory.delete`、`source=capacity_eviction`）。
+- 記憶の本文・コメント本文はプロンプトに入れる前に改行を空白にして 1 行にする（見出しの偽造対策）。`summary` タグは
+  利用者が新たに付けられない。キャラのコメント返信（公開）は Gate #1 に加えて URL・ドメイン名も差し止める。
+- 外部 HTTP: LLM・埋め込み用のクライアントは同時接続 200（`/chat` 1 件で 2 本使うため、`fly.toml` の `hard_limit` × 2 以上。
+  `tests/test_http_limits.py` で検査）、接続待ちは 5 秒で打ち切る。JWKS は別クライアント（LLM の混雑の影響を受けない）。
+- Sentry（`SENTRY_DSN` 設定時のみ）は `send_default_pii=False` に加えて、ローカル変数・リクエスト本文・ログのパンくずを送らず、
+  監査ロガーを除外し、`before_send` でヘッダー（Authorization / Cookie）・本文系のキーを伏せる（`app/core/observability.py`）。
+- 統合テストは DB に接続できないとローカルでは skip するが、`REQUIRE_TEST_DB=1`（未設定なら `CI=true`）では失敗にする。
 - `APP_ENV=staging` / `production` では、`SUPABASE_URL`（https 必須）と `CORS_ALLOW_ORIGINS` がローカルの既定値のままだと
-  起動しない（`fly secrets set` の登録漏れ検出）。
+  起動しない（`fly secrets set` の登録漏れ検出）。リモートの DB に接続する `DATABASE_URL` に `sslmode=require` 以上
+  （`require` / `verify-ca` / `verify-full`。環境変数 `PGSSLMODE` でも可）が無い場合も起動しない（下の「DB への接続（TLS）」）。
+- 設定の検証エラーには入力値を含めない（`hide_input_in_errors`。起動失敗のログに API キー・DB のパスワードを出さない）。
 - JWT の `iss` は `SUPABASE_JWT_ISSUER`（任意）→ 無ければ `{SUPABASE_URL}/auth/v1` と照合する。
   Docker から `host.docker.internal` 経由で Supabase を参照する場合は `SUPABASE_JWT_ISSUER` を設定する。
 
@@ -108,6 +136,25 @@ tests/                 単体テスト + integration/（ローカル Supabase）
 fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
 fly secrets set --config apps/api/fly.toml DATABASE_URL=... SUPABASE_URL=... LLM_API_KEY=... CORS_ALLOW_ORIGINS=...
 ```
+
+イメージのベース（`python:3.12.14-slim-trixie`）と uv は digest で固定している（`Dockerfile` の `PYTHON_IMAGE` / `UV_IMAGE` と
+`fly.toml` の `[build.args]`。更新手順は `Dockerfile` の先頭）。実行イメージには pip を入れず、非 root（uid 10001）で動かす。
+
+### DB への接続（TLS）
+
+API は RLS をバイパスする `postgres` ロールで、DM・記憶・監査ログを Fly.io（nrt）から Supabase へ公衆網越しに運ぶ。
+asyncpg の既定（`sslmode=prefer`）は証明書を検証せず、TLS を張れなければ平文に落ちるため、staging / production では
+`DATABASE_URL` に `sslmode` の指定を必須にしている。
+
+- 推奨: `verify-full`（Supabase のルート証明書で証明書と接続先ホスト名を検証する）
+  1. Supabase ダッシュボードの Database Settings → SSL Configuration → Download certificate で `prod-ca-2021.crt` を取得
+  2. `fly secrets set --config apps/api/fly.toml SUPABASE_DB_CA_CERT="$(base64 -w0 prod-ca-2021.crt)"`
+  3. `fly.toml` の `[[files]]`（`/app/certs/supabase-ca.crt`）のコメントを外す
+  4. `DATABASE_URL='postgresql://...?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt'`
+- 最低限: `sslmode=require`（暗号化のみ。証明書は検証しないため、経路上のなりすましは防げない）
+- 実際に使われている値は起動ログ（`startup complete`）の `database_sslmode` で確認できる
+- Supabase 側でも Database Settings の「Enforce SSL on incoming connections」を有効にし、Network Restrictions で
+  接続元を API の送信元 IP に絞ることを推奨する（Fly.io で固定の送信元 IP（static egress IP）を割り当てた上で設定する）。
 
 ### 埋め込み設定の切り替え（EMBEDDING_MODE / EMBEDDING_MODEL）
 

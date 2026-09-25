@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Response
 
-from app.container import ServicesDep
+from app.container import MemoryWriteRateLimitedUser, ServicesDep
 from app.core.security import CurrentUserDep
 from app.models.common import ERROR_RESPONSES, NOT_FOUND_RESPONSE
 from app.models.memories import CreateMemoryRequest, ListMemoriesResponse, MemoryDTO, UpdateMemoryRequest
@@ -25,19 +25,26 @@ async def list_memories(
     "",
     status_code=201,
     summary="記憶を追加（is_user_edited = true）",
+    description=(
+        "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。"
+        "`summary` タグ（自動要約専用）は指定できない。POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。"
+    ),
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
-async def create_memory(body: CreateMemoryRequest, user: CurrentUserDep, services: ServicesDep) -> MemoryDTO:
+async def create_memory(
+    body: CreateMemoryRequest, user: MemoryWriteRateLimitedUser, services: ServicesDep
+) -> MemoryDTO:
     return await services.user_memories.create(user, body)
 
 
 @router.patch(
     "/{memory_id}",
     summary="記憶の内容・重要度・タグを更新（is_user_edited = true）",
+    description="`summary` タグは、もともと要約の記憶にだけ残せる（新たに付けることはできない）。",
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
 async def update_memory(
-    memory_id: UUID, body: UpdateMemoryRequest, user: CurrentUserDep, services: ServicesDep
+    memory_id: UUID, body: UpdateMemoryRequest, user: MemoryWriteRateLimitedUser, services: ServicesDep
 ) -> MemoryDTO:
     return await services.user_memories.update(user, memory_id, body)
 

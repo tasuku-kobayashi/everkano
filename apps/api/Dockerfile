@@ -4,28 +4,36 @@
 #
 # ビルドコンテキストは「リポジトリのルート」（packages/personas と packages/prompts を同梱するため）:
 #   docker build -f apps/api/Dockerfile -t everkano-api .
-# Docker Hub のレート制限を避けたい場合はミラーを指定できる:
-#   docker build -f apps/api/Dockerfile --build-arg PYTHON_IMAGE=mirror.gcr.io/library/python:3.12-slim -t everkano-api .
+#
+# 再現性のため、ベースイメージと uv はタグに加えて digest（sha256）で固定する（同じコミットから同じイメージを作れる。
+# Python のパッチ版・Debian のセキュリティ更新は、digest を更新するコミットで取り込む）。更新手順:
+#   docker buildx imagetools inspect python:3.12-slim-trixie   # 最新のパッチ版タグと Digest を確認する
+#   docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>
+#   → 下の PYTHON_IMAGE / UV_IMAGE と apps/api/fly.toml の [build.args] を同じ値に更新する
+#     （uv の版は .github/workflows/ci.yml の setup-uv と揃える）
+# Docker Hub のレート制限を避けたい場合はミラーを指定できる（digest は同じ）:
+#   docker build -f apps/api/Dockerfile \
+#     --build-arg PYTHON_IMAGE=mirror.gcr.io/library/python:3.12.14-slim-trixie@sha256:<同じ digest> -t everkano-api .
 # =============================================================================
-ARG PYTHON_IMAGE=python:3.12-slim
+ARG PYTHON_IMAGE=python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.8.17@sha256:e4644cb5bd56fdc2c5ea3ee0525d9d21eed1603bccd6a21f887a938be7e85be1
+
+# uv の公式イメージ（静的リンクのバイナリだけを含む）。pip で入れるとハッシュ検証が無いため、digest 固定のイメージから取る
+FROM ${UV_IMAGE} AS uv
 
 # ---- builder: 依存関係を /opt/venv にインストール --------------------------------
 FROM ${PYTHON_IMAGE} AS builder
-ARG UV_VERSION=0.8.17
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_COMPILE_BYTECODE=1 \
+ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv
+COPY --from=uv /uv /usr/local/bin/uv
+WORKDIR /build
+COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/.python-version ./
+# 依存はハッシュ付きの uv.lock どおりに入れる（--frozen: ロックと食い違えば失敗）。
 # TLS を中継するプロキシ配下でビルドする場合は、その CA 証明書を BuildKit secret で渡せる（任意）:
 #   docker build --secret id=extra_ca,src=/path/to/ca-bundle.crt -f apps/api/Dockerfile .
 # secret はイメージのレイヤーには残らない。
-RUN --mount=type=secret,id=extra_ca,required=false \
-    if [ -s /run/secrets/extra_ca ]; then export PIP_CERT=/run/secrets/extra_ca; fi; \
-    pip install "uv==${UV_VERSION}"
-WORKDIR /build
-COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/.python-version ./
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -s /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
     uv sync --frozen --no-dev --no-install-project
@@ -42,7 +50,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PROMPTS_DIR=/srv/everkano/prompts \
     FORWARDED_ALLOW_IPS="127.0.0.1"
 
-RUN groupadd --system --gid 10001 app \
+# 実行時に使わない pip（と ensurepip が同梱する wheel）を消す（アプリの依存は /opt/venv。ベースイメージ同梱の
+# 古い pip の脆弱性がイメージスキャンで報告されないように）
+RUN python -m pip uninstall --yes --quiet pip setuptools wheel \
+    && rm -rf /usr/local/lib/python3.12/ensurepip/_bundled \
+    && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /opt/venv /opt/venv
@@ -50,8 +62,8 @@ WORKDIR /app
 COPY apps/api/app ./app
 # 運用スクリプト（EMBEDDING_MODE / EMBEDDING_MODEL 切り替え後の記憶の再埋め込み）
 COPY apps/api/scripts/reembed_memories.py ./scripts/reembed_memories.py
-# ペルソナ YAML とプロンプトテンプレート（起動時に検証される）
-COPY packages/personas /srv/everkano/personas
+# ペルソナ YAML とプロンプトテンプレート（起動時に検証される）。ペルソナは YAML だけ（seed 生成スクリプト等は入れない）
+COPY packages/personas/*.yaml /srv/everkano/personas/
 COPY packages/prompts/templates /srv/everkano/prompts
 
 USER app

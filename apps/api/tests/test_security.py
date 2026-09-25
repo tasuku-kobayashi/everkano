@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -202,3 +203,209 @@ async def test_hs256_token_cannot_be_forged_with_jwks_public_key() -> None:
     token = jwt.encode(_claims(uuid.uuid4()), "not-the-secret-not-the-secret-0123456789", algorithm="HS256")
     with pytest.raises(AuthError):
         await _verifier(jwks, supabase_jwt_secret=TEST_JWT_SECRET).verify(token)
+
+
+# --------------------------------------------------------------------------- JWKS 障害時の振る舞い
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class FlakyJwks:
+    """JWKS エンドポイントのモック（失敗させる・遅延させることができる）。"""
+
+    def __init__(self, keys: list[dict[str, Any]] | None = None, *, fail: bool = True, delay: float = 0.0) -> None:
+        self.keys = keys or []
+        self.fail = fail
+        self.delay = delay
+        self.calls = 0
+
+    async def handler(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.fail:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"keys": self.keys})
+
+
+def _cache(jwks: FlakyJwks, clock: FakeClock) -> JwksCache:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(jwks.handler))
+    return JwksCache(JWKS_URL, http, ttl_seconds=600, min_refetch_interval_seconds=30, clock=clock)
+
+
+async def test_jwks_cold_start_failure_fetches_once_and_fails_fast() -> None:
+    """鍵が無い状態で取得に失敗したら、待ち行列の各リクエストが順番に再取得しない（1回だけ）。"""
+    jwks = FlakyJwks(fail=True, delay=0.05)
+    clock = FakeClock()
+    cache = _cache(jwks, clock)
+
+    results = await asyncio.gather(*(cache.get_key("k", "ES256") for _ in range(10)), return_exceptions=True)
+    assert all(isinstance(r, AuthError) and r.reason == "jwks_unavailable" for r in results)
+    assert jwks.calls == 1
+
+    # クールダウン中は取得しない
+    with pytest.raises(AuthError, match="jwks_unavailable"):
+        await cache.get_key("k", "ES256")
+    assert jwks.calls == 1
+
+    # クールダウン後は再取得し、復旧していれば成功する
+    key = ec.generate_private_key(ec.SECP256R1())
+    jwks.fail = False
+    jwks.keys = [_jwk(key.public_key(), "k", "ES256")]
+    clock.now += 6
+    assert (await cache.get_key("k", "ES256")) is not None
+    assert jwks.calls == 2
+
+
+async def test_unknown_kid_while_jwks_is_down_is_unavailable_not_invalid() -> None:
+    """鍵ローテーション直後に JWKS が落ちている場合、新しい kid のトークンを「不正」（401）にしない。"""
+    old = ec.generate_private_key(ec.SECP256R1())
+    jwks = FlakyJwks([_jwk(old.public_key(), "old", "ES256")], fail=False)
+    clock = FakeClock()
+    cache = _cache(jwks, clock)
+    assert await cache.get_key("old", "ES256")
+
+    jwks.fail = True
+    clock.now += 31  # 強制再取得のクールダウン（30 秒）後
+    with pytest.raises(AuthError) as exc:
+        await cache.get_key("new", "ES256")
+    assert exc.value.reason == "jwks_unavailable"
+    # 既知の鍵のトークンは、取得失敗中もキャッシュで検証できる
+    assert await cache.get_key("old", "ES256")
+
+    # 復旧後、本当に存在しない kid は unknown_signing_key（401）
+    jwks.fail = False
+    clock.now += 31
+    with pytest.raises(AuthError) as exc:
+        await cache.get_key("nope", "ES256")
+    assert exc.value.reason == "unknown_signing_key"
+
+
+async def test_warm_up_never_raises() -> None:
+    clock = FakeClock()
+    down = FlakyJwks(fail=True)
+    await _cache(down, clock).warm_up()
+    assert down.calls == 1
+    key = ec.generate_private_key(ec.SECP256R1())
+    up = FlakyJwks([_jwk(key.public_key(), "k", "ES256")], fail=False)
+    cache = _cache(up, clock)
+    await cache.warm_up()
+    assert await cache.get_key("k", "ES256")
+    assert up.calls == 1
+
+
+async def test_stale_cache_keeps_serving_known_keys_when_refresh_fails() -> None:
+    """TTL 切れの再取得が失敗しても、キャッシュ済みの鍵で検証を続ける（認証サーバーの障害で全員を 401 にしない）。"""
+    key = ec.generate_private_key(ec.SECP256R1())
+    jwks = FlakyJwks([_jwk(key.public_key(), "k", "ES256")], fail=False)
+    clock = FakeClock()
+    cache = _cache(jwks, clock)
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 1
+
+    jwks.fail = True
+    clock.now += 601  # TTL（600 秒）切れ
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 2
+    # 失敗後は min_refetch（30 秒）の間は再取得しない
+    clock.now += 10
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 2
+    clock.now += 21
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 3
+    # 復旧すれば通常の TTL に戻る
+    jwks.fail = False
+    clock.now += 31
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 4
+    clock.now += 100
+    assert await cache.get_key("k", "ES256")
+    assert jwks.calls == 4
+
+
+async def test_unknown_kid_right_after_a_failed_refetch_does_not_refetch_again() -> None:
+    """失敗直後（failure_cooldown_seconds 以内）の未知の kid は、再取得せずに jwks_unavailable（503）。"""
+    key = ec.generate_private_key(ec.SECP256R1())
+    jwks = FlakyJwks([_jwk(key.public_key(), "k", "ES256")], fail=False)
+    clock = FakeClock()
+    cache = _cache(jwks, clock)
+    assert await cache.get_key("k", "ES256")
+    jwks.fail = True
+    clock.now += 31
+    for kid in ("new-1", "new-2", "new-3"):
+        with pytest.raises(AuthError) as exc:
+            await cache.get_key(kid, "ES256")
+        assert exc.value.reason == "jwks_unavailable"
+    assert jwks.calls == 2  # 最初の取得 + 失敗した1回だけ
+
+
+async def test_concurrent_cold_start_fetches_jwks_once() -> None:
+    key = ec.generate_private_key(ec.SECP256R1())
+    jwks = FlakyJwks([_jwk(key.public_key(), "k", "ES256")], fail=False, delay=0.05)
+    cache = _cache(jwks, FakeClock())
+    results = await asyncio.gather(*(cache.get_key("k", "ES256") for _ in range(10)))
+    assert all(r is not None for r in results)
+    assert jwks.calls == 1
+
+
+@pytest.mark.parametrize("fail", [False, True])
+async def test_concurrent_unknown_kid_refetches_once(fail: bool) -> None:
+    """鍵ローテーション直後に新しい kid のトークンが同時に届いても、再取得は1回だけ（成功・失敗とも）。"""
+    old = ec.generate_private_key(ec.SECP256R1())
+    new = ec.generate_private_key(ec.SECP256R1())
+    jwks = FlakyJwks([_jwk(old.public_key(), "old", "ES256")], fail=False, delay=0.05)
+    clock = FakeClock()
+    cache = _cache(jwks, clock)
+    assert await cache.get_key("old", "ES256")
+    jwks.keys = [_jwk(old.public_key(), "old", "ES256"), _jwk(new.public_key(), "new", "ES256")]
+    jwks.fail = fail
+    clock.now += 31
+    results = await asyncio.gather(*(cache.get_key("new", "ES256") for _ in range(5)), return_exceptions=True)
+    if fail:
+        assert all(isinstance(r, AuthError) and r.reason == "jwks_unavailable" for r in results)
+    else:
+        assert not any(isinstance(r, BaseException) for r in results)
+    assert jwks.calls == 2
+
+
+async def test_unusable_and_symmetric_jwks_entries_are_skipped() -> None:
+    good = ec.generate_private_key(ec.SECP256R1())
+    second = ec.generate_private_key(ec.SECP256R1())
+    rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    entries: list[Any] = [
+        "not-a-dict",
+        {**_jwk(good.public_key(), "enc", "ES256"), "use": "enc"},  # 署名用でない
+        {"kty": "EC", "crv": "P-256", "kid": "broken", "x": "AAAA", "y": "AAAA"},  # 壊れた鍵
+        {"kty": "oct", "k": "c2VjcmV0", "kid": "hs", "alg": "HS256"},  # 共有鍵は JWKS から受け付けない
+        _jwk(good.public_key(), "good", "ES256"),
+        _jwk(second.public_key(), "second", "ES256"),
+        {**_jwk(rsa_key.public_key(), "rsa", "RS256"), "kid": 123},  # kid が文字列でない → kid 無し扱い
+    ]
+    jwks = FlakyJwks(entries, fail=False)
+    cache = _cache(jwks, FakeClock())
+    assert await cache.get_key("good", "ES256")
+    for kid in ("enc", "broken", "hs"):
+        with pytest.raises(AuthError, match="unknown_signing_key"):
+            await cache.get_key(kid, "ES256" if kid != "hs" else "HS256")
+    # kid の無いトークンは、その alg の鍵が1つだけなら使う（複数あれば曖昧なので使わない）
+    assert await cache.get_key(None, "RS256")
+    with pytest.raises(AuthError, match="unknown_signing_key"):
+        await cache.get_key(None, "ES256")
+    assert jwks.calls == 1
+
+
+@pytest.mark.parametrize("body", [{"keys": "not-a-list"}, ["not", "a", "dict"], {"no_keys": []}])
+async def test_malformed_jwks_document_yields_no_keys(body: Any) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    cache = JwksCache(JWKS_URL, httpx.AsyncClient(transport=httpx.MockTransport(handler)), clock=FakeClock())
+    with pytest.raises(AuthError, match="unknown_signing_key"):
+        await cache.get_key("k", "ES256")

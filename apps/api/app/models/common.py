@@ -59,16 +59,23 @@ class ApiErrorBody(ApiModel):
     error: ErrorDetail
 
 
+_AUTH_UNAVAILABLE_DESCRIPTION = "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+
 ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     401: {"model": ApiErrorBody, "description": "unauthorized（JWT 無効・期限切れ）"},
     403: {"model": ApiErrorBody, "description": "forbidden / account_deleted（退会済み）"},
+    413: {"model": ApiErrorBody, "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"},
     422: {"model": ApiErrorBody, "description": "validation_error / moderation_blocked"},
     429: {"model": ApiErrorBody, "description": "rate_limited（Retry-After ヘッダ付き）"},
     500: {"model": ApiErrorBody, "description": "internal_error"},
+    503: {"model": ApiErrorBody, "description": _AUTH_UNAVAILABLE_DESCRIPTION},
 }
 NOT_FOUND_RESPONSE: dict[int | str, dict[str, object]] = {
     404: {"model": ApiErrorBody, "description": "not_found"},
 }
 LLM_UNAVAILABLE_RESPONSE: dict[int | str, dict[str, object]] = {
-    503: {"model": ApiErrorBody, "description": "llm_unavailable（LLM プロバイダ障害）"},
+    503: {
+        "model": ApiErrorBody,
+        "description": f"llm_unavailable（LLM プロバイダ障害）/ {_AUTH_UNAVAILABLE_DESCRIPTION}",
+    },
 }

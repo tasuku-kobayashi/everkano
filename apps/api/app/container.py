@@ -34,6 +34,7 @@ class Services:
     settings: Settings
     pool: Pool
     http: httpx.AsyncClient
+    jwks: JwksCache
     token_verifier: TokenVerifier
     personas: PersonaRepository
     prompts: PromptBuilder
@@ -56,6 +57,7 @@ def build_services(
     http: httpx.AsyncClient,
     personas: PersonaRepository,
     prompts: PromptBuilder,
+    jwks_http: httpx.AsyncClient | None = None,
     llm: LLMClient | None = None,
     embedder: EmbeddingClient | None = None,
     moderator: Moderator | None = None,
@@ -64,7 +66,8 @@ def build_services(
     embedder = embedder or create_embedding_client(settings, http)
     moderator = moderator or Moderator()
     audit = AuditLogger(pool)
-    jwks = JwksCache(settings.jwks_url, http, ttl_seconds=settings.jwks_cache_ttl_seconds)
+    # JWKS は LLM の接続プールとは別のクライアントで取得する（LLM の混雑で認証が待たされないように）
+    jwks = JwksCache(settings.jwks_url, jwks_http or http, ttl_seconds=settings.jwks_cache_ttl_seconds)
     memory = MemoryEngine(
         settings=settings, pool=pool, embedder=embedder, llm=llm, prompts=prompts, audit=audit, moderator=moderator
     )
@@ -72,6 +75,7 @@ def build_services(
         settings=settings,
         pool=pool,
         http=http,
+        jwks=jwks,
         token_verifier=TokenVerifier(settings, jwks),
         personas=personas,
         prompts=prompts,
@@ -83,6 +87,7 @@ def build_services(
             {
                 "chat": settings.rate_limit_chat_per_minute,
                 "comments": settings.rate_limit_comments_per_minute,
+                "memories": settings.rate_limit_memories_per_minute,
             }
         ),
         memory=memory,
@@ -97,7 +102,9 @@ def build_services(
             audit=audit,
         ),
         conversations=ConversationService(pool=pool, personas=personas, audit=audit),
-        user_memories=UserMemoryService(pool=pool, embedder=embedder, moderator=moderator, audit=audit),
+        user_memories=UserMemoryService(
+            settings=settings, pool=pool, embedder=embedder, moderator=moderator, audit=audit
+        ),
         comments=CommentService(
             settings=settings,
             pool=pool,
@@ -143,3 +150,4 @@ class RateLimit:
 
 ChatRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("chat"))]
 CommentRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("comments"))]
+MemoryWriteRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("memories"))]

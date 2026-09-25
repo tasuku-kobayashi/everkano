@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Final, Literal, Self
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -26,6 +27,9 @@ DB_EMBEDDING_DIMENSIONS = 1536
 _LOCAL_HOSTS: Final[frozenset[str]] = frozenset(
     {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal"}  # noqa: S104 - 判定用の定数
 )
+# staging / production で DATABASE_URL に求める sslmode（libpq 互換。asyncpg の既定 prefer は証明書を検証せず、
+# TLS を張れなければ平文に落ちる）。verify-full（Supabase のルート証明書で検証）を推奨する（apps/api/README.md）
+_SECURE_SSLMODES: Final[frozenset[str]] = frozenset({"require", "verify-ca", "verify-full"})
 
 
 def _find_repo_dir(*parts: str) -> Path | None:
@@ -45,6 +49,8 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
         case_sensitive=False,
+        # 検証エラーの文面に入力値（LLM_API_KEY・DATABASE_URL のパスワードなど）を含めない（起動失敗のログに残るため）
+        hide_input_in_errors=True,
     )
 
     # --- アプリ ---------------------------------------------------------------
@@ -70,6 +76,10 @@ class Settings(BaseSettings):
     # [追加・任意] ログに記録するクライアントIPを取り出す、プロキシが上書きする信頼済みヘッダー名。
     # Fly.io では "Fly-Client-IP"。未設定時は接続元アドレス（X-Forwarded-For の先頭は偽装可能なため使わない）。
     client_ip_header: str | None = None
+
+    # [追加・任意] リクエスト本文の上限（バイト）。超えたら本文を読まずに 413 を返す（認証より前に効く）。
+    # 正規の最大は /chat の 2000 文字（UTF-8 で約 8KB）なので既定 64KiB で十分。
+    max_request_body_bytes: int = Field(default=64 * 1024, ge=1024, le=10 * 1024 * 1024)
 
     # --- CORS ---------------------------------------------------------------
     cors_allow_origins: Annotated[list[str], NoDecode] = Field(
@@ -98,6 +108,10 @@ class Settings(BaseSettings):
     embedding_api_key: SecretStr | None = None
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = DB_EMBEDDING_DIMENSIONS
+    # [追加・任意] 埋め込み API の1回あたりのタイムアウトとリトライ回数（LLM とは別。長期記憶の検索は
+    # 任意の機能なので、埋め込みが遅いときはチャット全体を待たせずに検索を省略する）
+    embedding_timeout_seconds: float = Field(default=5.0, gt=0, le=120)
+    embedding_max_retries: int = Field(default=1, ge=0, le=10)
 
     # --- メモリエンジン（§9） -------------------------------------------------
     memory_short_term_turns: int = Field(default=30, ge=1, le=200)
@@ -105,10 +119,15 @@ class Settings(BaseSettings):
     memory_importance_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     memory_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     memory_dedup_similarity: float = Field(default=0.92, gt=0.0, le=1.0)
+    # [追加・任意] ユーザー × キャラあたりの記憶の上限件数。/chat の厳密検索は件数に比例して重くなるため、
+    # ユーザーの追加（POST /memories）は上限で 422、自動抽出・要約は重要度の低い自動記憶を入れ替える。
+    memory_max_per_character: int = Field(default=500, ge=10, le=100_000)
 
     # --- レート制限 -------------------------------------------------------------
     rate_limit_chat_per_minute: int = Field(default=20, ge=1)
     rate_limit_comments_per_minute: int = Field(default=10, ge=1)
+    # [追加・任意] POST / PATCH /memories（埋め込み API を呼ぶ）の上限
+    rate_limit_memories_per_minute: int = Field(default=30, ge=1)
 
     # --- コメント自動返信 -------------------------------------------------------
     comment_auto_reply_probability: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -191,6 +210,7 @@ class Settings(BaseSettings):
             )
         elif supabase.scheme != "https":
             errors.append(f"APP_ENV={env} では SUPABASE_URL は https:// で指定してください")
+        errors.extend(self._database_tls_errors())
         remote_origins = [o for o in self.cors_allow_origins if (urlsplit(o).hostname or "") not in _LOCAL_HOSTS]
         if not remote_origins:
             errors.append(
@@ -199,7 +219,30 @@ class Settings(BaseSettings):
             )
         return errors
 
+    def _database_tls_errors(self) -> list[str]:
+        """リモートの DB への接続で TLS を必須にしているか（DATABASE_URL の sslmode か PGSSLMODE）。
+
+        文面に DATABASE_URL（パスワードを含む）は入れない。ループバック・Unix ソケットは対象外。
+        """
+        url = urlsplit(self.database_url)
+        if (url.hostname or "") in _LOCAL_HOSTS or not url.hostname:
+            return []
+        sslmode = self.database_sslmode
+        if sslmode in _SECURE_SSLMODES:
+            return []
+        return [
+            f"APP_ENV={self.app_env} では DATABASE_URL に sslmode=verify-full（または require）を指定してください"
+            f"（現在: {sslmode or '未指定 = prefer'}。証明書を検証せず、TLS を張れなければ平文で接続します。"
+            "例: postgresql://...?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt。apps/api/README.md 参照）"
+        ]
+
     # -------------------------------------------------------------------------
+    @property
+    def database_sslmode(self) -> str | None:
+        """asyncpg が使う sslmode（DATABASE_URL の sslmode → 環境変数 PGSSLMODE。どちらも無ければ None = prefer）。"""
+        modes = parse_qs(urlsplit(self.database_url).query).get("sslmode")
+        return modes[-1] if modes else os.environ.get("PGSSLMODE")
+
     @property
     def jwks_url(self) -> str:
         return f"{self.supabase_url}/auth/v1/.well-known/jwks.json"

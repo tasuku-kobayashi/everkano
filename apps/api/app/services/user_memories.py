@@ -3,18 +3,27 @@
 - すべてのクエリを検証済み user_id でスコープする（他人の記憶は 404）。
 - 追加・更新した記憶は `is_user_edited = true`（以後、自動処理で上書きしない）。
 - 記憶の本文はプロンプトに入るため Gate #1（入力）を通す。
+- ユーザー × キャラの記憶は `MEMORY_MAX_PER_CHARACTER` 件まで（超える追加は 422。memory_capacity.py）。
+- `summary` タグ（自動要約専用）は新たに付けられない（要約の記憶に残すことだけできる）。
+- 埋め込みは `USER_MEMORY_EMBED_DEADLINE_SECONDS` で打ち切り 503（Web の 15 秒のタイムアウトより前に
+  結果を返し、クライアントの再送で同じ記憶が二重に保存されることを防ぐ）。
 """
 
 from __future__ import annotations
 
-from typing import Any, Final
+import asyncio
+from typing import Any, Final, Literal
 from uuid import UUID
 
+from app.core.config import Settings
 from app.core.db import Pool, vector_literal
 from app.core.errors import ApiError, not_found
+from app.core.logging import get_logger
 from app.core.security import CurrentUser
 from app.models.memories import (
     DEFAULT_USER_MEMORY_IMPORTANCE,
+    RESERVED_MEMORY_TAGS,
+    RESERVED_TAG_MESSAGE,
     CreateMemoryRequest,
     ListMemoriesResponse,
     MemoryDTO,
@@ -22,22 +31,38 @@ from app.models.memories import (
 )
 from app.services.audit import AuditLogger
 from app.services.characters import MEMORY_COLUMNS, fetch_active_character, memory_dto, to_numeric
-from app.services.embedding import EmbeddingClient, EmbeddingError
+from app.services.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
+from app.services.memory_capacity import count_pair, lock_pair
 from app.services.moderation import Moderator
 
-LIST_LIMIT: Final[int] = 500
-_EMBEDDING_FAILED_MESSAGE: Final[str] = "記憶を保存できませんでした。少し時間をおいてから再度お試しください。"
+logger = get_logger("user_memories")
+
+# Web の既定タイムアウト（DEFAULT_TIMEOUT_MS = 15 秒）より短くする
+USER_MEMORY_EMBED_DEADLINE_SECONDS: Final[float] = 10.0
+_EMBEDDING_FAILED_MESSAGE: Final[str] = "記憶を保存できませんでした。しばらくしてから再度お試しください。"
 _MEMORY_BLOCKED_MESSAGE: Final[str] = "この内容は記憶として保存できません。表現を変えて再度お試しください。"
 
 
 class UserMemoryService:
-    def __init__(self, *, pool: Pool, embedder: EmbeddingClient, moderator: Moderator, audit: AuditLogger) -> None:
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        pool: Pool,
+        embedder: EmbeddingClient,
+        moderator: Moderator,
+        audit: AuditLogger,
+        embed_deadline_seconds: float = USER_MEMORY_EMBED_DEADLINE_SECONDS,
+    ) -> None:
+        self._settings = settings
         self._pool = pool
         self._embedder = embedder
         self._moderator = moderator
         self._audit = audit
+        self._embed_deadline = embed_deadline_seconds
 
     async def list_for_character(self, user: CurrentUser, character_id: UUID) -> ListMemoriesResponse:
+        # 上限（MEMORY_MAX_PER_CHARACTER）までの全件を返す。要約は上限を超えて保存されることがあるので少し余裕を持たせる
         rows = await self._pool.fetch(
             f"""
             select {MEMORY_COLUMNS} from public.memories
@@ -47,33 +72,42 @@ class UserMemoryService:
             """,  # noqa: S608 - 列名は定数
             user.id,
             character_id,
-            LIST_LIMIT,
+            self._settings.memory_max_per_character + 50,
         )
         return ListMemoriesResponse(memories=[memory_dto(r) for r in rows])
 
     async def create(self, user: CurrentUser, request: CreateMemoryRequest) -> MemoryDTO:
+        capacity = self._settings.memory_max_per_character
         async with self._pool.acquire() as conn:
             character = await fetch_active_character(conn, request.character_id)
-        if character is None:
-            raise not_found("キャラクターが見つかりません。")
+            if character is None:
+                raise not_found("キャラクターが見つかりません。")
+            # 上限に達しているなら、埋め込み（有料 API）を呼ぶ前に断る
+            if await count_pair(conn, user.id, request.character_id) >= capacity:
+                raise _capacity_error(capacity)
         await self._moderate(user, request.character_id, request.content)
-        embedding = await self._embed(request.content)
+        embedding = await self._embed(request.content, user=user, character_id=request.character_id, action="create")
         importance = request.importance if request.importance is not None else DEFAULT_USER_MEMORY_IMPORTANCE
         tags = request.tags or []
-        row = await self._pool.fetchrow(
-            f"""
-            insert into public.memories
-              (user_id, character_id, content, importance, tags, embedding, is_user_edited)
-            values ($1, $2, $3, $4, $5, $6::text::extensions.vector, true)
-            returning {MEMORY_COLUMNS}
-            """,  # noqa: S608 - 列名は定数
-            user.id,
-            request.character_id,
-            request.content,
-            to_numeric(importance),
-            tags,
-            vector_literal(embedding),
-        )
+        async with self._pool.acquire() as conn, conn.transaction():
+            # 同時に追加されても上限を超えないよう、ペア単位でロックしてから数え直す
+            await lock_pair(conn, user.id, request.character_id)
+            if await count_pair(conn, user.id, request.character_id) >= capacity:
+                raise _capacity_error(capacity)
+            row = await conn.fetchrow(
+                f"""
+                insert into public.memories
+                  (user_id, character_id, content, importance, tags, embedding, is_user_edited)
+                values ($1, $2, $3, $4, $5, $6::text::extensions.vector, true)
+                returning {MEMORY_COLUMNS}
+                """,  # noqa: S608 - 列名は定数
+                user.id,
+                request.character_id,
+                request.content,
+                to_numeric(importance),
+                tags,
+                vector_literal(embedding),
+            )
         if row is None:  # pragma: no cover
             raise RuntimeError("memory insert returned no row")
         memory = memory_dto(row)
@@ -101,11 +135,19 @@ class UserMemoryService:
         )
         if before is None:
             raise not_found("記憶が見つかりません。")
+        if request.tags is not None and RESERVED_MEMORY_TAGS.intersection(request.tags).difference(
+            before["tags"] or []
+        ):
+            # 要約の記憶に元から付いている summary は残せる（「秘密」の付け外しで送り返される）が、新たには付けられない
+            raise ApiError(422, "validation_error", RESERVED_TAG_MESSAGE)
         embedding_literal: str | None = None
         content_changed = request.content is not None and request.content != before["content"]
         if content_changed and request.content is not None:
             await self._moderate(user, before["character_id"], request.content)
-            embedding_literal = vector_literal(await self._embed(request.content))
+            vector = await self._embed(
+                request.content, user=user, character_id=before["character_id"], action="update", memory_id=memory_id
+            )
+            embedding_literal = vector_literal(vector)
         row = await self._pool.fetchrow(
             f"""
             update public.memories
@@ -185,9 +227,41 @@ class UserMemoryService:
         )
         raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
 
-    async def _embed(self, text: str) -> list[float]:
+    async def _embed(
+        self,
+        text: str,
+        *,
+        user: CurrentUser,
+        character_id: UUID,
+        action: Literal["create", "update"],
+        memory_id: UUID | None = None,
+    ) -> list[float]:
+        """記憶の本文を埋め込む。失敗・時間切れは audit `llm.error`（purpose=user_memory）を残して 503。"""
         try:
-            [vector] = await self._embedder.embed([text])
-        except EmbeddingError as exc:
+            async with asyncio.timeout(self._embed_deadline):
+                [vector] = await self._embedder.embed([text])
+        except (EmbeddingError, TimeoutError) as exc:
+            failure = embedding_failure_payload(exc, timeout_seconds=self._embed_deadline)
+            logger.error("memory embedding failed", extra={"fields": failure})
+            await self._audit.log(
+                "llm.error",
+                user_id=user.id,
+                character_id=character_id,
+                payload={
+                    "purpose": "user_memory",
+                    "action": action,
+                    "memory_id": memory_id,
+                    **failure,
+                    "embedding_model": self._embedder.model_name,
+                },
+            )
             raise ApiError(503, "llm_unavailable", _EMBEDDING_FAILED_MESSAGE) from exc
         return vector
+
+
+def _capacity_error(capacity: int) -> ApiError:
+    return ApiError(
+        422,
+        "validation_error",
+        f"覚えておける記憶は1人のキャラクターにつき{capacity}件までです。不要な記憶を削除してから追加してください。",
+    )

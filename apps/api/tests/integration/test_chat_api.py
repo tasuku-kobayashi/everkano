@@ -8,10 +8,12 @@ import uuid
 from typing import Any
 
 import httpx
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.services.llm import LLMError, LLMRequest, LLMResult, MockLLM
-from tests.conftest import AppFactory, World, make_settings, make_token
+from tests.conftest import TEST_ISSUER, AppFactory, World, make_settings, make_token
 
 pytestmark = pytest.mark.integration
 
@@ -320,6 +322,84 @@ async def test_llm_failure_returns_503_and_saves_nothing(app_factory: AppFactory
     assert "chat.response" not in events
 
 
+async def test_empty_reply_is_503_and_saves_nothing(app_factory: AppFactory, world: World) -> None:
+    """整形すると空になる返答（名前の接頭辞だけ・空白だけ）は保存せず、LLM 障害として扱う。"""
+
+    class BlankLLM(MockLLM):
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "chat":
+                return LLMResult(text="  \n ", model="stub", latency_ms=1)
+            return await super().complete(request)
+
+    client = await app_factory(llm=BlankLLM())
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    res = await _chat(client, world, conversation["id"], "こんにちは", user.headers)
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "llm_unavailable"
+    count = await world.conn.fetchval(
+        "select count(*) from public.messages where conversation_id = $1", uuid.UUID(conversation["id"])
+    )
+    assert count == 1
+    errors = [e["payload"] for e in await _audit_events(world, user.id) if e["event_type"] == "llm.error"]
+    assert [(e["purpose"], e["error"]) for e in errors] == [("chat", "empty reply after cleanup")]
+
+
+async def test_unexpected_error_is_500_and_cancels_extraction(app_factory: AppFactory, world: World) -> None:
+    """応答生成中の想定外の例外は 500。並行している記憶抽出も取り消し、何も保存しない。"""
+
+    class CrashingLLM(MockLLM):
+        def __init__(self) -> None:
+            self.extraction_cancelled = False
+
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "memory_extraction":
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    self.extraction_cancelled = True
+                    raise
+            await asyncio.sleep(0.05)
+            raise RuntimeError("unexpected bug")
+
+    llm = CrashingLLM()
+    client = await app_factory(llm=llm)
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    res = await _chat(client, world, conversation["id"], "来週大阪に出張するんだ", user.headers)
+    assert res.status_code == 500
+    assert res.json()["error"]["code"] == "internal_error"
+    assert llm.extraction_cancelled
+    count = await world.conn.fetchval(
+        "select count(*) from public.messages where conversation_id = $1", uuid.UUID(conversation["id"])
+    )
+    assert count == 1
+    assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) == 0
+
+
+async def test_conversation_deleted_during_generation_is_404(app_factory: AppFactory, world: World) -> None:
+    """所有者確認の後、応答生成中に会話が削除された（退会・運用者の削除）→ 保存時の外部キー違反を 404 にする。"""
+
+    class DeletingLLM(MockLLM):
+        conversation_id: uuid.UUID | None = None
+
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            if request.purpose == "chat" and self.conversation_id is not None:
+                await world.conn.execute("delete from public.conversations where id = $1", self.conversation_id)
+            return await super().complete(request)
+
+    llm = DeletingLLM()
+    client = await app_factory(llm=llm)
+    user = await world.create_user()
+    conversation = (await _start(client, world, user.headers))["conversation"]
+    llm.conversation_id = uuid.UUID(conversation["id"])
+    res = await _chat(client, world, conversation["id"], "こんにちは", user.headers)
+    assert res.status_code == 404
+    assert res.json()["error"]["code"] == "not_found"
+    events = [e["event_type"] for e in await _audit_events(world, user.id)]
+    assert "chat.response" not in events
+
+
 async def test_rate_limit(app_factory: AppFactory, world: World) -> None:
     client = await app_factory(make_settings(rate_limit_chat_per_minute=2))
     user = await world.create_user()
@@ -475,3 +555,43 @@ async def test_control_characters_are_rejected_before_any_work(app_factory: AppF
     assert ok.status_code == 200, ok.text
     events = [e["event_type"] for e in await _audit_events(world, user.id)]
     assert events.count("chat.request") == 1
+
+
+async def test_auth_server_outage_is_503_not_401(app_factory: AppFactory, world: World) -> None:
+    """JWKS が取れないときは 401（= Web がログアウトさせる）ではなく、再試行可能な 503。"""
+    # 接続できない Supabase（JWKS 取得が即座に失敗する）
+    client = await app_factory(make_settings(supabase_url="http://127.0.0.1:1", supabase_jwt_issuer=TEST_ISSUER))
+    user = await world.create_user()
+    key = ec.generate_private_key(ec.SECP256R1())
+    now = int(time.time())
+    token = jwt.encode(
+        {"sub": str(user.id), "aud": "authenticated", "role": "authenticated", "iat": now, "exp": now + 600},
+        key,
+        algorithm="ES256",
+        headers={"kid": "k1"},
+    )
+    started = time.perf_counter()
+    res = await client.post(
+        "/conversations", json={"character_id": str(world.character_id)}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "internal_error"
+    assert (
+        res.json()["error"]["message"] == "ただいまログイン状態を確認できません。しばらくしてから再度お試しください。"
+    )
+    assert res.headers["retry-after"] == "5"
+    assert time.perf_counter() - started < 2.0
+    # HS256（共有鍵）の正しいトークンは JWKS に依存しない
+    ok = await client.post("/conversations", json={"character_id": str(world.character_id)}, headers=user.headers)
+    assert ok.status_code == 200
+
+
+async def test_longest_allowed_message_is_accepted(client: httpx.AsyncClient, world: World) -> None:
+    """本文の上限（MAX_REQUEST_BODY_BYTES）は正規の最大（2000 文字・マルチバイト）を妨げない。"""
+    user = await world.create_user()
+    conversation = await _start(client, world, user.headers)
+    message = "今日は" + "とても" * 665 + "😀"
+    assert len(message) == 1999
+    res = await _chat(client, world, conversation["conversation"]["id"], message + "！", user.headers)
+    assert res.status_code == 200, res.text
+    assert res.json()["user_message"]["body"] == message + "！"

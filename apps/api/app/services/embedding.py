@@ -1,6 +1,7 @@
 """テキスト埋め込み（長期メモリ用）。
 
-- `EMBEDDING_MODE=live` : OpenAI 互換 `/embeddings` API（既定 text-embedding-3-small, 1536次元）
+- `EMBEDDING_MODE=live` : OpenAI 互換 `/embeddings` API（既定 text-embedding-3-small, 1536次元）。
+  タイムアウト・リトライは LLM とは別の `EMBEDDING_TIMEOUT_SECONDS` / `EMBEDDING_MAX_RETRIES`（既定 5 秒・1 回）
 - `EMBEDDING_MODE=hash` : 外部APIを呼ばない決定的な埋め込み。文字 1〜3-gram を hashlib で
   1536 次元に符号付きハッシュし L2 正規化する（開発・テスト用。語彙の重なりを捉える程度の精度）。
 """
@@ -15,18 +16,24 @@ import re
 import time
 import unicodedata
 from collections.abc import Sequence
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
 import httpx
 
 from app.core.config import Settings
+from app.core.http import upstream_timeout
 from app.core.logging import get_logger
 
 logger = get_logger("embedding")
 
 
 class EmbeddingError(Exception):
-    """埋め込み生成に失敗した（リトライ後）。"""
+    """埋め込み生成に失敗した（リトライ後）。`status_code` / `attempts` は監査ログ（llm.error）用。"""
+
+    def __init__(self, message: str, *, status_code: int | None = None, attempts: int = 1) -> None:
+        self.status_code = status_code
+        self.attempts = attempts
+        super().__init__(message)
 
 
 class EmbeddingClient(Protocol):
@@ -37,6 +44,16 @@ class EmbeddingClient(Protocol):
     def dimensions(self) -> int: ...
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+def embedding_failure_payload(exc: BaseException, *, timeout_seconds: float | None = None) -> dict[str, Any]:
+    """埋め込みの失敗を監査ログ（llm.error）の payload 用にまとめる（`error` / `status_code` / `attempts`）。"""
+    if isinstance(exc, EmbeddingError):
+        return {"error": str(exc), "status_code": exc.status_code, "attempts": exc.attempts}
+    if isinstance(exc, TimeoutError):
+        error = f"timeout ({timeout_seconds:g}s)" if timeout_seconds is not None else "timeout"
+        return {"error": error, "status_code": None, "attempts": None}
+    return {"error": repr(exc), "status_code": None, "attempts": None}
 
 
 def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
@@ -131,8 +148,8 @@ class OpenAICompatibleEmbedding:
         self._api_key = settings.embedding_api_key.get_secret_value()
         self._model = settings.embedding_model
         self._dimensions = settings.embedding_dimensions
-        self._timeout = settings.llm_timeout_seconds
-        self._max_retries = settings.llm_max_retries
+        self._timeout = upstream_timeout(settings.embedding_timeout_seconds)
+        self._max_retries = settings.embedding_max_retries
         self._backoff = backoff_base_seconds
         self._http = http
 
@@ -162,37 +179,47 @@ class OpenAICompatibleEmbedding:
                 )
             except httpx.TransportError as exc:
                 error: Exception = exc
+                status_code: int | None = None
                 retryable = True
             else:
                 if response.status_code == 200:
-                    return self._parse(response, len(texts))
-                error = EmbeddingError(f"HTTP {response.status_code}: {response.text[:300]}")
-                retryable = response.status_code == 429 or response.status_code >= 500
+                    return self._parse(response, len(texts), attempts=attempt + 1)
+                status_code = response.status_code
+                error = EmbeddingError(f"HTTP {status_code}: {response.text[:300]}", status_code=status_code)
+                retryable = status_code == 429 or status_code >= 500
             if not retryable or attempt >= self._max_retries:
                 logger.error(
                     "embedding request failed",
                     extra={
                         "fields": {
                             "error": repr(error),
+                            "status_code": status_code,
                             "attempts": attempt + 1,
                             "elapsed_ms": int((time.perf_counter() - started) * 1000),
                         }
                     },
                 )
-                raise EmbeddingError(str(error)) from error
+                message = str(error) if isinstance(error, EmbeddingError) else f"{type(error).__name__}: {error}"
+                raise EmbeddingError(message, status_code=status_code, attempts=attempt + 1) from error
             delay = self._backoff * (2**attempt) + random.uniform(0, self._backoff)
             attempt += 1
             await asyncio.sleep(delay)
 
-    def _parse(self, response: httpx.Response, expected: int) -> list[list[float]]:
+    def _parse(self, response: httpx.Response, expected: int, *, attempts: int) -> list[list[float]]:
         try:
             data = response.json()["data"]
             ordered = sorted(data, key=lambda d: int(d["index"]))
             vectors = [[float(x) for x in item["embedding"]] for item in ordered]
         except (KeyError, TypeError, ValueError) as exc:
-            raise EmbeddingError(f"invalid embeddings response: {exc!r}") from exc
+            raise EmbeddingError(
+                f"invalid embeddings response: {exc!r}", status_code=response.status_code, attempts=attempts
+            ) from exc
         if len(vectors) != expected or any(len(v) != self._dimensions for v in vectors):
-            raise EmbeddingError("embeddings response has unexpected shape")
+            raise EmbeddingError(
+                f"embeddings response has unexpected shape (expected {expected} x {self._dimensions})",
+                status_code=response.status_code,
+                attempts=attempts,
+            )
         return vectors
 
 

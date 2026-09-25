@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Final, Literal, TypedDict
@@ -24,12 +24,24 @@ SECRET_MARKER: Final[str] = "（二人だけの秘密）"  # noqa: S105 - 表示
 SUMMARY_MARKER: Final[str] = "（これまでの会話の要約）"
 USER_SEPARATOR: Final[str] = "=== user ==="
 _PLACEHOLDER_RE: Final = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+# 改行の類（CR/LF・Unicode の行区切り等）。利用者由来の文章を1行にまとめるのに使う
+_LINE_BREAKS_RE: Final = re.compile(r"[\r\n\v\f\x85\u2028\u2029]+")
 _WEEKDAYS_JA: Final[tuple[str, ...]] = ("月", "火", "水", "木", "金", "土", "日")
 
 # 抽出・要約で LLM に渡す会話ログの上限（トークン節約）
 EXTRACTION_CONTEXT_MESSAGES: Final[int] = 6
 TRANSCRIPT_MESSAGE_MAX_CHARS: Final[int] = 300
 TRANSCRIPT_MAX_CHARS: Final[int] = 12000
+
+# DM の応答生成に渡す履歴（短期メモリ）の文字数の上限。直近 MEMORY_SHORT_TERM_TURNS ターン（60 件 × 最大 2000 字）を
+# 全文で渡すと、長文を貼り付ける利用者のプロンプトが数万字に膨らみ（応答が遅く・高くなる）、コンテキストの小さい
+# モデルでは 400（再試行しない）で以後その会話が送れなくなる。新しい側から数えて HISTORY_FULL_MESSAGES 件は全文、
+# それより古い発言は HISTORY_OLDER_MESSAGE_MAX_CHARS 字に切り詰め、合計が HISTORY_MAX_CHARS を超える古い分は渡さない
+# （今回の発言は別枠で必ず渡す。最大 2000 字）。
+HISTORY_MAX_CHARS: Final[int] = 16000
+HISTORY_FULL_MESSAGES: Final[int] = 6
+HISTORY_OLDER_MESSAGE_MAX_CHARS: Final[int] = 500
+_TRUNCATION_MARK: Final[str] = "…"
 
 Role = Literal["system", "user", "assistant"]
 
@@ -161,14 +173,23 @@ def render_relationship(persona: Persona) -> str:
     return f"- はじめの距離感: {r.initial}\n- 関係の変化: {r.progression}"
 
 
+def one_line(text: str) -> str:
+    """利用者由来の文章を1行にする（改行で system プロンプトの見出し・箇条書きを偽造させない）。"""
+    return _LINE_BREAKS_RE.sub(" ", text).strip()
+
+
 def render_memory_line(memory: RetrievedMemory) -> str:
-    """記憶1件。末尾に記録日（日本時間）を付け、「来週」「明日」などを記録日基準で解釈できるようにする。"""
+    """記憶1件。末尾に記録日（日本時間）を付け、「来週」「明日」などを記録日基準で解釈できるようにする。
+
+    記憶の本文はユーザーが書ける（メモリパネル）ため、改行を空白にして1行に収める
+    （`# 制約` のような見出しを本文に書いて、system プロンプトの別セクションに見せかけることを防ぐ）。
+    """
     prefix = ""
     if memory.is_summary:
         prefix += SUMMARY_MARKER
     if memory.is_secret:
         prefix += SECRET_MARKER
-    return f"- {prefix}{memory.content}（{format_date(memory.created_at)}に記録）"
+    return f"- {prefix}{one_line(memory.content)}（{format_date(memory.created_at)}に記録）"
 
 
 def render_memories(memories: Sequence[RetrievedMemory]) -> str:
@@ -205,6 +226,30 @@ def render_short_term_note(history: Sequence[HistoryItem], now: datetime | None 
     return note
 
 
+def _transcript_line(item: HistoryItem, persona: Persona, per_message_max: int) -> str:
+    speaker = "ユーザー" if item.sender_type == "user" else persona.name
+    body = one_line(item.body)
+    if len(body) > per_message_max:
+        body = body[:per_message_max] + "…"
+    return f"{speaker}: {body}"
+
+
+def fit_transcript_prefix(
+    history: Sequence[HistoryItem],
+    persona: Persona,
+    *,
+    per_message_max: int = TRANSCRIPT_MESSAGE_MAX_CHARS,
+    total_max: int = TRANSCRIPT_MAX_CHARS,
+) -> int:
+    """古い順の history を先頭から描画したとき、total_max に収まる件数（中期要約のチャンク分け用）。"""
+    total = 0
+    for index, item in enumerate(history):
+        total += len(_transcript_line(item, persona, per_message_max)) + 1
+        if total > total_max:
+            return index
+    return len(history)
+
+
 def render_transcript(
     history: Sequence[HistoryItem],
     persona: Persona,
@@ -212,14 +257,8 @@ def render_transcript(
     per_message_max: int = TRANSCRIPT_MESSAGE_MAX_CHARS,
     total_max: int = TRANSCRIPT_MAX_CHARS,
 ) -> str:
-    lines: list[str] = []
-    for item in history:
-        speaker = "ユーザー" if item.sender_type == "user" else persona.name
-        body = item.body.replace("\n", " ").strip()
-        if len(body) > per_message_max:
-            body = body[:per_message_max] + "…"
-        lines.append(f"{speaker}: {body}")
-    # 上限を超える場合は新しい側を優先して残す
+    lines = [_transcript_line(item, persona, per_message_max) for item in history]
+    # 上限を超える場合は新しい側を優先して残す（中期要約は fit_transcript_prefix で収まる分だけを渡す）
     total = 0
     kept: list[str] = []
     for line in reversed(lines):
@@ -229,6 +268,35 @@ def render_transcript(
         kept.append(line)
     kept.reverse()
     return "\n".join(kept) if kept else "（なし）"
+
+
+def fit_chat_history(
+    history: Sequence[HistoryItem],
+    *,
+    max_chars: int = HISTORY_MAX_CHARS,
+    full_messages: int = HISTORY_FULL_MESSAGES,
+    older_message_max_chars: int = HISTORY_OLDER_MESSAGE_MAX_CHARS,
+) -> list[HistoryItem]:
+    """応答生成に渡す履歴（古い順）を文字数の上限に収める（本文の合計 ≤ max_chars）。
+
+    新しい側から数えて `full_messages` 件は全文のまま、それより古い発言は `older_message_max_chars` 字 + 「…」に
+    切り詰める。合計が `max_chars` を超えるところで打ち切り、それより古い発言は渡さない。
+    """
+    kept: list[HistoryItem] = []
+    total = 0
+    for index, item in enumerate(reversed(history)):
+        body = item.body
+        if index >= full_messages and len(body) > older_message_max_chars:
+            body = body[:older_message_max_chars] + _TRUNCATION_MARK
+        if not kept and len(body) > max_chars:
+            # 直前の1件だけで上限を超える（上限を小さく設定した場合など）→ 最新の文脈は切り詰めてでも残す
+            body = body[: max(max_chars - len(_TRUNCATION_MARK), 0)] + _TRUNCATION_MARK
+        if total + len(body) > max_chars:
+            break
+        total += len(body)
+        kept.append(item if body == item.body else replace(item, body=body))
+    kept.reverse()
+    return kept
 
 
 def _merge_consecutive(messages: list[ChatMessage]) -> list[ChatMessage]:
@@ -278,6 +346,8 @@ class PromptBuilder:
         user_message: str,
         now: datetime,
     ) -> list[ChatMessage]:
+        # 履歴は文字数の上限内に収める（プロンプトの大きさ = 応答の待ち時間・費用を利用者の入力量で青天井にしない）
+        history = fit_chat_history(history)
         values = {
             "name": persona.name,
             "profile": persona.profile.strip(),
@@ -337,7 +407,8 @@ class PromptBuilder:
             "comment_style": persona.comment_style or "短く、親しみを込めて返す",
             "first_person": persona.speech.first_person,
             "second_person": persona.speech.second_person,
-            "post_caption": (post_caption or "（キャプションなし）").strip(),
-            "comment_body": comment_body.strip(),
+            "post_caption": one_line(post_caption or "") or "（キャプションなし）",
+            # コメントは他の利用者が書いた文章。1行にまとめ、テンプレート側で「データとして扱う」ことを指示する
+            "comment_body": one_line(comment_body),
         }
         return self._templates["comment_reply"].render(values)

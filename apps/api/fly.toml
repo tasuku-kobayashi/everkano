@@ -6,11 +6,18 @@
 #
 # シークレットは fly secrets で登録する（H7: コミットしない。名前は .env.example を参照）:
 #   fly secrets set --config apps/api/fly.toml \
-#     DATABASE_URL='postgresql://...' \
+#     DATABASE_URL='postgresql://...?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt' \
 #     SUPABASE_URL='https://<project-ref>.supabase.co' \
 #     LLM_API_KEY='sk-or-...' \
 #     CORS_ALLOW_ORIGINS='https://<web>.vercel.app'
 #   （任意）SUPABASE_JWT_SECRET（旧HS256方式のプロジェクトのみ）/ EMBEDDING_API_KEY / SENTRY_DSN
+#   SENTRY_DSN を設定しても、アクセストークン・DM 本文・監査ログ・ローカル変数は送らない（app/core/observability.py）
+#
+# DB（Supabase）への接続は TLS 必須（staging / production では DATABASE_URL に sslmode=require 以上が無いと起動しない）。
+# 推奨は verify-full（証明書と接続先ホスト名を検証する）。Supabase のルート証明書（ダッシュボードの
+# Database Settings → SSL Configuration → Download certificate）を Fly のシークレットファイルとして配置する:
+#   fly secrets set --config apps/api/fly.toml SUPABASE_DB_CA_CERT="$(base64 -w0 prod-ca-2021.crt)"
+#   → 下の [[files]] のコメントを外してデプロイ。証明書を用意するまでは sslmode=require（暗号化のみ）でもよい。
 #
 # 本番に切り替える場合は APP_ENV を production にする（LLM_MODE=mock は起動時に拒否される）。
 # =============================================================================
@@ -20,8 +27,10 @@ kill_signal = "SIGTERM"
 kill_timeout = "30s"
 
 [build]
+  # apps/api/Dockerfile の既定値と同じ（digest で固定。更新手順は Dockerfile の先頭）
   [build.args]
-    PYTHON_IMAGE = "python:3.12-slim"
+    PYTHON_IMAGE = "python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
+    UV_IMAGE = "ghcr.io/astral-sh/uv:0.8.17@sha256:e4644cb5bd56fdc2c5ea3ee0525d9d21eed1603bccd6a21f887a938be7e85be1"
 
 [env]
   APP_ENV = "staging"
@@ -43,6 +52,11 @@ kill_timeout = "30s"
   FORWARDED_ALLOW_IPS = "*"
   CLIENT_IP_HEADER = "Fly-Client-IP"
 
+# verify-full 用の Supabase ルート証明書（上のコメント参照。シークレット SUPABASE_DB_CA_CERT は base64）
+# [[files]]
+#   guest_path = "/app/certs/supabase-ca.crt"
+#   secret_name = "SUPABASE_DB_CA_CERT"
+
 [http_service]
   internal_port = 8000
   force_https = true
@@ -51,6 +65,8 @@ kill_timeout = "30s"
   auto_start_machines = true
   min_machines_running = 1
 
+  # 1 マシンに届く同時リクエスト数。/chat は 1 件で LLM 接続を 2 本（応答生成 + 記憶抽出）使うため、
+  # hard_limit × 2 は app/core/http.py の HTTP_MAX_CONNECTIONS（200）以下にすること（tests/test_http_limits.py で検査）。
   [http_service.concurrency]
     type = "requests"
     soft_limit = 40

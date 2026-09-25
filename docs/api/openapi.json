@@ -728,6 +728,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -766,7 +776,7 @@
                 }
               }
             },
-            "description": "llm_unavailable（LLM プロバイダ障害）"
+            "description": "llm_unavailable（LLM プロバイダ障害）/ internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -835,6 +845,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -864,6 +884,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -879,7 +909,7 @@
     },
     "/comments/generate": {
       "post": {
-        "description": "出力が Gate #1 でヒットした場合は保存せず comment=null を返す。",
+        "description": "指定できるのは自分のコメントだけ（他人のコメント・存在しないコメントは 404、キャラのコメントは 422）。キャラの返信はコメント1件につき1件までで、既に返信があれば生成せずにその返信を返す。出力が Gate #1（URL・ドメイン名を含む）でヒットした場合は保存せず comment=null を返す。",
         "operationId": "generate_comment_comments_generate_post",
         "requestBody": {
           "content": {
@@ -932,6 +962,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -970,7 +1010,7 @@
                 }
               }
             },
-            "description": "llm_unavailable（LLM プロバイダ障害）"
+            "description": "llm_unavailable（LLM プロバイダ障害）/ internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -1039,6 +1079,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1068,6 +1118,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -1150,6 +1210,16 @@
             },
             "description": "forbidden / account_deleted（退会済み）"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1179,6 +1249,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -1192,6 +1272,7 @@
         ]
       },
       "post": {
+        "description": "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。`summary` タグ（自動要約専用）は指定できない。POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。",
         "operationId": "create_memory_memories_post",
         "requestBody": {
           "content": {
@@ -1244,6 +1325,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1273,6 +1364,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -1335,6 +1436,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1364,6 +1475,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [
@@ -1377,6 +1498,7 @@
         ]
       },
       "patch": {
+        "description": "`summary` タグは、もともと要約の記憶にだけ残せる（新たに付けることはできない）。",
         "operationId": "update_memory_memories__memory_id__patch",
         "parameters": [
           {
@@ -1441,6 +1563,16 @@
             },
             "description": "not_found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1470,6 +1602,16 @@
               }
             },
             "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
           }
         },
         "security": [

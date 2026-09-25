@@ -5,6 +5,10 @@
   バックグラウンド処理はリクエストのスコープ外で動くため、自前でプールから接続を取得する。
 - POST /comments/generate: 投稿者キャラが指定コメントに今すぐ返信する。
   出力が Gate #1 でヒットした場合は保存せず `comment: null`。
+  指定できるのは**自分のコメント**だけ（他人のコメントは 404。他人のスレッドにキャラの返信を量産させない）。
+- キャラの返信は**コメント1件につき1件まで**（自動返信・手動生成の合計）。既に返信があれば LLM を呼ばずに
+  既存の返信を返す。同時実行でも二重にならないよう、保存はコメント単位のアドバイザリーロック内で確認してから行う。
+- 公開されるキャラの返信は Gate #1（出力）に加えて URL・ドメイン名も差し止める（コメント経由の誘導対策）。
 """
 
 from __future__ import annotations
@@ -56,6 +60,16 @@ insert into public.comments (post_id, parent_comment_id, author_type, author_use
 values ($1, $2, $3, $4, $5, $6)
 returning {COMMENT_COLUMNS}
 """  # noqa: S608 - 列名は定数
+
+_EXISTING_REPLY_SQL: Final[str] = f"""
+select {COMMENT_COLUMNS} from public.comments
+ where parent_comment_id = $1 and author_type = 'character'
+ order by created_at asc
+ limit 1
+"""  # noqa: S608 - 列名は定数
+
+# 同じコメントへのキャラ返信の保存を直列化する（トランザクション終了で自動解放）
+_REPLY_LOCK_SQL: Final[str] = "select pg_advisory_xact_lock(hashtextextended('comment-reply:' || $1::uuid::text, 0))"
 
 TriggerKind = Literal["auto", "manual"]
 
@@ -160,8 +174,11 @@ class CommentService:
             )
         if parent is None:
             raise not_found("返信先のコメントが見つかりません。")
-        if parent["author_type"] == "character" and parent["author_character_id"] == post["character_id"]:
+        if parent["author_type"] == "character":
             raise ApiError(422, "validation_error", "キャラクター自身のコメントには返信できません。")
+        if parent["author_user_id"] != user.id:
+            # 他人のコメントには手動で返信を生成させない（コメント自体は誰でも読めるが、存在の有無は明かさない）
+            raise not_found("返信先のコメントが見つかりません。")
         try:
             comment = await self._generate_reply(post, parent, requested_by=user.id, trigger="manual")
         except LLMError as exc:
@@ -206,6 +223,14 @@ class CommentService:
         requested_by: UUID,
         trigger: TriggerKind,
     ) -> CommentDTO | None:
+        existing = await self._pool.fetchrow(_EXISTING_REPLY_SQL, parent["id"])
+        if existing is not None:
+            # 既に返信済み（自動返信の後に手動生成された等）→ LLM を呼ばずに既存の返信を返す
+            logger.info(
+                "comment already has a character reply; not generating another",
+                extra={"fields": {"comment_id": str(parent["id"]), "trigger": trigger}},
+            )
+            return comment_dto(existing)
         character_row = await self._pool.fetchrow(
             f"select {CHARACTER_COLUMNS} from public.characters where id = $1",  # noqa: S608 - 列名は定数
             post["character_id"],
@@ -247,7 +272,7 @@ class CommentService:
         if self._settings.audit_log_prompts:
             payload["prompt_messages"] = messages
 
-        check = self._moderator.check(text, extra_ng_words=persona.speech.ng_words)
+        check = self._moderator.check(text, extra_ng_words=persona.speech.ng_words, block_links=True)
         if check.flagged:
             await self._audit.log(
                 "moderation.flag",
@@ -267,9 +292,22 @@ class CommentService:
             await self._audit.log("comment.generate", user_id=requested_by, character_id=character.id, payload=payload)
             return None
 
-        row = await self._pool.fetchrow(
-            _INSERT_COMMENT_SQL, post["id"], parent["id"], "character", None, character.id, text
-        )
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(_REPLY_LOCK_SQL, parent["id"])
+            # 生成中に別の経路（自動返信 / 手動生成）が返信を保存していたら、2件目は保存しない
+            duplicate = await conn.fetchrow(_EXISTING_REPLY_SQL, parent["id"])
+            row = (
+                None
+                if duplicate is not None
+                else await conn.fetchrow(
+                    _INSERT_COMMENT_SQL, post["id"], parent["id"], "character", None, character.id, text
+                )
+            )
+        if duplicate is not None:
+            existing_comment = comment_dto(duplicate)
+            payload.update({"duplicate_of": existing_comment.id})
+            await self._audit.log("comment.generate", user_id=requested_by, character_id=character.id, payload=payload)
+            return existing_comment
         if row is None:  # pragma: no cover
             raise RuntimeError("comment insert returned no row")
         comment = comment_dto(row)

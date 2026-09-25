@@ -216,3 +216,130 @@ async def test_comment_rate_limit(app_factory: AppFactory, world: World) -> None
     limited = await client.post("/comments", json={"post_id": str(post_id), "body": "2"}, headers=user.headers)
     assert limited.status_code == 429
     assert "retry-after" in limited.headers
+
+
+class CountingCommentLLM(MockLLM):
+    def __init__(self, delay: float = 0.0) -> None:
+        self.calls = 0
+        self.delay = delay
+
+    async def complete(self, request: LLMRequest) -> LLMResult:
+        self.calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return await super().complete(request)
+
+
+async def _character_replies(world: World, comment_id: str) -> list[uuid.UUID]:
+    rows = await world.conn.fetch(
+        "select id from public.comments where parent_comment_id = $1 and author_type = 'character'",
+        uuid.UUID(comment_id),
+    )
+    return [r["id"] for r in rows]
+
+
+async def test_generate_on_another_users_comment_is_404(app_factory: AppFactory, world: World) -> None:
+    """他人のコメントを指定してキャラの公開返信を量産させることはできない。"""
+    llm = CountingCommentLLM()
+    client = await app_factory(make_settings(comment_auto_reply_probability=0.0), llm=llm)
+    author = await world.create_user()
+    attacker = await world.create_user()
+    post_id = await world.create_post()
+    created = await client.post("/comments", json={"post_id": str(post_id), "body": "素敵"}, headers=author.headers)
+    comment_id = created.json()["comment"]["id"]
+
+    res = await client.post(
+        "/comments/generate",
+        json={"post_id": str(post_id), "parent_comment_id": comment_id},
+        headers=attacker.headers,
+    )
+    assert res.status_code == 404
+    assert res.json()["error"]["message"] == "返信先のコメントが見つかりません。"
+    assert llm.calls == 0
+    assert await _character_replies(world, comment_id) == []
+
+
+async def test_generate_is_idempotent_per_comment(app_factory: AppFactory, world: World) -> None:
+    llm = CountingCommentLLM()
+    client = await app_factory(make_settings(comment_auto_reply_probability=0.0), llm=llm)
+    user = await world.create_user()
+    post_id = await world.create_post()
+    created = await client.post("/comments", json={"post_id": str(post_id), "body": "いいね"}, headers=user.headers)
+    comment_id = created.json()["comment"]["id"]
+    body = {"post_id": str(post_id), "parent_comment_id": comment_id}
+
+    first = await client.post("/comments/generate", json=body, headers=user.headers)
+    assert first.status_code == 200, first.text
+    second = await client.post("/comments/generate", json=body, headers=user.headers)
+    assert second.status_code == 200
+    # 2回目は LLM を呼ばず、既存の返信を返す（行は増えない）
+    assert second.json()["comment"]["id"] == first.json()["comment"]["id"]
+    assert llm.calls == 1
+    assert len(await _character_replies(world, comment_id)) == 1
+
+
+async def test_auto_reply_then_manual_generate_leaves_one_reply(app_factory: AppFactory, world: World) -> None:
+    llm = CountingCommentLLM()
+    client = await app_factory(make_settings(comment_auto_reply_probability=1.0), llm=llm)
+    user = await world.create_user()
+    post_id = await world.create_post()
+    created = await client.post("/comments", json={"post_id": str(post_id), "body": "かわいい"}, headers=user.headers)
+    comment_id = created.json()["comment"]["id"]
+    auto = await _wait_for_reply(world, uuid.UUID(comment_id))
+    assert auto is not None
+
+    res = await client.post(
+        "/comments/generate", json={"post_id": str(post_id), "parent_comment_id": comment_id}, headers=user.headers
+    )
+    assert res.status_code == 200
+    assert res.json()["comment"]["id"] == str(auto["id"])
+    assert await _character_replies(world, comment_id) == [auto["id"]]
+    assert llm.calls == 1
+
+
+async def test_concurrent_generates_store_a_single_reply(app_factory: AppFactory, world: World) -> None:
+    """同時に生成しても（LLM は複数回呼ばれ得るが）保存される返信は1件だけ。"""
+    llm = CountingCommentLLM(delay=0.1)
+    client = await app_factory(make_settings(comment_auto_reply_probability=0.0), llm=llm)
+    user = await world.create_user()
+    post_id = await world.create_post()
+    created = await client.post("/comments", json={"post_id": str(post_id), "body": "素敵！"}, headers=user.headers)
+    comment_id = created.json()["comment"]["id"]
+    body = {"post_id": str(post_id), "parent_comment_id": comment_id}
+
+    results = await asyncio.gather(
+        *(client.post("/comments/generate", json=body, headers=user.headers) for _ in range(3))
+    )
+    assert [r.status_code for r in results] == [200, 200, 200]
+    replies = await _character_replies(world, comment_id)
+    assert len(replies) == 1
+    assert {r.json()["comment"]["id"] for r in results} == {str(replies[0])}
+    duplicates = await world.conn.fetchval(
+        "select count(*) from public.audit_logs where user_id = $1 and event_type = 'comment.generate'"
+        " and payload ? 'duplicate_of'",
+        user.id,
+    )
+    assert duplicates == llm.calls - 1
+
+
+async def test_reply_with_link_is_withheld(app_factory: AppFactory, world: World) -> None:
+    class LinkLLM(MockLLM):
+        async def complete(self, request: LLMRequest) -> LLMResult:
+            return LLMResult(text="詳しくは example.com/promo を見てね", model="link", latency_ms=1)
+
+    client = await app_factory(make_settings(comment_auto_reply_probability=0.0), llm=LinkLLM())
+    user = await world.create_user()
+    post_id = await world.create_post()
+    created = await client.post("/comments", json={"post_id": str(post_id), "body": "どこ？"}, headers=user.headers)
+    comment_id = created.json()["comment"]["id"]
+    res = await client.post(
+        "/comments/generate", json={"post_id": str(post_id), "parent_comment_id": comment_id}, headers=user.headers
+    )
+    assert res.status_code == 200
+    assert res.json() == {"comment": None}
+    assert await _character_replies(world, comment_id) == []
+    flag = await world.conn.fetchval(
+        "select payload from public.audit_logs where user_id = $1 and event_type = 'moderation.flag'", user.id
+    )
+    assert flag["context"] == "comment_reply"
+    assert "link" in flag["categories"]

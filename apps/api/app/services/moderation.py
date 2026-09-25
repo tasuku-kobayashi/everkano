@@ -6,7 +6,11 @@
   （「死 ね」「ｼﾈ」「シネ」などの揺れを同一視する）
 - 一部の語（「ロリ」「レイプ」など）はひらがな化すると一般語（「ころり」「きれい、プロ…」）に誤爆するため、
   カタカナのまま（fold_kana=False）照合する。年齢表現も同様（「1サイズ」の「サイ」を「さい」にしない）。
-- 英字の略語（JK/JC など）は単語境界付きの正規表現で照合する。
+- 英字の略語（JK/JC など）・ローマ字の短い語は単語境界付きの正規表現で、記号を除いた本文と、空白・記号を
+  区切りとして残した本文の両方に照合する（`Term.word`）。ローマ字の長い綴り（shougakusei など）は
+  記号を除いた本文に照合する。
+- キーワード照合は第一層の対策で、言い換え・当て字・別の文字体系への置き換えをすべて防ぐものではない
+  （残りはシステムプロンプトの「未成年を想起させる表現を出さない」制約で抑える。ADR-0010）。
 - 出力チェックではキャラの `speech.ng_words` も追加で照合する。こちらは短いかな語（「ブス」「きもい」）が
   多く、上記の正規化（かな統一・記号除去）をすると「ライブすごく」「ときもいい」「楽しく、そして」に誤爆する。
   そのため NFKC + 小文字化のみで照合し、かな語は前後が同じ文字種のかなでないこと（語の途中でないこと）を
@@ -22,17 +26,31 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Final, Literal, Protocol
 
-Category = Literal["ng_word", "minor", "real_person", "persona_ng_word"]
+Category = Literal["ng_word", "minor", "real_person", "persona_ng_word", "link"]
+
+# URL・ドメイン名（公開されるキャラのコメント返信に、コメント経由で誘導されたリンクを載せないため）
+_LINK_RE: Final = re.compile(
+    r"(?:https?://|www\.)\S+"
+    r"|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*"
+    r"\.(?:com|net|org|jp|io|co|me|ly|app|dev|info|biz|xyz|link|site|online|tv|gg|to|cc|us|uk|page|club|shop)\b"
+    r"(?:/\S*)?",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class Term:
-    """照合語。`pattern=True` の場合 text は（正規化後テキストに対する）正規表現。"""
+    """照合語。`pattern=True` の場合 text は（正規化後テキストに対する）正規表現。
+
+    `word=True`（英字の短い語）は、空白・記号を除いた本文に加えて、空白・記号を1つの空白として残した本文にも
+    照合する（単語境界を正規表現で取れるようにするため）。
+    """
 
     text: str
     category: Category
     fold_kana: bool = True
     pattern: bool = False
+    word: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,17 +146,46 @@ MINOR_PATTERNS_UNFOLDED: Final[tuple[str, ...]] = (
     rf"(?<![0-9])(?:1[0-7]|[1-9])サイ(?![ァ-ヺー]){_AGE_RELATIVE}",
     rf"(?<![〇零一二三四五六七八九十百千万])(?:十[一二三四五六七]?|[一二三四五六七八九])(?:歳|さい|才){_AGE_RELATIVE}",
 )
-# 正規化後（ひらがな化済み）テキストに対する正規表現（英字略語は単語境界付き、学年表現など）
+# 正規化後（ひらがな化済み）テキストに対する正規表現（英語の語・学年表現など）
 # ※ 空白は除去済みのため英語の単語境界は取れない。一般語に含まれにくい綴りだけを登録する
-#   （「shota」単体は人名「翔太」に誤爆するため shotacon のみ）。
+#   （「shota」単体は人名「翔太」に誤爆するため shotacon のみ。短い語は MINOR_WORD_PATTERNS）。
 MINOR_PATTERNS: Final[tuple[str, ...]] = (
-    r"(?<![a-z])(?:jk|jc)(?![a-z])",  # 「js」は JavaScript に誤爆するため登録しない
     r"loli(?!p)",  # lolicon / lolita / loli画像（lolipop は除外）
     r"shotacon|underage|preteen",
+    r"pa?edo(?:phil|fil)",  # pedophile / paedophile / pedofilia（「torpedo」などは除外）
     r"(?<![0-9])(?:1[0-7]|[1-9])(?:yo|yrsold|yearsold|yrold|yearold)(?![a-z])",
     r"ようじょ(?!う)",  # 「ようじょう（養生）」を除外
     r"(?<!日本)男児",  # 「日本男児」を除外
     r"(?<!最)(?:小|中|高)[1-6一二三四五六](?:年生|の|だ|です|で|って|$)",
+)
+# ローマ字表記（「shougakusei」「joshikousei」など、かな・漢字の語彙を素通りする言い換え）。
+# 空白・記号を除いた本文に対して照合するため、他の語の中に現れにくい長い綴りだけを登録する
+# （短い綴りは下の MINOR_WORD_PATTERNS で単語として照合する）。長音の揺れ（ou / oo / o / ō）も拾う。
+_ROMAJI_O: Final[str] = "(?:ou|oo|o|ō|ô)"
+_ROMAJI_LONG_O: Final[str] = "(?:ou|oo|ō|ô)"
+_ROMAJI_U: Final[str] = "(?:uu|u|ū|û)"
+MINOR_PATTERNS_ROMAJI: Final[tuple[str, ...]] = (
+    rf"(?:sh|sy){_ROMAJI_O}gaku(?:sei|[1-6]nen)",  # 小学生 / 小学5年
+    rf"(?:ch|ty|cy){_ROMAJI_U}gaku(?:sei|[1-6]nen)",  # 中学生 / 中学2年
+    # 高校生（「kokosei」は「koko seikatsu（ここ生活）」に誤爆するため単語として照合する）
+    rf"k{_ROMAJI_LONG_O}k{_ROMAJI_O}sei|kok{_ROMAJI_LONG_O}sei",
+    rf"(?:jo|jyo|zyo)(?:shi|si)k{_ROMAJI_O}sei",  # 女子高生（joshikosei 等。女子中学生・女子小学生は上で拾う）
+    r"miseinen",  # 未成年
+    r"randoseru",  # ランドセル
+    r"ro(?:ri|li)(?:kon|con)",  # ロリコン（「loricon」は人名 Lori Con… に誤爆するため r のみ）
+    r"(?:sh|sy)otakon",  # ショタコン
+)
+# 英字の短い語（単語境界付き）。空白・記号を除いた本文に加え、空白・記号を区切りとして残した本文にも照合する
+# （「JK ga suki」「I like JK」は空白を除くと jkgasuki / ilikejk になり、単語境界が取れないため）。
+MINOR_WORD_PATTERNS: Final[tuple[str, ...]] = (
+    r"(?<![a-z])(?:jk|jc)(?![a-z])",  # 「js」は JavaScript に誤爆するため登録しない
+    r"(?<![a-z])kokosei(?![a-z])",  # 高校生
+    r"(?<![a-z])(?:you|yoo|yo|yō|yô)(?:jo|jyo|zyo)(?![a-z])",  # 幼女（「you join」「youjou（養生）」は除外）
+    r"(?<![a-z])enji(?![a-z])",  # 園児（「genjitsu」「genji」は除外）
+    # 年齢（「17sai」「15 sai desu」）。相対年齢・期間（「3sai sa」「5sai kara」）は除外する
+    r"(?<![0-9a-z])(?:1[0-7]|[1-9]) ?sai(?![a-z])"
+    r"(?! ?(?:(?:kara|sa|ue|shita)(?![a-z])|chiga|toshiue|toshishita|hanare|[gk]urai ?chiga))"
+    r"(?! ?(?:差|違|離れ|年上|年下|上|下|から|くらい違|ぐらい違))",
 )
 
 # 実在人物（政治家・著名人など）。ここ以外のコード・コンテンツに実在人物名を書かないこと。
@@ -178,6 +225,8 @@ class StaticTermProvider:
         terms += [Term(w, "minor") for w in MINOR_WORDS]
         terms += [Term(p, "minor", fold_kana=False, pattern=True) for p in MINOR_PATTERNS_UNFOLDED]
         terms += [Term(p, "minor", pattern=True) for p in MINOR_PATTERNS]
+        terms += [Term(p, "minor", pattern=True) for p in MINOR_PATTERNS_ROMAJI]
+        terms += [Term(p, "minor", pattern=True, word=True) for p in MINOR_WORD_PATTERNS]
         terms += [Term(w, "real_person") for w in REAL_PERSON_NAMES]
         self._terms = tuple(terms)
 
@@ -204,16 +253,42 @@ def hiragana_to_katakana(text: str) -> str:
     return "".join(chr(ord(ch) + _KANA_OFFSET) if _HIRAGANA_START <= ord(ch) <= _HIRAGANA_END else ch for ch in text)
 
 
+# 照合前に除去する Unicode カテゴリ: 空白（Z*）・記号（P*, S*）・制御/書式文字（C*）・結合文字（M*）。
+# 結合文字は NFKC で合成できなかったもの（「s̲h̲o̲u̲…」のように文字の間に挟んだ下線など）だけが残る。
+# 長音「ー」・踊り字「ゝ」(Lm) は残す。
+_NOISE_CATEGORIES: Final[frozenset[str]] = frozenset({"Z", "P", "S", "C", "M"})
+# 単語境界用の本文で「区切り」にせず、単に取り除くカテゴリ（見えない書式文字・結合文字）
+_INVISIBLE_CATEGORIES: Final[frozenset[str]] = frozenset({"Cf", "Mn", "Me", "Mc"})
+
+
 def _strip_noise(text: str) -> str:
-    # 空白（Z*）・記号（P*, S*）・制御文字（C*）を除去。長音「ー」(Lm) は残す。
-    return "".join(ch for ch in text if unicodedata.category(ch)[0] not in {"Z", "P", "S", "C"})
+    return "".join(ch for ch in text if unicodedata.category(ch)[0] not in _NOISE_CATEGORIES)
 
 
-def normalize(text: str, *, fold_kana: bool = True) -> str:
+def _collapse_noise(text: str) -> str:
+    """空白・記号・制御文字の連続を1つの空白にする（見えない書式文字・結合文字は取り除く）。"""
+    out: list[str] = []
+    for ch in text:
+        category = unicodedata.category(ch)
+        if category in _INVISIBLE_CATEGORIES:
+            continue
+        if category[0] in _NOISE_CATEGORIES:
+            if out and out[-1] != " ":
+                out.append(" ")
+            continue
+        out.append(ch)
+    return "".join(out).strip()
+
+
+def normalize(text: str, *, fold_kana: bool = True, keep_word_breaks: bool = False) -> str:
+    """NFKC → 小文字化 → （fold_kana なら）カタカナをひらがなに → 空白・記号を除去。
+
+    `keep_word_breaks=True` なら空白・記号を除去せずに1つの空白にまとめる（英字の単語境界を取る照合用）。
+    """
     value = unicodedata.normalize("NFKC", text).lower()
     if fold_kana:
         value = katakana_to_hiragana(value)
-    return _strip_noise(value)
+    return _collapse_noise(value) if keep_word_breaks else _strip_noise(value)
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +354,7 @@ class _CompiledTerm:
     fold_kana: bool
     literal: str | None
     regex: re.Pattern[str] | None
+    word: bool = False
 
 
 class Moderator:
@@ -291,14 +367,17 @@ class Moderator:
         compiled: list[_CompiledTerm] = []
         for term in terms:
             if term.pattern:
-                compiled.append(_CompiledTerm(term.text, term.category, term.fold_kana, None, re.compile(term.text)))
+                compiled.append(
+                    _CompiledTerm(term.text, term.category, term.fold_kana, None, re.compile(term.text), word=term.word)
+                )
             else:
                 literal = normalize(term.text, fold_kana=term.fold_kana)
                 if literal:
                     compiled.append(_CompiledTerm(term.text, term.category, term.fold_kana, literal, None))
         return tuple(compiled)
 
-    def check(self, text: str, *, extra_ng_words: Sequence[str] = ()) -> ModerationResult:
+    def check(self, text: str, *, extra_ng_words: Sequence[str] = (), block_links: bool = False) -> ModerationResult:
+        """Gate #1。`block_links=True` なら URL・ドメイン名もヒット扱いにする（公開されるキャラの出力用）。"""
         folded = normalize(text, fold_kana=True)
         unfolded = normalize(text, fold_kana=False)
         categories: list[str] = []
@@ -310,16 +389,30 @@ class Moderator:
             if term not in matched:
                 matched.append(term)
 
+        # 英字の短い語（Term.word）用に、空白・記号を区切りとして残した本文（必要になったときだけ作る）
+        spaced: dict[bool, str] = {}
+
+        def word_target(fold_kana: bool) -> str:
+            if fold_kana not in spaced:
+                spaced[fold_kana] = normalize(text, fold_kana=fold_kana, keep_word_breaks=True)
+            return spaced[fold_kana]
+
         for term in self._compiled:
             target = folded if term.fold_kana else unfolded
             if term.literal is not None and term.literal in target:
                 hit(term.category, term.original)
-            elif term.regex is not None and (m := term.regex.search(target)) is not None:
-                hit(term.category, m.group(0))
+            elif term.regex is not None:
+                m = term.regex.search(target)
+                if m is None and term.word:
+                    m = term.regex.search(word_target(term.fold_kana))
+                if m is not None:
+                    hit(term.category, m.group(0))
         if extra_ng_words:
             # 語境界を保つため、記号除去・かな統一はしない（NFKC + 小文字化のみ）
             plain = unicodedata.normalize("NFKC", text).lower()
             for word, pattern in _persona_patterns(tuple(extra_ng_words)):
                 if pattern.search(plain):
                     hit("persona_ng_word", word)
+        if block_links and (link := _LINK_RE.search(unicodedata.normalize("NFKC", text))) is not None:
+            hit("link", link.group(0))
         return ModerationResult(flagged=bool(matched), categories=categories, matched_terms=matched)

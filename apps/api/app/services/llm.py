@@ -27,6 +27,7 @@ from typing import Any, Final, Literal, Protocol
 import httpx
 
 from app.core.config import Settings
+from app.core.http import upstream_timeout
 from app.core.logging import get_logger
 from app.services.persona import Persona
 from app.services.prompt import JST, ChatMessage
@@ -112,7 +113,8 @@ class OpenAICompatibleLLM:
         self._url = f"{settings.llm_base_url}/chat/completions"
         self._api_key = settings.llm_api_key.get_secret_value()
         self._model = settings.llm_model
-        self._timeout = settings.llm_timeout_seconds
+        # 接続待ち（pool）は短く、応答の読み取りは LLM_TIMEOUT_SECONDS（app/core/http.py）
+        self._timeout = upstream_timeout(settings.llm_timeout_seconds)
         self._max_retries = settings.llm_max_retries
         self._backoff = backoff_base_seconds
         self._http = http
