@@ -16,6 +16,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Prettier は一時ディレクトリのファイルを整形するため、.prettierrc.json の相対パス
+# （tailwindStylesheet: ./apps/web/app/globals.css）とプラグインをカレントディレクトリから解決する。
+# どこから実行しても同じ結果になるよう、リポジトリルートに移動しておく。
+cd "$ROOT_DIR"
 SUPABASE_BIN="${SUPABASE_BIN:-supabase}"
 TYPES_FILE="${ROOT_DIR}/packages/shared/src/database.types.ts"
 PRETTIER="${ROOT_DIR}/node_modules/.bin/prettier"

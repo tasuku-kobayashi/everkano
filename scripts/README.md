@@ -99,7 +99,7 @@ scripts/check-scope.sh
 
 ## package.json から呼ぶ場合
 
-ルートの `package.json` に次のエイリアスを置く想定（`.env.example` の手順は `pnpm setup:env` を案内している）:
+ルートの `package.json` に次のエイリアスがある（`.env.example` と README の手順は `pnpm setup:env` を案内している）:
 
 ```json
 {

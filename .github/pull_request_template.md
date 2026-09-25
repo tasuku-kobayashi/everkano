@@ -29,11 +29,12 @@
 ## チェックリスト
 
 - [ ] コミットメッセージは Conventional Commits（`feat:` / `fix:` / `chore:` ...）
-- [ ] `pnpm lint` / `pnpm typecheck` / `pnpm test` が通る（API: `ruff check` / `ruff format --check` / `mypy app` / `pytest`）
+- [ ] `pnpm lint`（ESLint / ruff / Prettier の整形チェック）/ `pnpm typecheck` / `pnpm test` が通る（API: `ruff check` / `ruff format --check` / `mypy app` / `pytest`）
 - [ ] **RLS**: テーブル・列・関数を追加/変更した場合、RLS 有効化・最小権限の grant・ポリシーをセットで書き、`scripts/test-db.sh` の pgTAP テスト（`infra/supabase/tests/database/`）を追加/更新した
 - [ ] **RLS**: Python API の DB アクセスは `user_id` で所有者チェックしている（API は postgres ロールで RLS をバイパスするため）
 - [ ] **スキーマ変更時**: `pnpm db:types` で `packages/shared/src/database.types.ts` を再生成した
 - [ ] **シークレット**: キー・トークン・パスワードをコミットしていない（`scripts/check-secrets.sh` が通る / 新しい環境変数は `.env.example` にキー名だけ追加）
+- [ ] **ペルソナ / シード変更時**: `pnpm --filter @everkano/personas seed:generate` で `infra/supabase/seed.sql` を再生成し、`pnpm personas:validate` が通る
 - [ ] **スコープ外機能なし**: 決済・画像生成・TTS/音声・ユーザー投稿・フォロー・通知・管理画面・多言語対応を含まない（`scripts/check-scope.sh` が通る）
 - [ ] ユーザー由来のテキスト（DM・コメント・メモリ）の書き込みは Python API 経由（Gate #1 モデレーション + 監査ログ）
 - [ ] スマホ幅（〜480px）で表示崩れが無い（UI 変更時）

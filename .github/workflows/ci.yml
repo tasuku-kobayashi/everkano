@@ -1,10 +1,13 @@
 # =============================================================================
 # CI — PR と main への push で実行する品質ゲート（開発依頼書 §15 / 受け入れ基準 A13・A14・A16）
 #
-#   checks : シークレット混入（A14）・スコープ外機能（A16）・シェルスクリプトの静的解析
+#   checks : シークレット混入（A14）・スコープ外機能（A16）・シェルスクリプトの静的解析・
+#            ペルソナ / seed.sql の整合性と未成年表現の検査・docker compose の API 設定の検査
 #   web    : Next.js の lint / typecheck / test / build（ダミーの公開 env でビルド）
 #   api-db : ローカル Supabase を起動し、RLS の pgTAP テスト（A13）・DB 型のずれ検出・
 #            Python API の ruff / mypy / pytest（統合テストは同じ DB を使用）
+#   e2e    : 受け入れ基準の Playwright E2E（apps/web/e2e）。所要時間が長いため
+#            手動実行（Actions タブ → CI → Run workflow）のときだけ動く
 #
 # シークレットは一切使わない（LLM は mock、Embedding は hash、Supabase はローカルの既定値）。
 # =============================================================================
@@ -32,7 +35,7 @@ env:
 jobs:
   # ---------------------------------------------------------------------------
   checks:
-    name: Repo checks (secrets / scope / shellcheck)
+    name: Repo checks (secrets / scope / shellcheck / personas / compose)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -46,6 +49,29 @@ jobs:
 
       - name: ShellCheck（scripts/*.sh）
         run: shellcheck -x scripts/*.sh
+
+      - uses: astral-sh/setup-uv@v6
+
+      # packages/personas/scripts/validate_personas.py（= pnpm personas:validate）:
+      # YAML の必須項目・全キャラ 20 歳以上に加え、YAML / seed/feed.yaml / infra/supabase/seed.sql に
+      # 未成年を想起させる表現が無いこと、seed.sql が generate_seed.py の生成結果と一致すること
+      # （手編集・再生成忘れ）を検査する。API 側の scripts/validate_personas.py は Pydantic モデルの読込のみ
+      - name: ペルソナ / seed.sql の整合性・未成年表現チェック（成人のみ）
+        run: uv run --with pyyaml python packages/personas/scripts/validate_personas.py
+
+      # setup-env.sh（.env.example）から作った apps/api/.env で docker compose の API が起動できること。
+      # env_file の空の PERSONAS_DIR= / PROMPTS_DIR= がイメージの既定パスを空文字で上書きしないか検査する
+      - name: docker compose の API 設定（PERSONAS_DIR / PROMPTS_DIR がイメージ内のパスになる）
+        run: |
+          status_file="${RUNNER_TEMP}/supabase-status.env"
+          printf '%s\n' 'API_URL="http://127.0.0.1:54321"' \
+            'DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"' \
+            'ANON_KEY="ci-dummy-anon-key"' >"$status_file"
+          bash scripts/setup-env.sh --status-file "$status_file"
+          # 以前の .env.example から作った .env（空の PERSONAS_DIR= / PROMPTS_DIR= 入り）でも同じになること
+          printf 'PERSONAS_DIR=\nPROMPTS_DIR=\n' >>apps/api/.env
+          docker compose config --format json | jq -e '.services.api.environment
+            | .PERSONAS_DIR == "/srv/everkano/personas" and .PROMPTS_DIR == "/srv/everkano/prompts"'
 
   # ---------------------------------------------------------------------------
   web:
@@ -120,6 +146,10 @@ jobs:
       - name: RLS / 権限 / トリガーのテスト（pgTAP, A13）
         run: bash scripts/test-db.sh
 
+      # メール確認必須（未確認パスワードでの乗っ取り防止）が config.toml から外れていないか
+      - name: Auth 設定の静的検査（enable_confirmations 等）
+        run: python3 infra/supabase/tests/auth/signup_hardening.py --static-only
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -130,8 +160,11 @@ jobs:
       - name: Install（Prettier を DB 型の比較に使う）
         run: pnpm install --frozen-lockfile
 
+      # scripts/ はリポジトリのどこから実行しても動く前提（scripts/README.md）。
+      # その回帰も検出するため、あえてサブディレクトリから実行する
       - name: DB 型（database.types.ts）がマイグレーションと一致しているか
-        run: bash scripts/check-db-types.sh
+        working-directory: apps/web
+        run: bash ../../scripts/check-db-types.sh
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -172,6 +205,85 @@ jobs:
           supabase status --workdir infra || true
           docker ps -a || true
           docker logs "$(docker ps -aqf name=supabase_db_)" 2>&1 | tail -n 200 || true
+
+      - name: Supabase 停止
+        if: always()
+        run: supabase stop --workdir infra --no-backup || true
+
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E（受け入れ基準 / Playwright・手動実行のみ）
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      E2E_WORKERS: "2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      # Realtime（DM・コメント同期）と Mailpit（ログインコード取得）が必要
+      - name: Supabase ローカルスタック起動
+        run: supabase start --workdir infra -x storage-api,imgproxy,studio,edge-runtime,logflare,vector,supavisor
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Install
+        run: |
+          pnpm install --frozen-lockfile
+          (cd apps/api && uv sync --frozen)
+          pnpm --filter @everkano/web exec playwright install --with-deps chromium
+
+      - name: 環境変数ファイル生成（supabase status から）
+        run: bash scripts/setup-env.sh --force
+
+      - name: API 起動（モック LLM / ハッシュ埋め込み）
+        working-directory: apps/api
+        run: |
+          nohup uv run uvicorn app.main:app --port 8000 > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://localhost:8000/health && break; sleep 1; done
+
+      - name: Web ビルド・起動（本番ビルド）
+        working-directory: apps/web
+        run: |
+          pnpm build
+          nohup pnpm start -p 3000 > /tmp/web.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS -o /dev/null http://localhost:3000/login && break; sleep 1; done
+
+      - name: Playwright E2E
+        run: pnpm --filter @everkano/web e2e
+
+      - name: レポート保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 14
+
+      - name: 失敗時のサーバーログ
+        if: failure()
+        run: |
+          tail -n 200 /tmp/api.log || true
+          tail -n 200 /tmp/web.log || true
 
       - name: Supabase 停止
         if: always()
