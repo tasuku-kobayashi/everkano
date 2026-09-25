@@ -161,7 +161,11 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:3000/auth/callback", "http://127.0.0.1:3000/auth/callback"]
+# signInWithOtp の emailRedirectTo は `<SITE_URL>/auth/callback?next=<ログイン後の遷移先>` になるため、クエリ付きを許可する（`**`）。
+# ログインメールのリンク（templates/magic_link.html）はこの値を redirect_to として運び、Web の /auth/confirm が next を取り出す。
+# 許可されない URL は GoTrue が Site URL に置き換える（その場合はログイン後にホームへ）。なお Site URL と同じホスト名と、
+# ループバック（localhost / 127.0.0.1）はこのリストに無くても許可される。ホスト版の設定は docs/handover/supabase-auth.md §1。
+additional_redirect_urls = ["http://localhost:3000/auth/callback**", "http://127.0.0.1:3000/auth/callback**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -195,6 +199,12 @@ password_requirements = ""
 # rp_id = "localhost"
 # rp_origins = ["http://127.0.0.1:3000"]
 
+# [セキュリティ] ログインはメールだけなので、次の 2 つは「ログインできなくなる」攻撃（メール送信枠の枯渇）の防御線。
+# - email_sent はプロジェクト全体の上限（IP ごとではない）。CAPTCHA 無しでは、anon key だけで任意のアドレスへの
+#   /auth/v1/otp を繰り返して枠を使い切れる（1 IP でも sign_in_sign_ups = 30 / 5 分 = 360 / 時 > 100 / 時）。
+#   枠が尽きると、新規登録と再ログインのメールが全員に届かなくなる。
+# - 本番は下の [auth.captcha]（hCaptcha）を必ず有効にし、email_sent は SMTP の実際の送信能力に合わせる。
+#   監視: Auth のログで /auth/v1/otp の 429（over_email_send_rate_limit）を見る（docs/handover/supabase-auth.md §5）。
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
 email_sent = 100
@@ -212,10 +222,16 @@ token_verifications = 30
 web3 = 30
 
 # Configure one of the supported captcha providers: `hcaptcha`, `turnstile`.
+# [セキュリティ] 本番・staging では hCaptcha を有効にする（Turnstile は Cloudflare のため使わない / H8）。
+# ホスト版はダッシュボードの Authentication → Attack Protection（Bot and Abuse Protection）で設定する。
+# ローカルは無効のまま（hCaptcha のサーバー検証は外部通信が必要。E2E は管理 API の generate_link でログインするので影響しない）。
+# 有効にすると /auth/v1/otp・/signup・password grant に captchaToken が必須になる。Web のログイン画面が
+# NEXT_PUBLIC_HCAPTCHA_SITEKEY を読んで signInWithOtp の options.captchaToken を送るようになってから有効にすること
+# （先に有効にすると誰もログインメールを要求できなくなる）。
 # [auth.captcha]
 # enabled = true
 # provider = "hcaptcha"
-# secret = ""
+# secret = "env(SUPABASE_AUTH_CAPTCHA_SECRET)"
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
@@ -234,13 +250,18 @@ double_confirm_changes = true
 # テスト用ユーザーは管理 API（email_confirm: true）か auth.users への直接 INSERT で作るため影響しない。
 enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
-secure_password_change = false
+# [セキュリティ] パスワードは使わない。PUT /auth/v1/user {password} によるパスワードの設定はマイグレーションの
+# on_auth_user_password_update トリガーが無効にする（盗まれたアクセストークンからの恒久的な乗っ取り対策）。
+# こちらは多層防御（最近ログインしていないセッションからのパスワード変更には、メールのコードでの再認証を要求する）。
+secure_password_change = true
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "1s"
 # Number of characters used in the email OTP.
 otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+# [セキュリティ] 15 分。6 桁コードの総当たりに使える時間を短くする（GoTrue は IP ごとのレート制限だけで、
+# ユーザーごとの試行回数の上限は無い）。ログインメールはその場で使うため 15 分で足りる。マジックリンクにも適用される。
+otp_expiry = 900
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]
@@ -253,6 +274,9 @@ otp_expiry = 3600
 # sender_name = "Admin"
 
 # マジックリンク（ログイン）メール。リンク（/auth/confirm）と6桁コードの両方を含める。
+# リンクは {{ .SiteURL }}/auth/confirm?token_hash=...&type=email&redirect_to=<emailRedirectTo>。
+# redirect_to は GoTrue が上の additional_redirect_urls / Site URL で検証済みの値（許可されなければ Site URL）で、
+# Web の /auth/confirm はここに含まれる next（ログイン前に開こうとしていたページ）を検証してから使う。
 # 本番環境では Supabase ダッシュボードの Email Templates に同内容を設定すること。
 # この [auth] 以下の設定はホスト版には自動で反映されない。本番の設定項目は docs/handover/supabase-auth.md のチェックリスト参照。
 [auth.email.template.magic_link]
@@ -271,11 +295,13 @@ content_path = "./supabase/templates/magic_link.html"
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./supabase/templates/password_changed_notification.html"
+# パスワードの設定・変更が要求されたことを本人に知らせる（パスワード自体は on_auth_user_password_update トリガーが
+# 無効にするため設定されない）。本人に心当たりが無ければ、ログイン状態（アクセストークン）が第三者に使われた兆候。
+# 本番でも Email Templates の「Password changed」通知を有効にし、同じ内容に設定すること。
+[auth.email.notification.password_changed]
+enabled = true
+subject = "everkano パスワード設定の要求がありました"
+content_path = "./supabase/templates/password_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.

@@ -20,7 +20,9 @@ create extension if not exists vector with schema extensions;
 -- -----------------------------------------------------------------------------
 create table public.profiles (
   id uuid primary key references auth.users on delete cascade,
-  display_name text,
+  -- [追加] 表示名の長さ（Web の上限 30 文字 = コードポイント数と同じ）。profiles はクライアントが直接 UPDATE できるため、
+  -- 画面の検証だけでは巨大な値・空文字を書き込めてしまう。未設定は NULL（画面はメールのローカル部を表示する）
+  display_name text check (display_name is null or char_length(display_name) between 1 and 30),
   created_at timestamptz not null default now(),
   deleted_at timestamptz -- 退会（論理削除）日時
 );
@@ -107,6 +109,9 @@ create table public.comments (
 -- 事前に削除される運用とする（退会は論理削除なので通常は発生しない）。詳細は ADR-0004。
 create index comments_post_id_created_at_idx on public.comments (post_id, created_at);
 create index comments_parent_comment_id_idx on public.comments (parent_comment_id);
+-- ユーザーの物理削除（docs/handover/06-operations.md の手順 1 の delete と、profiles 削除時の on delete set null）で
+-- author_user_id を検索するため。無いと削除のたびに comments を全件走査する。キャラのコメント（NULL）は索引に入れない。
+create index comments_author_user_id_idx on public.comments (author_user_id) where author_user_id is not null;
 comment on column public.comments.parent_comment_id is '[追加] 返信先コメント（POST /comments/generate でキャラが返信する際に使用）。';
 
 -- -----------------------------------------------------------------------------
@@ -153,6 +158,12 @@ create table public.memories (
   updated_at timestamptz not null default now() -- [追加]
 );
 create index memories_user_id_character_id_idx on public.memories (user_id, character_id, created_at desc);
+-- source_message_id の on delete set null 用。messages を 1 行削除するたびに、外部キーのトリガーが
+-- memories を source_message_id で検索する（ユーザーの物理削除では、その人の全メッセージ分）。
+-- 索引が無いと 1 行ごとに memories 全体（全ユーザー分）を走査し、削除が数秒〜数分かかる。
+-- 部分索引で足りる（トリガーの where source_message_id = $1 は NOT NULL を含意する）。
+-- 本番の大きなテーブルに後から作る場合は、マイグレーション外で create index concurrently を使うこと。
+create index memories_source_message_id_idx on public.memories (source_message_id) where source_message_id is not null;
 -- 仕様は ivfflat だが、空テーブルに作成した ivfflat はリストの重心が学習されず再現率が
 -- 著しく劣化するため HNSW を採用（ADR-0005）。なお DM 応答時の検索は
 -- user×character に絞った厳密検索（exact scan）で行い、この索引は横断検索用。
@@ -184,8 +195,10 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- 既定の表示名はメールのローカル部（最大 64 文字）を display_name の上限 30 文字に切り詰めたもの。
+  -- 切り詰めないと、ローカル部の長いメールアドレスでは check 制約違反でサインアップ自体が失敗する
   insert into public.profiles (id, display_name)
-  values (new.id, split_part(coalesce(new.email, ''), '@', 1))
+  values (new.id, nullif(left(split_part(coalesce(new.email, ''), '@', 1), 30), ''))
   on conflict (id) do nothing;
   return new;
 end;
@@ -225,6 +238,39 @@ create trigger on_auth_user_email_verified
     and (old.confirmation_sent_at is not null or old.recovery_sent_at is not null)
   )
   execute function public.discard_unverified_password();
+
+-- [セキュリティ] 既存ユーザーのパスワードの設定・変更を無効にする（パスワードを使わない運用を DB で強制する）。
+-- Supabase Auth の PUT /auth/v1/user {password} は、有効なアクセストークン（1 時間）だけで確認なしにパスワードを設定でき、
+-- そのパスワードはサインアウトやリフレッシュトークンの失効後も残る。トークンが一度でも漏れると（XSS・共用端末・
+-- ブラウザ拡張など）、攻撃者がパスワードを設定して以後いつでもログインできる = 恒久的な乗っ取りになる。
+-- そこで auth.users の UPDATE で encrypted_password を「空でない別の値」にしようとしたら、元の値に戻す。
+--   * パスワードの消去（NULL / 空文字。上の on_auth_user_email_verified による破棄を含む）は許可する。
+--   * INSERT は対象外。管理 API（email_confirm: true + password）で作るテスト用ユーザーはパスワードでログインできる。
+--   * 管理 API の PUT /auth/v1/admin/users/{id} {password} も同じロール（supabase_auth_admin）で更新するため無効になる。
+--   * 例外にはしない（GoTrue は 200 を返すが、パスワードは設定されない）。GoTrue はパスワードログインの成功時に
+--     ハッシュ形式の更新で encrypted_password を UPDATE することがあり、例外にするとそのログイン自体が失敗するため。
+--     発生は Postgres のログに LOG で残す（ホスト版はダッシュボードの Logs → Postgres）。
+-- パスワードを使う機能を追加する場合は、このトリガーを削除するマイグレーションと ADR を用意すること（ADR-0017）。
+create or replace function public.ignore_password_update()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise log 'everkano: ignored password update on auth.users (id=%, role=%)', new.id, current_user;
+  new.encrypted_password := old.encrypted_password;
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_password_update
+  before update of encrypted_password on auth.users
+  for each row
+  when (
+    new.encrypted_password is distinct from old.encrypted_password
+    and coalesce(new.encrypted_password, '') <> ''
+  )
+  execute function public.ignore_password_update();
 
 -- 退会（論理削除）は一方向。クライアント（authenticated）からの deleted_at の解除・変更を禁止する。
 -- 復旧が必要な場合は運用者が postgres ロールで deleted_at を NULL に戻す（docs/handover 参照）。

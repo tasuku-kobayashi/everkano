@@ -18,7 +18,8 @@ supabase test db --workdir infra             # pg_prove コンテナで実行（
 | `05_dm_isolation.test.sql`            | **A13**: 会話・メッセージ・メモリの分離、書き込み不可、`embedding` 不可、`list_dm_threads` の未読数、`mark_conversation_read` |
 | `06_anon_and_private_tables.test.sql` | anon は全テーブル・RPC 不可（`messages` / `comments` は主キー列のみ SELECT 可だが RLS で 0 行）、`post_private_assets` / `audit_logs` は authenticated も一切不可 |
 | `07_triggers.test.sql`                | profiles 自動作成、`like_count` / `comment_count`、`last_message_at`、`memories.updated_at`、ユーザー削除の cascade |
-| `08_auth_password_hardening.test.sql` | 事前乗っ取り対策: メールのトークン（確認メール / マジックリンク）で確認済みになるとき、確認前に設定されたパスワードを破棄する。管理 API（`email_confirm: true`）で作ったユーザーと確認済みユーザーは対象外 |
+| `08_auth_password_hardening.test.sql` | パスワードを使った乗っ取りの防止: (1) 事前乗っ取り対策 — メールのトークン（確認メール / マジックリンク）で確認済みになるとき、確認前に設定されたパスワードを破棄する（管理 API の `email_confirm: true` で作ったユーザーは対象外）。(2) 盗まれたアクセストークンからの恒久的な乗っ取り対策 — 既存ユーザーの `encrypted_password` を空でない別の値にする UPDATE（`PUT /auth/v1/user {password}`）は元の値に戻る。消去と INSERT は対象外 |
+| `09_foreign_key_indexes.test.sql`     | 外部キーの参照側の索引: `memories.source_message_id` / `comments.author_user_id` の索引、索引の無い外部キーが許可リスト（キャラクターの参照のみ）と一致、外部キーのトリガーと同じ形のクエリで索引が使われる（ユーザーの物理削除が「メッセージ数 × memories 全件」の走査にならない） |
 
 ## 書き方の約束
 
@@ -55,9 +56,15 @@ python3 infra/supabase/tests/auth/signup_hardening.py               # config.tom
 python3 infra/supabase/tests/auth/signup_hardening.py --static-only # config.toml だけ
 ```
 
-- `config.toml` の `[auth.email] enable_confirmations = true`（匿名ログイン無効）
+- `config.toml` の `[auth.email] enable_confirmations = true`（匿名ログイン無効）、`secure_password_change = true`、
+  `otp_length = 6`、`otp_expiry <= 900`、パスワード変更の通知メール、`additional_redirect_urls`（クエリ付きの `/auth/callback`）
+- `templates/magic_link.html` のリンクが `/auth/confirm?token_hash=..&type=email&redirect_to=<emailRedirectTo>` で、6桁コードを含む
 - パスワード付きの `POST /auth/v1/signup` でセッションが発行されない
 - 攻撃者がパスワード付きで signup → 本人が 6桁コードでログイン → 攻撃者のパスワードではログインできない
+- 届いたメールのリンクが `redirect_to` でログイン後の遷移先（`next`）を運ぶ
+- ログイン済みのアクセストークンで `PUT /auth/v1/user {password}` → そのパスワードではログインできない
+
+CI（`api-db` ジョブ）は `--static-only` だけを実行する。
 
 `config.toml` の変更は `supabase stop && supabase start` までローカルの Auth に反映されない（反映前は失敗する）。
 
