@@ -1,0 +1,178 @@
+# =============================================================================
+# CI — PR と main への push で実行する品質ゲート（開発依頼書 §15 / 受け入れ基準 A13・A14・A16）
+#
+#   checks : シークレット混入（A14）・スコープ外機能（A16）・シェルスクリプトの静的解析
+#   web    : Next.js の lint / typecheck / test / build（ダミーの公開 env でビルド）
+#   api-db : ローカル Supabase を起動し、RLS の pgTAP テスト（A13）・DB 型のずれ検出・
+#            Python API の ruff / mypy / pytest（統合テストは同じ DB を使用）
+#
+# シークレットは一切使わない（LLM は mock、Embedding は hash、Supabase はローカルの既定値）。
+# =============================================================================
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+  TURBO_TELEMETRY_DISABLED: "1"
+  SUPABASE_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  checks:
+    name: Repo checks (secrets / scope / shellcheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: シークレット混入チェック（A14 / H7）
+        run: bash scripts/check-secrets.sh
+
+      - name: スコープ外機能チェック（A16 / §12）
+        run: bash scripts/check-scope.sh
+
+      - name: ShellCheck（scripts/*.sh）
+        run: shellcheck -x scripts/*.sh
+
+  # ---------------------------------------------------------------------------
+  web:
+    name: Web (lint / typecheck / test / build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # ビルド時の env 検証を通すためのダミー値（公開値のみ。実在のプロジェクトではない）
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_STORAGE_DRIVER: passthrough
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm のバージョンは package.json の packageManager から決まる
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Prettier
+        run: pnpm format:check
+
+      - name: Typecheck (@everkano/shared)
+        run: pnpm --filter @everkano/shared typecheck
+
+      - name: Lint
+        run: pnpm --filter @everkano/web lint
+
+      - name: Typecheck
+        run: pnpm --filter @everkano/web typecheck
+
+      - name: Test
+        run: pnpm --filter @everkano/web test
+
+      - name: Build
+        run: pnpm --filter @everkano/web build
+
+  # ---------------------------------------------------------------------------
+  api-db:
+    name: API + DB (pgTAP RLS / ruff / mypy / pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # ローカル Supabase の既定値（シークレットではない）。scripts/test-db.sh と pytest の統合テストが参照
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      # マイグレーション + seed.sql が適用される（失敗すればこのステップで落ちる）。
+      # テストに不要なサービスは起動しない（DB / Auth / REST / Kong のみ）。
+      - name: Supabase ローカルスタック起動
+        run: >-
+          supabase start --workdir infra
+          -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: psql
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: RLS / 権限 / トリガーのテスト（pgTAP, A13）
+        run: bash scripts/test-db.sh
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install（Prettier を DB 型の比較に使う）
+        run: pnpm install --frozen-lockfile
+
+      - name: DB 型（database.types.ts）がマイグレーションと一致しているか
+        run: bash scripts/check-db-types.sh
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: uv sync
+        working-directory: apps/api
+        run: uv sync --frozen
+
+      - name: ruff check
+        working-directory: apps/api
+        run: uv run ruff check .
+
+      - name: ruff format --check
+        working-directory: apps/api
+        run: uv run ruff format --check .
+
+      - name: mypy (strict)
+        working-directory: apps/api
+        run: uv run mypy app
+
+      - name: ペルソナ YAML の検証
+        working-directory: apps/api
+        run: uv run python scripts/validate_personas.py
+
+      - name: OpenAPI（docs/api/openapi.json）が最新か
+        working-directory: apps/api
+        run: uv run python scripts/export_openapi.py --check
+
+      - name: pytest（統合テストはローカル Supabase の Postgres を使用）
+        working-directory: apps/api
+        run: uv run pytest
+
+      - name: 失敗時の診断情報
+        if: failure()
+        run: |
+          supabase status --workdir infra || true
+          docker ps -a || true
+          docker logs "$(docker ps -aqf name=supabase_db_)" 2>&1 | tail -n 200 || true
+
+      - name: Supabase 停止
+        if: always()
+        run: supabase stop --workdir infra --no-backup || true
