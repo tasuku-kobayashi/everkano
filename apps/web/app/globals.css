@@ -1,0 +1,326 @@
+@import "tailwindcss";
+
+/*
+ * everkano デザイントークン（Instagram モバイルアプリ準拠 / 仕様 §4）
+ *
+ * - 色は CSS 変数（--ig-*）で定義し、prefers-color-scheme: dark で切り替える（端末設定に追従）。
+ * - Tailwind のユーティリティは @theme inline で変数を参照するため、`bg-ig-bg text-ig-text` のように
+ *   書くだけでライト/ダーク両対応になる（dark: バリアントは基本不要）。
+ * - Web フォントは読み込まない（システムフォントのみ）。
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --ig-bg: #ffffff; /* 画面背景 */
+  --ig-text: #000000; /* 本文 */
+  --ig-secondary: #737373; /* 補助テキスト（時刻・件数など） */
+  --ig-separator: #dbdbdb; /* 区切り線 */
+  --ig-elevated: #efefef; /* グレーの面（セカンダリボタン・受信バブル・スケルトン） */
+  --ig-elevated-hover: #dbdbdb; /* グレー面の押下時 */
+  --ig-sheet: #ffffff; /* ボトムシート・モーダル */
+  --ig-sheet-separator: #dbdbdb; /* シート・モーダル内の区切り線 */
+  --ig-input-bg: #fafafa; /* 入力欄の背景 */
+  --ig-input-border: #dbdbdb; /* 入力欄の枠 */
+  --ig-blue: #0095f6; /* アクセント（プライマリボタン・リンク） */
+  --ig-blue-hover: #1877f2;
+  --ig-red: #ff3040; /* いいね・エラー・破壊的操作 */
+  --ig-link: #00376b; /* ハッシュタグ・メンション */
+  --ig-toast: #262626; /* トースト背景 */
+  --ig-toast-text: #ffffff;
+  --ig-overlay: rgb(0 0 0 / 0.65); /* モーダル背景 */
+  --ig-badge: #ff3040; /* 未読バッジ */
+
+  /* レイアウト寸法 */
+  --tab-bar-h: 50px; /* 下部タブバーの高さ（safe-area を除く） */
+  --header-h: 44px; /* 上部ヘッダーの高さ（safe-area を除く） */
+  /* トーストを持ち上げる高さ。固定フッターを持つ画面は useBottomBarHeight() で変更する */
+  --bottom-bar-h: var(--tab-bar-h);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ig-bg: #000000;
+    --ig-text: #f5f5f5;
+    --ig-secondary: #a8a8a8;
+    --ig-separator: #262626;
+    --ig-elevated: #262626;
+    --ig-elevated-hover: #363636;
+    --ig-sheet: #262626;
+    --ig-sheet-separator: #363636;
+    --ig-input-bg: #121212;
+    --ig-input-border: #363636;
+    --ig-blue: #0095f6;
+    --ig-blue-hover: #1877f2;
+    --ig-red: #ff3040;
+    --ig-link: #e0f1ff;
+    --ig-toast: #363636;
+    --ig-toast-text: #f5f5f5;
+    --ig-overlay: rgb(0 0 0 / 0.65);
+    --ig-badge: #ff3040;
+  }
+}
+
+@theme inline {
+  --color-ig-bg: var(--ig-bg);
+  --color-ig-text: var(--ig-text);
+  --color-ig-secondary: var(--ig-secondary);
+  --color-ig-separator: var(--ig-separator);
+  --color-ig-elevated: var(--ig-elevated);
+  --color-ig-elevated-hover: var(--ig-elevated-hover);
+  --color-ig-sheet: var(--ig-sheet);
+  --color-ig-sheet-separator: var(--ig-sheet-separator);
+  --color-ig-input-bg: var(--ig-input-bg);
+  --color-ig-input-border: var(--ig-input-border);
+  --color-ig-blue: var(--ig-blue);
+  --color-ig-blue-hover: var(--ig-blue-hover);
+  --color-ig-red: var(--ig-red);
+  --color-ig-link: var(--ig-link);
+  --color-ig-toast: var(--ig-toast);
+  --color-ig-toast-text: var(--ig-toast-text);
+  --color-ig-overlay: var(--ig-overlay);
+  --color-ig-badge: var(--ig-badge);
+}
+
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --animate-like-pop: like-pop 0.45s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+  --animate-heart-burst: heart-burst 1s ease-out both;
+  --animate-ig-spinner: ig-spinner 0.8s steps(8, end) infinite;
+  --animate-fade-in: fade-in 0.2s ease-out both;
+  --animate-typing-dot: typing-dot 1.2s ease-in-out infinite;
+}
+
+/* いいねボタン押下時の「ポン」 */
+@keyframes like-pop {
+  0% {
+    transform: scale(1);
+  }
+  15% {
+    transform: scale(0.85);
+  }
+  45% {
+    transform: scale(1.22);
+  }
+  75% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 画像ダブルタップ時の大きなハート */
+@keyframes heart-burst {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  28% {
+    transform: scale(0.94);
+  }
+  40% {
+    transform: scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9) translateY(-12%);
+  }
+}
+
+@keyframes ig-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* DM のタイピングインジケーター（3 つの点に animation-delay をずらして使う） */
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    background-color: var(--ig-bg);
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--ig-bg);
+    color: var(--ig-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 18px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  /* iOS Safari はフォントサイズ 16px 未満の入力欄にフォーカスすると画面を拡大するため */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+
+  img {
+    -webkit-user-drag: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ig-blue);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: rgb(0 149 246 / 0.25);
+  }
+}
+
+/* ---- safe-area（ノッチ / ホームインジケーター） ---- */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+/* 下部タブバーの分だけ本文の下に余白を空ける */
+@utility pb-tabbar {
+  padding-bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom));
+}
+/* タブバー自体の高さ（safe-area 込み） */
+@utility h-tabbar {
+  height: calc(var(--tab-bar-h) + env(safe-area-inset-bottom));
+}
+/* 上部ヘッダーの高さ（safe-area 込み） */
+@utility h-header {
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+}
+/* sticky ヘッダーの直下に固定したい要素用 */
+@utility top-header {
+  top: calc(var(--header-h) + env(safe-area-inset-top));
+}
+/* トーストの位置（下部バーの上 12px） */
+@utility bottom-toast {
+  bottom: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom) + 12px);
+}
+
+/* 横スクロール行（ストーリーズ等）のスクロールバー非表示 */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ストーリーズ風アバターのグラデーションリング */
+@utility ig-story-ring {
+  background-image: linear-gradient(
+    45deg,
+    #feda75 0%,
+    #fa7e1e 25%,
+    #d62976 50%,
+    #962fbf 75%,
+    #4f5bd5 100%
+  );
+}
+
+/* everkano のブランドグラデーション（アプリアイコンと同じ配色。自分のアバター等） */
+@utility brand-gradient {
+  background-image: linear-gradient(135deg, #ffb36b 0%, #ff4f7b 50%, #9b4dff 100%);
+}
+
+/* Instagram の押下フィードバック（押している間だけ薄くなる） */
+@utility pressable {
+  transition: opacity 0.12s ease;
+  &:active {
+    opacity: 0.5;
+  }
+}
+
+/* スケルトン（読み込み中のプレースホルダー） */
+@utility skeleton {
+  background-color: var(--ig-elevated);
+  background-image: linear-gradient(
+    90deg,
+    var(--ig-elevated) 30%,
+    var(--ig-elevated-hover) 50%,
+    var(--ig-elevated) 70%
+  );
+  background-size: 300% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* 本文テキストの折り返し（長い URL 等でレイアウトが崩れないように） */
+@utility text-wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-ig-spinner),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

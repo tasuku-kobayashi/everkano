@@ -1,0 +1,16 @@
+import { PostCardSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+/** (main) 配下の画面遷移中に表示するスケルトン（各機能は自分のルートに loading.tsx を置いて上書きできる） */
+export default function MainLoading() {
+  return (
+    <div aria-busy="true" aria-label="読み込み中">
+      <div className="pt-safe bg-ig-bg sticky top-0 z-30">
+        <div className="flex h-[var(--header-h)] items-center px-4">
+          <Skeleton shape="text" className="h-4 w-28" />
+        </div>
+      </div>
+      <PostCardSkeleton />
+      <PostCardSkeleton />
+    </div>
+  );
+}
