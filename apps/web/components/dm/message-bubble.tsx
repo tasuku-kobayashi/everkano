@@ -1,0 +1,115 @@
+import { Avatar } from "@/components/ui/avatar";
+import { AlertIcon } from "@/components/ui/icons";
+import { cn } from "@/lib/cn";
+import type { TimelineMessage } from "@/lib/queries/messages";
+import { bubbleRadiusClass, isEmojiOnly } from "./timeline";
+
+/**
+ * 自分の吹き出しの背景。background-attachment: fixed でグラデーションを画面に固定し、
+ * 画面の上にある吹き出しほど紫・下ほど青になる（Instagram と同じ見え方）。
+ * iOS Safari は fixed を無視するため、吹き出しごとに紫 → 青のグラデーションになる。
+ */
+export const SENT_BUBBLE_CLASS =
+  "bg-fixed bg-[linear-gradient(180deg,#a033ff_0%,#7a4bff_40%,#4a6cff_70%,#1f8cff_100%)] text-white";
+
+export interface MessageBubbleProps {
+  message: TimelineMessage;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
+  /** キャラのアバター（グループ最後の吹き出しの横に出す） */
+  characterAvatarUrl: string | null | undefined;
+  characterName: string;
+  /** 送信失敗した吹き出しをタップしたとき（再送） */
+  onRetry?: (localId: string) => void;
+  /** 再送できない状態（別の送信中） */
+  retryDisabled?: boolean;
+}
+
+/**
+ * DM の吹き出し（Instagram 準拠）。
+ * - 自分: 右寄せ・青紫のグラデーション・白文字（グラデーションは画面に固定され、上ほど紫・下ほど青）
+ * - キャラ: 左寄せ・グレー（ダーク #262626）。グループ最後の吹き出しの横にアバター
+ * - 絵文字だけの短いメッセージは吹き出し無しで大きく
+ * - 送信中は薄く、送信失敗は赤い「!」と「送信できませんでした・タップで再送」
+ */
+export function MessageBubble({
+  message,
+  isFirstInGroup,
+  isLastInGroup,
+  characterAvatarUrl,
+  characterName,
+  onRetry,
+  retryDisabled = false,
+}: MessageBubbleProps) {
+  const own = message.senderType === "user";
+  const emojiOnly = isEmojiOnly(message.body);
+  const failed = message.status === "failed";
+  const sending = message.status === "sending";
+
+  const bubble = (
+    <div
+      className={cn(
+        "text-wrap-anywhere max-w-[75%] text-[15px] leading-5 whitespace-pre-wrap",
+        emojiOnly
+          ? "px-1 py-0.5 text-[40px] leading-[48px]"
+          : cn(
+              "px-3 py-2",
+              bubbleRadiusClass(message.senderType, isFirstInGroup, isLastInGroup),
+              own ? SENT_BUBBLE_CLASS : "bg-ig-elevated text-ig-text",
+            ),
+        sending && "opacity-60",
+        failed && "opacity-70",
+      )}
+    >
+      {message.body}
+    </div>
+  );
+
+  if (own) {
+    const content = (
+      <div className="flex items-center justify-end gap-2">
+        {failed ? (
+          <span className="text-ig-red shrink-0" aria-hidden="true">
+            <AlertIcon size={20} />
+          </span>
+        ) : null}
+        {bubble}
+      </div>
+    );
+    return (
+      <div
+        className={cn("pr-3 pl-16", isFirstInGroup ? "mt-2" : "mt-0.5")}
+        data-status={message.status}
+      >
+        {failed && message.localId ? (
+          <button
+            type="button"
+            disabled={retryDisabled}
+            onClick={() => onRetry?.(message.localId!)}
+            aria-label={`送信できませんでした。タップで再送: ${message.body}`}
+            className="pressable block w-full text-left disabled:cursor-default"
+          >
+            {content}
+            <p className="text-ig-red mt-1 text-right text-[12px] leading-4">
+              送信できませんでした・タップで再送
+            </p>
+          </button>
+        ) : (
+          <>
+            {content}
+            {sending ? <span className="sr-only">送信中</span> : null}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex items-end gap-2 pr-16 pl-3", isFirstInGroup ? "mt-2" : "mt-0.5")}>
+      <div className="w-7 shrink-0" aria-hidden={!isLastInGroup}>
+        {isLastInGroup ? <Avatar src={characterAvatarUrl} alt={characterName} size={28} /> : null}
+      </div>
+      {bubble}
+    </div>
+  );
+}
