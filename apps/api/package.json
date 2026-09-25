@@ -1,0 +1,15 @@
+{
+  "name": "@everkano/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Python API（FastAPI）。turbo から uv 経由で lint / typecheck / test を実行するためのラッパー",
+  "scripts": {
+    "dev": "uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "lint": "uv run ruff check . && uv run ruff format --check .",
+    "typecheck": "uv run mypy app",
+    "test": "uv run pytest",
+    "openapi": "uv run python scripts/export_openapi.py",
+    "openapi:check": "uv run python scripts/export_openapi.py --check",
+    "personas:check": "uv run python scripts/validate_personas.py"
+  }
+}

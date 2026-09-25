@@ -1,0 +1,23 @@
+# 検証用: age < 20 は拒否されること
+key: minor_persona
+name: "テスト"
+handle: "test_minor"
+archetype: "テスト"
+age: 19
+avatar: "https://placehold.co/400x400"
+bio: "テスト"
+profile: "テスト"
+speech:
+  tone: "テスト"
+  sentence_length: "短い"
+  emoji: "なし"
+  first_person: "わたし"
+  second_person: "きみ"
+  examples: ["a", "b", "c", "d", "e"]
+relationship:
+  initial: "テスト"
+  progression: "テスト"
+schedule_pattern: "平日: 9:00出社"
+memory_focus: ["テスト"]
+greeting: "テスト"
+comment_style: "テスト"

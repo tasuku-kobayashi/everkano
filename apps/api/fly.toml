@@ -1,0 +1,61 @@
+# =============================================================================
+# Fly.io 設定 — everkano API（H5: Python API は Vercel ではなく別ホストで動かす）
+#
+# デプロイはリポジトリのルートから実行する（ビルドコンテキストに packages/ が必要なため）:
+#   fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
+#
+# シークレットは fly secrets で登録する（H7: コミットしない。名前は .env.example を参照）:
+#   fly secrets set --config apps/api/fly.toml \
+#     DATABASE_URL='postgresql://...' \
+#     SUPABASE_URL='https://<project-ref>.supabase.co' \
+#     LLM_API_KEY='sk-or-...' \
+#     CORS_ALLOW_ORIGINS='https://<web>.vercel.app'
+#   （任意）SUPABASE_JWT_SECRET（旧HS256方式のプロジェクトのみ）/ EMBEDDING_API_KEY / SENTRY_DSN
+#
+# 本番に切り替える場合は APP_ENV を production にする（LLM_MODE=mock は起動時に拒否される）。
+# =============================================================================
+app = "everkano-api"
+primary_region = "nrt"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  [build.args]
+    PYTHON_IMAGE = "python:3.12-slim"
+
+[env]
+  APP_ENV = "staging"
+  LOG_LEVEL = "INFO"
+  LLM_MODE = "live"
+  LLM_BASE_URL = "https://openrouter.ai/api/v1"
+  LLM_MODEL = "deepseek/deepseek-chat"
+  # EMBEDDING_API_KEY を用意したら "live" に変更する（hash は開発用の簡易埋め込み）
+  EMBEDDING_MODE = "hash"
+  # Supavisor の transaction mode（:6543）経由で接続する場合は 0 にする
+  DATABASE_STATEMENT_CACHE_SIZE = "100"
+  AUDIT_LOG_PROMPTS = "true"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # DM の応答待ちでコールドスタートさせないため常時 1 台は起動しておく
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

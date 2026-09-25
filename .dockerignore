@@ -1,0 +1,44 @@
+# Docker ビルドコンテキスト（リポジトリのルート）から除外するもの
+# 現在ルートをコンテキストにするのは apps/api/Dockerfile のみ（Web は Vercel でビルド）
+
+# VCS / エディタ
+.git
+.github
+.idea
+.vscode
+**/.DS_Store
+
+# Node / Next.js / Turborepo
+**/node_modules
+**/.next
+**/.next-*
+**/.turbo
+**/*.tsbuildinfo
+apps/web
+
+# Python
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/.coverage
+**/htmlcov
+apps/api/tests
+
+# テスト成果物
+**/playwright-report
+**/test-results
+**/coverage
+
+# Supabase ローカル状態
+infra/supabase/.branches
+infra/supabase/.temp
+
+# シークレット（H7）
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key

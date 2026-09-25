@@ -1,0 +1,37 @@
+# =============================================================================
+# ローカル開発用 docker-compose（Python API のみをコンテナで起動する）
+#
+# Supabase（Postgres / Auth / Realtime / Mailpit）は Docker Compose ではなく Supabase CLI で起動する:
+#   pnpm db:start            # = supabase start --workdir infra
+# Web（Next.js）はホストで起動する:  pnpm --filter @everkano/web dev
+#
+# API コンテナの中から見るとホストの 127.0.0.1 はコンテナ自身なので、
+# DATABASE_URL / SUPABASE_URL は host.docker.internal を使う必要がある（下の environment で上書き）。
+# ブラウザが受け取るアクセストークンの iss は http://127.0.0.1:54321/auth/v1 のままなので
+# SUPABASE_JWT_ISSUER でそれに合わせる。
+#
+#   docker compose up --build api
+#   curl http://localhost:8000/health
+#
+# Docker Hub のレート制限に当たる場合: PYTHON_IMAGE=mirror.gcr.io/library/python:3.12-slim docker compose build
+# =============================================================================
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    image: everkano-api:local
+    env_file:
+      - path: apps/api/.env
+        required: false
+    environment:
+      DATABASE_URL: ${API_DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      SUPABASE_URL: ${API_DOCKER_SUPABASE_URL:-http://host.docker.internal:54321}
+      SUPABASE_JWT_ISSUER: ${API_DOCKER_SUPABASE_JWT_ISSUER:-http://127.0.0.1:54321/auth/v1}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
