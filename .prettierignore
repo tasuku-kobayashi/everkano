@@ -1,0 +1,12 @@
+node_modules
+.next
+.turbo
+dist
+pnpm-lock.yaml
+apps/api
+infra/supabase/.temp
+docs/api/openapi.json
+*.sql
+*.yaml
+*.yml
+*.md
