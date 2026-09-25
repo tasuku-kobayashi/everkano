@@ -17,7 +17,7 @@ everkano（Project P MVP）を引き継ぐエンジニア向けの資料。環�
 | 7   | [07-security.md](07-security.md)                       | 脅威モデル、H4 / H7 の守り方、RLS のテストスイート、個人データ、既知のギャップ                 |
 | 8   | [08-dev-guide.md](08-dev-guide.md)                     | 開発の約束、エンドポイント追加の手順、DB 変更、テスト（E2E を含む）、コミット規約、ブランチ保護の設定 |
 | —   | [supabase-auth.md](supabase-auth.md)                   | ホスト版 Supabase の Auth 設定チェックリスト（**本番構築時に必須**）                          |
-| —   | [docs/adr/](../adr/README.md)                          | ADR-0001〜0021                                                                                |
+| —   | [docs/adr/](../adr/README.md)                          | ADR-0001〜0034                                                                                |
 | —   | 各パッケージの README                                  | [apps/web](../../apps/web/README.md) / [apps/api](../../apps/api/README.md) / [apps/web/e2e](../../apps/web/e2e/README.md) / [packages/personas](../../packages/personas/README.md) / [packages/prompts](../../packages/prompts/README.md) / [infra/supabase/tests](../../infra/supabase/tests/README.md) / [scripts](../../scripts/README.md) |
 
 ## このプロダクトの前提（変えてはいけないこと）
@@ -46,3 +46,4 @@ everkano（Project P MVP）を引き継ぐエンジニア向けの資料。環�
 - [ ] 監視・アラートを設定する（[06-operations.md](06-operations.md#監視とログ)）
 - [ ] 監査ログの保存期間・個人データの扱い・LLM 提供元のデータ利用条件を事業側と決める（[07-security.md](07-security.md#個人データの扱い)）
 - [ ] 既知の制約と次フェーズの項目を確認する（[06-operations.md](06-operations.md#既知の制約と次フェーズ)）
+- [ ] 納品前の検査の未対応の項目と推奨する対応を確認する（[inspection-report.md](../acceptance/inspection-report.md)。特に CAPTCHA・DB の証明書の検証・`LICENSE` の権利者）

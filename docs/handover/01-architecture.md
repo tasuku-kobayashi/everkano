@@ -14,7 +14,7 @@ flowchart LR
   end
 
   subgraph Vercel["Vercel"]
-    NEXT["apps/web（Next.js 15）<br/>ページ配信・middleware<br/>/auth/confirm・/auth/callback・/media"]
+    NEXT["apps/web（Next.js 15）<br/>ページ配信・middleware<br/>/auth/confirm・/auth/confirm/verify・/auth/callback・/media"]
   end
 
   subgraph Fly["Fly.io（nrt）"]
@@ -62,7 +62,8 @@ flowchart LR
 ```
 
 - **データの読み取りはブラウザから Supabase へ直接**（RLS 適用）。Next.js のサーバーはページの配信・セッション Cookie の更新・ログインの
-  Route Handler・`/media` の署名リダイレクトだけを行い、アプリのデータは取得しない（[ADR-0002](../adr/0002-data-access-split.md)）。
+  確認画面と Route Handler・`/media` の署名リダイレクトだけを行い、アプリのデータは取得しない（[ADR-0002](../adr/0002-data-access-split.md)）。
+  既存の DM 会話も API を経由せずに読む（会話の作成だけが API。[ADR-0030](../adr/0030-web-data-fetching-dm-and-prefetch.md)）。
 - **ユーザー由来テキストの書き込みはすべて Python API**（Gate #1 + 監査ログ）。API は Vercel では動かさない（H5）。
 - 画像は Supabase Storage / Vercel に置かない（H4）。Cloudflare は使わない（H8）。
 
@@ -81,11 +82,11 @@ flowchart LR
 | 7   | ブラウザ → Bunny CDN          | HTTPS                                  | 無し（キーの URL）/ トークン署名付き URL                                            | `NEXT_PUBLIC_STORAGE_DRIVER` / `NEXT_PUBLIC_CDN_BASE_URL`    |
 | 8   | Web サーバー（`/media`）      | 署名して 302（Bunny とは通信しない）    | `BUNNY_TOKEN_AUTH_KEY`（サーバー専用）。ログイン必須                                | Vercel の環境変数                                            |
 | 9   | Bunny → B2                    | HTTPS（S3 互換）                       | 非公開バケットなら B2 のアプリケーションキー（Pull Zone のオリジン認証）            | Bunny.net ダッシュボード（リポジトリには無い）               |
-| 10  | Python API → Postgres         | TCP + TLS（asyncpg）                   | `DATABASE_URL`（`postgres` ロール。RLS バイパス → 全クエリを user_id でスコープ）  | Fly.io secrets                                               |
+| 10  | Python API → Postgres         | TCP + TLS（asyncpg。staging / production は `sslmode` 必須、推奨 `verify-full`） | `DATABASE_URL`（`postgres` ロール。RLS バイパス → 全クエリを user_id でスコープ）。TLS の指定が無いと API は起動しない（[ADR-0025](../adr/0025-db-tls-and-api-entry-failures.md)） | Fly.io secrets（ルート証明書は secret → `[[files]]`） |
 | 11  | Python API → Supabase Auth    | HTTPS                                  | 無し（公開の JWKS を取得）。旧 HS256 は `SUPABASE_JWT_SECRET` でローカル検証        | `SUPABASE_URL`（Fly.io secrets）                             |
 | 12  | Python API → LLM              | HTTPS（OpenAI 互換）                   | `LLM_API_KEY`                                                                      | Fly.io secrets / `fly.toml` の `[env]`                       |
 | 13  | Python API → Embedding        | HTTPS（OpenAI 互換）                   | `EMBEDDING_API_KEY`                                                                | 同上                                                         |
-| 14  | Python API → Sentry           | HTTPS                                  | `SENTRY_DSN`（任意）                                                               | Fly.io secrets                                               |
+| 14  | Python API → Sentry           | HTTPS                                  | `SENTRY_DSN`（任意）。トークン・本文・ローカル変数・パンくずは送らない（[ADR-0034](../adr/0034-supply-chain-and-telemetry-minimization.md)） | Fly.io secrets                                               |
 | 15  | Supabase Auth → SMTP          | SMTP                                   | SMTP のパスワード                                                                  | Supabase ダッシュボード                                      |
 
 ## コンポーネントとコードの場所
@@ -101,7 +102,7 @@ flowchart LR
 | 型契約                | DB 型（生成物）と API の入出力型                                                                | `packages/shared/src/`                                                              |
 | 品質チェック          | シークレット・スコープ外機能・DB 型・pgTAP                                                      | `scripts/`（[README](../../scripts/README.md)）、`.github/workflows/ci.yml`         |
 
-## 技術スタック（2026-09-25 時点のロック済みバージョン）
+## 技術スタック（2026-09-26 時点のロック済みバージョン）
 
 | 領域     | 採用                                                                                                                            |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -110,7 +111,7 @@ flowchart LR
 | DB       | Supabase（Postgres 17、pgvector、Auth、PostgREST、Realtime）。ローカルは Supabase CLI 2.117.0                                  |
 | 配信     | Vercel（Web）、Fly.io `nrt`（API、Docker）、Bunny.net + Backblaze B2（画像）                                                    |
 | LLM      | OpenRouter 経由 DeepSeek-V3（`deepseek/deepseek-chat`）、DeepSeek 直も可。埋め込みは OpenAI 互換（既定 `text-embedding-3-small`、1536 次元） |
-| ツール   | pnpm 10.33 + Turborepo 2 / uv / ruff / mypy（strict）/ ESLint 9 / Prettier 3 / vitest 3 / pytest / pgTAP / Playwright 1.56    |
+| ツール   | pnpm 10.33 + Turborepo 2 / uv / ruff / mypy（strict）/ ESLint 9 / Prettier 3 / vitest 4 / pytest / pgTAP / Playwright 1.56    |
 
 ## 環境
 
@@ -126,8 +127,8 @@ flowchart LR
 
 | 境界                          | 守り                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| ブラウザ ↔ Supabase           | RLS + 列単位の grant（`characters` の `system_prompt` / `persona_key`、`memories.embedding`、`post_private_assets`、`audit_logs` は不可）。pgTAP 173 件で検査 |
-| ブラウザ ↔ Python API         | JWT 検証（JWKS / HS256）、退会チェック、所有者チェック（他人のリソースは 404）、レート制限、Gate #1、入力長・制御文字の検証            |
+| ブラウザ ↔ Supabase           | RLS + 列単位の grant（`characters` の `system_prompt` / `persona_key`、`memories.embedding`、`post_private_assets`、`audit_logs` は不可）。pgTAP 195 件で検査 |
+| ブラウザ ↔ Python API         | 本文サイズの上限（認証より前に 413）、JWT 検証（JWKS / HS256）、退会チェック、所有者チェック（他人のリソースは 404）、レート制限、Gate #1、入力長・制御文字の検証 |
 | Python API ↔ Postgres         | `postgres` ロール（強い権限）。資格情報は Fly.io secrets のみ                                                                          |
 | ブラウザ ↔ 画像               | キーからの URL 解決。トークン認証時は `/media` がログインを確認して短期の署名 URL にリダイレクト。有料投稿の本体はクライアントに渡らない |
 

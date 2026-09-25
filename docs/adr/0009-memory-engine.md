@@ -1,6 +1,6 @@
 # ADR-0009: メモリエンジン設計（ターン定義、抽出の並行実行、重複排除、ユーザー編集の保護、中期要約）
 
-- ステータス: 採用
+- ステータス: 採用（埋め込みの障害時の扱いを [ADR-0022](0022-embedding-failures-and-audit-additions.md)、記憶の件数上限を [ADR-0024](0024-memory-capacity-per-pair.md)、履歴の文字数の上限と中期要約のチャンク化・失敗時のバックオフを [ADR-0028](0028-llm-input-budgets-and-summary-retries.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §7・§9 / [ADR-0005](0005-vector-index-and-exact-memory-search.md) / [ADR-0019](0019-chat-deadline.md) / 実装: `apps/api/app/services/memory.py`, `apps/api/app/services/chat.py`, `apps/api/app/services/prompt.py`, `packages/prompts/templates/`
 

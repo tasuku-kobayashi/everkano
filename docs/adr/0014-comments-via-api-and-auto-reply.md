@@ -1,6 +1,6 @@
 # ADR-0014: コメント投稿の API 経由化とキャラ自動返信
 
-- ステータス: 採用
+- ステータス: 採用（`POST /comments/generate` の制限と公開返信のリンクの差し止めを [ADR-0027](0027-comment-reply-generation-limits.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §5.3・§7 `POST /comments/generate`・§10 / [ADR-0002](0002-data-access-split.md) / [ADR-0010](0010-gate1-moderation.md) / 実装: `apps/api/app/services/comments.py`, `apps/api/app/routers/comments.py`, `apps/web/lib/queries/comments.ts`, `packages/prompts/templates/comment_reply.ja.txt`
 

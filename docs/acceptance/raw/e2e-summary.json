@@ -1,8 +1,8 @@
 {
   "stats": {
-    "startTime": "2026-09-25T09:00:44.765Z",
-    "duration": 115255.314,
-    "expected": 53,
+    "startTime": "2026-09-25T15:38:47.095Z",
+    "duration": 247862.78,
+    "expected": 143,
     "skipped": 1,
     "unexpected": 0,
     "flaky": 0
@@ -13,378 +13,1008 @@
       "project": "iphone",
       "title": "A12: DM の送信ごとに chat.request / chat.response が audit_logs に記録される",
       "status": "passed",
-      "duration_ms": 7426
+      "duration_ms": 7882
     },
     {
       "file": "audit.spec.ts",
       "project": "android",
       "title": "A12: DM の送信ごとに chat.request / chat.response が audit_logs に記録される",
       "status": "passed",
-      "duration_ms": 5709
+      "duration_ms": 6027
     },
     {
       "file": "auth.spec.ts",
       "project": "iphone",
       "title": "未ログインで開くとログイン画面へリダイレクトされる",
       "status": "passed",
-      "duration_ms": 1255
+      "duration_ms": 1076
     },
     {
       "file": "auth.spec.ts",
       "project": "iphone",
       "title": "A2: メールのマジックリンク（/auth/confirm）でログインできる",
       "status": "passed",
-      "duration_ms": 2817
+      "duration_ms": 3452
     },
     {
       "file": "auth.spec.ts",
       "project": "iphone",
-      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
+      "title": "A2: 共有されたリンク（/posts/<id>）→ ログイン → メールのリンクで元のページに戻る",
       "status": "passed",
-      "duration_ms": 2759
+      "duration_ms": 2733
     },
     {
       "file": "auth.spec.ts",
       "project": "iphone",
-      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
-      "status": "passed",
-      "duration_ms": 2143
-    },
-    {
-      "file": "auth.spec.ts",
-      "project": "android",
-      "title": "未ログインで開くとログイン画面へリダイレクトされる",
-      "status": "passed",
-      "duration_ms": 788
-    },
-    {
-      "file": "auth.spec.ts",
-      "project": "android",
-      "title": "A2: メールのマジックリンク（/auth/confirm）でログインできる",
-      "status": "passed",
-      "duration_ms": 1882
-    },
-    {
-      "file": "auth.spec.ts",
-      "project": "android",
-      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
-      "status": "passed",
-      "duration_ms": 4178
-    },
-    {
-      "file": "auth.spec.ts",
-      "project": "android",
-      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
-      "status": "passed",
-      "duration_ms": 1893
-    },
-    {
-      "file": "dark-mode.spec.ts",
-      "project": "iphone",
-      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
-      "status": "passed",
-      "duration_ms": 10866
-    },
-    {
-      "file": "dark-mode.spec.ts",
-      "project": "iphone",
-      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
-      "status": "passed",
-      "duration_ms": 501
-    },
-    {
-      "file": "dark-mode.spec.ts",
-      "project": "android",
-      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
-      "status": "passed",
-      "duration_ms": 9808
-    },
-    {
-      "file": "dark-mode.spec.ts",
-      "project": "android",
-      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
-      "status": "passed",
-      "duration_ms": 764
-    },
-    {
-      "file": "dm.spec.ts",
-      "project": "iphone",
-      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
-      "status": "passed",
-      "duration_ms": 23244
-    },
-    {
-      "file": "dm.spec.ts",
-      "project": "android",
-      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
-      "status": "passed",
-      "duration_ms": 24117
-    },
-    {
-      "file": "feed.spec.ts",
-      "project": "iphone",
-      "title": "A3: ホームフィードが無限スクロールで表示される",
-      "status": "passed",
-      "duration_ms": 4297
-    },
-    {
-      "file": "feed.spec.ts",
-      "project": "iphone",
-      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
-      "status": "passed",
-      "duration_ms": 2368
-    },
-    {
-      "file": "feed.spec.ts",
-      "project": "android",
-      "title": "A3: ホームフィードが無限スクロールで表示される",
-      "status": "passed",
-      "duration_ms": 3847
-    },
-    {
-      "file": "feed.spec.ts",
-      "project": "android",
-      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
-      "status": "passed",
-      "duration_ms": 2267
-    },
-    {
-      "file": "layout.spec.ts",
-      "project": "iphone",
-      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
-      "status": "passed",
-      "duration_ms": 11152
-    },
-    {
-      "file": "layout.spec.ts",
-      "project": "iphone",
-      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
-      "status": "passed",
-      "duration_ms": 6240
-    },
-    {
-      "file": "layout.spec.ts",
-      "project": "android",
-      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
-      "status": "passed",
-      "duration_ms": 11169
-    },
-    {
-      "file": "layout.spec.ts",
-      "project": "android",
-      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
-      "status": "passed",
-      "duration_ms": 8438
-    },
-    {
-      "file": "memory.spec.ts",
-      "project": "iphone",
-      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
-      "status": "passed",
-      "duration_ms": 22440
-    },
-    {
-      "file": "memory.spec.ts",
-      "project": "iphone",
-      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
-      "status": "passed",
-      "duration_ms": 7744
-    },
-    {
-      "file": "memory.spec.ts",
-      "project": "android",
-      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
-      "status": "passed",
-      "duration_ms": 23752
-    },
-    {
-      "file": "memory.spec.ts",
-      "project": "android",
-      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
-      "status": "passed",
-      "duration_ms": 8579
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "iphone",
-      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
-      "status": "passed",
-      "duration_ms": 6432
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "iphone",
-      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
-      "status": "passed",
-      "duration_ms": 2465
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "iphone",
-      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
-      "status": "passed",
-      "duration_ms": 2425
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "android",
-      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
-      "status": "passed",
-      "duration_ms": 6427
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "android",
-      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
-      "status": "passed",
-      "duration_ms": 2433
-    },
-    {
-      "file": "paid.spec.ts",
-      "project": "android",
-      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
+      "title": "A2: 共有されたリンク（/dm/<id>）→ ログイン → 6 桁コードで元のページに戻る",
       "status": "passed",
       "duration_ms": 2135
     },
     {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
+      "status": "passed",
+      "duration_ms": 3341
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
+      "status": "passed",
+      "duration_ms": 1846
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "マジックリンクは開いただけではログインせず、トークンも消費しない（スキャナーの先読み対策）",
+      "status": "passed",
+      "duration_ms": 1674
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "別のアカウントでログイン中にマジックリンクを開くと、切り替わることを明示する",
+      "status": "passed",
+      "duration_ms": 3170
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "開いている間にアカウントが削除されたら、1 回でログイン画面へ（/ ⇄ /login のループなし）",
+      "status": "passed",
+      "duration_ms": 4939
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "ログアウト: サーバーへの失効要求が失敗しても、端末のセッションが消えていればログイン画面へ（失敗と表示しない）",
+      "status": "passed",
+      "duration_ms": 2150
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "利用停止（ban）されたアカウントは、理由を表示してログイン画面へ（ループなし）",
+      "status": "passed",
+      "duration_ms": 5527
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "退会の確認ダイアログは「キャンセル」に初期フォーカスがあり、Enter 1 回では退会しない",
+      "status": "passed",
+      "duration_ms": 2323
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "コード入力中にアプリが再起動しても、コード入力画面から続けてログインできる",
+      "status": "passed",
+      "duration_ms": 2764
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "送信間隔の制限に当たっても、送信済みのコードを入力できる（「上限」で行き止まりにしない）",
+      "status": "passed",
+      "duration_ms": 1367
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "iphone",
+      "title": "退会すると全端末のセッションが無効になり、同じアカウントではログインできない",
+      "status": "passed",
+      "duration_ms": 2803
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "未ログインで開くとログイン画面へリダイレクトされる",
+      "status": "passed",
+      "duration_ms": 676
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: メールのマジックリンク（/auth/confirm）でログインできる",
+      "status": "passed",
+      "duration_ms": 2519
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: 共有されたリンク（/posts/<id>）→ ログイン → メールのリンクで元のページに戻る",
+      "status": "passed",
+      "duration_ms": 2303
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: 共有されたリンク（/dm/<id>）→ ログイン → 6 桁コードで元のページに戻る",
+      "status": "passed",
+      "duration_ms": 1663
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: メールの 6 桁コードでログインできる（ホーム画面 PWA 用）",
+      "status": "passed",
+      "duration_ms": 2870
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "A2: 誤ったコードの検証中に正しいコードを貼り付けても、自動でログインできる",
+      "status": "passed",
+      "duration_ms": 1798
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "マジックリンクは開いただけではログインせず、トークンも消費しない（スキャナーの先読み対策）",
+      "status": "passed",
+      "duration_ms": 1733
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "別のアカウントでログイン中にマジックリンクを開くと、切り替わることを明示する",
+      "status": "passed",
+      "duration_ms": 3763
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "開いている間にアカウントが削除されたら、1 回でログイン画面へ（/ ⇄ /login のループなし）",
+      "status": "passed",
+      "duration_ms": 5557
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "ログアウト: サーバーへの失効要求が失敗しても、端末のセッションが消えていればログイン画面へ（失敗と表示しない）",
+      "status": "passed",
+      "duration_ms": 1978
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "利用停止（ban）されたアカウントは、理由を表示してログイン画面へ（ループなし）",
+      "status": "passed",
+      "duration_ms": 5682
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "退会の確認ダイアログは「キャンセル」に初期フォーカスがあり、Enter 1 回では退会しない",
+      "status": "passed",
+      "duration_ms": 2043
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "コード入力中にアプリが再起動しても、コード入力画面から続けてログインできる",
+      "status": "passed",
+      "duration_ms": 2649
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "送信間隔の制限に当たっても、送信済みのコードを入力できる（「上限」で行き止まりにしない）",
+      "status": "passed",
+      "duration_ms": 1209
+    },
+    {
+      "file": "auth.spec.ts",
+      "project": "android",
+      "title": "退会すると全端末のセッションが無効になり、同じアカウントではログインできない",
+      "status": "passed",
+      "duration_ms": 2774
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "iphone",
+      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
+      "status": "passed",
+      "duration_ms": 11949
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "iphone",
+      "title": "文字のコントラスト: エラー文言・テキストボタン・破壊的操作がライト / ダークとも 4.5:1 以上",
+      "status": "passed",
+      "duration_ms": 5537
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "iphone",
+      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
+      "status": "passed",
+      "duration_ms": 716
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "android",
+      "title": "ダークモード: 主要画面が端末設定に追従して暗い配色で表示される",
+      "status": "passed",
+      "duration_ms": 10496
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "android",
+      "title": "文字のコントラスト: エラー文言・テキストボタン・破壊的操作がライト / ダークとも 4.5:1 以上",
+      "status": "passed",
+      "duration_ms": 5265
+    },
+    {
+      "file": "dark-mode.spec.ts",
+      "project": "android",
+      "title": "ライトモード: 同じ画面が白背景・黒文字で表示される（端末設定に追従）",
+      "status": "passed",
+      "duration_ms": 607
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
+      "status": "passed",
+      "duration_ms": 24802
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "既存の会話は API を経由せずに開き、API が止まっていても履歴を読める（取りこぼしの回収は差分だけ）",
+      "status": "passed",
+      "duration_ms": 3493
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "返答待ちのまま画面を離れて戻っても、送った発言と「入力中…」が残り、二重に送れない",
+      "status": "passed",
+      "duration_ms": 4675
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "会話ログは吹き出しごとに送り手（あなた / キャラ名）を読み上げる",
+      "status": "passed",
+      "duration_ms": 4833
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "iphone",
+      "title": "DM 一覧の Realtime 購読は自分の会話だけに絞る（全ユーザーの発言を購読しない）",
+      "status": "passed",
+      "duration_ms": 2117
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "A8: DM で 10 往復して、毎回「入力中…」のあとにキャラの返答が届く",
+      "status": "passed",
+      "duration_ms": 22949
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "既存の会話は API を経由せずに開き、API が止まっていても履歴を読める（取りこぼしの回収は差分だけ）",
+      "status": "passed",
+      "duration_ms": 2628
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "返答待ちのまま画面を離れて戻っても、送った発言と「入力中…」が残り、二重に送れない",
+      "status": "passed",
+      "duration_ms": 4100
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "会話ログは吹き出しごとに送り手（あなた / キャラ名）を読み上げる",
+      "status": "passed",
+      "duration_ms": 4662
+    },
+    {
+      "file": "dm.spec.ts",
+      "project": "android",
+      "title": "DM 一覧の Realtime 購読は自分の会話だけに絞る（全ユーザーの発言を購読しない）",
+      "status": "passed",
+      "duration_ms": 1561
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "iphone",
+      "title": "A3: ホームフィードが無限スクロールで表示される",
+      "status": "passed",
+      "duration_ms": 4643
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "iphone",
+      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
+      "status": "passed",
+      "duration_ms": 2129
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "iphone",
+      "title": "A3: 長いキャプションは 2 行 +「… 続きを読む」で省略され、タップで全文を表示する",
+      "status": "passed",
+      "duration_ms": 2212
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "android",
+      "title": "A3: ホームフィードが無限スクロールで表示される",
+      "status": "passed",
+      "duration_ms": 4730
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "android",
+      "title": "A3: フィードの投稿をタップすると投稿詳細が開き、戻ると位置が保たれる",
+      "status": "passed",
+      "duration_ms": 2306
+    },
+    {
+      "file": "feed.spec.ts",
+      "project": "android",
+      "title": "A3: 長いキャプションは 2 行 +「… 続きを読む」で省略され、タップで全文を表示する",
+      "status": "passed",
+      "duration_ms": 1740
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
+      "status": "passed",
+      "duration_ms": 13871
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
+      "status": "passed",
+      "duration_ms": 7405
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "ホーム: 先頭で Home タブ・ロゴを再タップ・下に引っ張ると、新しい投稿を読み込む",
+      "status": "passed",
+      "duration_ms": 4161
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "ホーム: 別のタブへ移ってから Home タブで戻ると、読んでいた位置から表示する（再タップで先頭へ）",
+      "status": "passed",
+      "duration_ms": 4763
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "ホーム: ファーストビューの画像（LCP）はフェードインせず、2 枚目以降はフェードインする",
+      "status": "passed",
+      "duration_ms": 1732
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "端末の「戻る」はシート・モーダルだけを閉じ、UI で閉じた後の「戻る」は前の画面へ戻る",
+      "status": "passed",
+      "duration_ms": 4162
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "シートの操作で画面遷移しても遷移は取り消されず、「戻る」で元の画面へ戻る",
+      "status": "passed",
+      "duration_ms": 3399
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "絵文字で始まる表示名でも、アバターの頭文字が文字化けしない（文字数は 1 文字 = 1）",
+      "status": "passed",
+      "duration_ms": 1813
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "タブバーを出さない画面では DM 未読バッジを取得しない",
+      "status": "passed",
+      "duration_ms": 4432
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "ログイン後の画面は本文が 1 つの <main> で、タブバーはその外。主要画面に h1 がある",
+      "status": "passed",
+      "duration_ms": 6501
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "ボトムシートは「閉じる」ボタンで閉じられる（初期フォーカスは入力欄のまま）",
+      "status": "passed",
+      "duration_ms": 2306
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "起動時のアカウント確認は、Auth（/auth/v1/user）の応答を待たずに profiles の取得を始める",
+      "status": "passed",
+      "duration_ms": 3875
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "iphone",
+      "title": "空状態の見出しは、最後の 1 文字だけが次の行に落ちない（有料投稿がまだ無いキャラ）",
+      "status": "passed",
+      "duration_ms": 2379
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "A1: 全画面で横方向のはみ出しがなく、入力欄は 16px 以上",
+      "status": "passed",
+      "duration_ms": 12489
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "H2: ユーザーが投稿する UI が存在しない（投稿タブ・ファイル選択・作成画面なし）",
+      "status": "passed",
+      "duration_ms": 6893
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "ホーム: 先頭で Home タブ・ロゴを再タップ・下に引っ張ると、新しい投稿を読み込む",
+      "status": "passed",
+      "duration_ms": 3912
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "ホーム: 別のタブへ移ってから Home タブで戻ると、読んでいた位置から表示する（再タップで先頭へ）",
+      "status": "passed",
+      "duration_ms": 4128
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "ホーム: ファーストビューの画像（LCP）はフェードインせず、2 枚目以降はフェードインする",
+      "status": "passed",
+      "duration_ms": 1534
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "端末の「戻る」はシート・モーダルだけを閉じ、UI で閉じた後の「戻る」は前の画面へ戻る",
+      "status": "passed",
+      "duration_ms": 4372
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "シートの操作で画面遷移しても遷移は取り消されず、「戻る」で元の画面へ戻る",
+      "status": "passed",
+      "duration_ms": 3599
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "絵文字で始まる表示名でも、アバターの頭文字が文字化けしない（文字数は 1 文字 = 1）",
+      "status": "passed",
+      "duration_ms": 1698
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "タブバーを出さない画面では DM 未読バッジを取得しない",
+      "status": "passed",
+      "duration_ms": 4489
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "ログイン後の画面は本文が 1 つの <main> で、タブバーはその外。主要画面に h1 がある",
+      "status": "passed",
+      "duration_ms": 5460
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "ボトムシートは「閉じる」ボタンで閉じられる（初期フォーカスは入力欄のまま）",
+      "status": "passed",
+      "duration_ms": 2175
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "起動時のアカウント確認は、Auth（/auth/v1/user）の応答を待たずに profiles の取得を始める",
+      "status": "passed",
+      "duration_ms": 3950
+    },
+    {
+      "file": "layout.spec.ts",
+      "project": "android",
+      "title": "空状態の見出しは、最後の 1 文字だけが次の行に落ちない（有料投稿がまだ無いキャラ）",
+      "status": "passed",
+      "duration_ms": 2157
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
+      "status": "passed",
+      "duration_ms": 25266
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
+      "status": "passed",
+      "duration_ms": 8941
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "記憶の追加に失敗しても「保存中…」の記憶が残らず、入力した内容が戻る（パネルを閉じた後の失敗も）",
+      "status": "passed",
+      "duration_ms": 8816
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "iphone",
+      "title": "記憶の編集に失敗したら、入力した内容のまま編集欄が残り、そのまま保存し直せる",
+      "status": "passed",
+      "duration_ms": 3311
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "A9: 1 往復目に話したことを、10 往復後に話題にすると覚えている",
+      "status": "passed",
+      "duration_ms": 26211
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない",
+      "status": "passed",
+      "duration_ms": 8895
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "記憶の追加に失敗しても「保存中…」の記憶が残らず、入力した内容が戻る（パネルを閉じた後の失敗も）",
+      "status": "passed",
+      "duration_ms": 8824
+    },
+    {
+      "file": "memory.spec.ts",
+      "project": "android",
+      "title": "記憶の編集に失敗したら、入力した内容のまま編集欄が残り、そのまま保存し直せる",
+      "status": "passed",
+      "duration_ms": 2686
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 5534
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 3067
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "iphone",
+      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2289
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: フィードの有料投稿はぼかし＋鍵＋「有料コンテンツ」で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 6637
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: 投稿詳細の有料投稿もぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2646
+    },
+    {
+      "file": "paid.spec.ts",
+      "project": "android",
+      "title": "A6: プロフィールの有料タブのサムネイルは全面ぼかし＋鍵で、タップすると準備中モーダル",
+      "status": "passed",
+      "duration_ms": 2344
+    },
+    {
       "file": "post-detail.spec.ts",
       "project": "iphone",
       "title": "A4: 投稿詳細でコメント一覧と投稿欄が動作し、キャラの返信が Realtime で届く",
       "status": "passed",
-      "duration_ms": 1984
+      "duration_ms": 2660
     },
     {
       "file": "post-detail.spec.ts",
       "project": "iphone",
       "title": "A4: モデレーション（Gate #1）で拒否されたコメントは保存されず、理由が表示される",
       "status": "passed",
-      "duration_ms": 1278
+      "duration_ms": 1514
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: 返信の @メンションは公開名だけ（自分のコメントへの返信に表示名・メールアドレスを入れない）",
+      "status": "passed",
+      "duration_ms": 2642
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: 投稿中に入力欄へ書いた次のコメントは、投稿の完了で消えない",
+      "status": "passed",
+      "duration_ms": 3384
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: キャラの返信を待つ「返信を書いています…」が入力欄の裏に隠れない",
+      "status": "passed",
+      "duration_ms": 2734
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: 投稿詳細を直接開くと、コメントの取得は投稿本体の取得を待たずに始まる",
+      "status": "passed",
+      "duration_ms": 3665
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "iphone",
+      "title": "A4: キャプションのハッシュタグはリンク色で表示される",
+      "status": "passed",
+      "duration_ms": 2732
     },
     {
       "file": "post-detail.spec.ts",
       "project": "android",
       "title": "A4: 投稿詳細でコメント一覧と投稿欄が動作し、キャラの返信が Realtime で届く",
       "status": "passed",
-      "duration_ms": 2256
+      "duration_ms": 2899
     },
     {
       "file": "post-detail.spec.ts",
       "project": "android",
       "title": "A4: モデレーション（Gate #1）で拒否されたコメントは保存されず、理由が表示される",
       "status": "passed",
-      "duration_ms": 1172
+      "duration_ms": 1966
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: 返信の @メンションは公開名だけ（自分のコメントへの返信に表示名・メールアドレスを入れない）",
+      "status": "passed",
+      "duration_ms": 3041
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: 投稿中に入力欄へ書いた次のコメントは、投稿の完了で消えない",
+      "status": "passed",
+      "duration_ms": 4073
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: キャラの返信を待つ「返信を書いています…」が入力欄の裏に隠れない",
+      "status": "passed",
+      "duration_ms": 3073
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: 投稿詳細を直接開くと、コメントの取得は投稿本体の取得を待たずに始まる",
+      "status": "passed",
+      "duration_ms": 3398
+    },
+    {
+      "file": "post-detail.spec.ts",
+      "project": "android",
+      "title": "A4: キャプションのハッシュタグはリンク色で表示される",
+      "status": "passed",
+      "duration_ms": 1860
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "iphone",
+      "title": "DM 会話のヘッダー → プロフィール: 触れた時点でプロフィールのデータを取りに行き、遷移後は取り直さない",
+      "status": "passed",
+      "duration_ms": 2725
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "iphone",
+      "title": "DM 会話の先頭の「プロフィールを見る」: 触れた時点でプロフィールのデータを取りに行く",
+      "status": "passed",
+      "duration_ms": 1959
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "iphone",
+      "title": "DM 一覧の「おすすめ」（会話のまだ無いキャラ）: 触れた時点で会話画面のキャラ情報を取りに行き、会話は作らない",
+      "status": "passed",
+      "duration_ms": 2007
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "iphone",
+      "title": "フィード → 投稿詳細・プロフィール: 触れた時点で遷移先のデータを取りに行く",
+      "status": "passed",
+      "duration_ms": 2243
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "android",
+      "title": "DM 会話のヘッダー → プロフィール: 触れた時点でプロフィールのデータを取りに行き、遷移後は取り直さない",
+      "status": "passed",
+      "duration_ms": 2218
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "android",
+      "title": "DM 会話の先頭の「プロフィールを見る」: 触れた時点でプロフィールのデータを取りに行く",
+      "status": "passed",
+      "duration_ms": 2772
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "android",
+      "title": "DM 一覧の「おすすめ」（会話のまだ無いキャラ）: 触れた時点で会話画面のキャラ情報を取りに行き、会話は作らない",
+      "status": "passed",
+      "duration_ms": 2636
+    },
+    {
+      "file": "prefetch.spec.ts",
+      "project": "android",
+      "title": "フィード → 投稿詳細・プロフィール: 触れた時点で遷移先のデータを取りに行く",
+      "status": "passed",
+      "duration_ms": 2542
     },
     {
       "file": "profile.spec.ts",
       "project": "iphone",
       "title": "A5: キャラプロフィールの「無料」「有料」タブが切り替わる",
       "status": "passed",
-      "duration_ms": 1533
+      "duration_ms": 2586
     },
     {
       "file": "profile.spec.ts",
       "project": "iphone",
       "title": "A5: 投稿のアバターをタップするとキャラプロフィールへ移動する",
       "status": "passed",
-      "duration_ms": 1739
+      "duration_ms": 2873
     },
     {
       "file": "profile.spec.ts",
       "project": "iphone",
       "title": "A7: キャラプロフィールの「DMする」で DM 画面に遷移し、挨拶が届く",
       "status": "passed",
-      "duration_ms": 3094
+      "duration_ms": 3257
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "iphone",
+      "title": "A5: プロフィールを直接開くと、投稿数・グリッドの取得はキャラ本体の取得を待たずに始まる",
+      "status": "passed",
+      "duration_ms": 2988
     },
     {
       "file": "profile.spec.ts",
       "project": "android",
       "title": "A5: キャラプロフィールの「無料」「有料」タブが切り替わる",
       "status": "passed",
-      "duration_ms": 1440
+      "duration_ms": 2422
     },
     {
       "file": "profile.spec.ts",
       "project": "android",
       "title": "A5: 投稿のアバターをタップするとキャラプロフィールへ移動する",
       "status": "passed",
-      "duration_ms": 1587
+      "duration_ms": 2391
     },
     {
       "file": "profile.spec.ts",
       "project": "android",
       "title": "A7: キャラプロフィールの「DMする」で DM 画面に遷移し、挨拶が届く",
       "status": "passed",
-      "duration_ms": 2841
+      "duration_ms": 3540
+    },
+    {
+      "file": "profile.spec.ts",
+      "project": "android",
+      "title": "A5: プロフィールを直接開くと、投稿数・グリッドの取得はキャラ本体の取得を待たずに始まる",
+      "status": "passed",
+      "duration_ms": 3507
     },
     {
       "file": "pwa.spec.ts",
       "project": "iphone",
       "title": "A11: Web App Manifest が standalone で、アイコンが取得できる",
       "status": "passed",
-      "duration_ms": 79
+      "duration_ms": 91
     },
     {
       "file": "pwa.spec.ts",
       "project": "iphone",
       "title": "A11: マニフェストと iOS 用の meta・アイコンが <head> にあり、ブラウザが検出できる",
       "status": "passed",
-      "duration_ms": 650
+      "duration_ms": 926
     },
     {
       "file": "pwa.spec.ts",
       "project": "iphone",
       "title": "A11: Service Worker が登録されてページを制御し、オフラインでは /offline を表示する",
       "status": "passed",
-      "duration_ms": 1032
+      "duration_ms": 2400
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "SW: オフライン用キャッシュはビルドごと、/_next/static のキャッシュは上限（200 件）を超えると古い順に消える",
+      "status": "passed",
+      "duration_ms": 1689
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "初回表示で使う別オリジン（Supabase）へ事前に接続する（preconnect）",
+      "status": "passed",
+      "duration_ms": 90
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "DM: 圏外で送信すると「入力中…」のまま止まらず、通信エラーと再送ボタンを表示する",
+      "status": "passed",
+      "duration_ms": 7229
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "読み取り: Supabase に届かない・応答が止まったときも、スケルトンのままにせずエラー表示にする",
+      "status": "passed",
+      "duration_ms": 20243
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "iphone",
+      "title": "コメント: 圏外で投稿すると、送信中のまま止まらずに通信エラーを表示する",
+      "status": "passed",
+      "duration_ms": 1898
     },
     {
       "file": "pwa.spec.ts",
       "project": "android",
       "title": "A11: Web App Manifest が standalone で、アイコンが取得できる",
       "status": "passed",
-      "duration_ms": 39
+      "duration_ms": 66
     },
     {
       "file": "pwa.spec.ts",
       "project": "android",
       "title": "A11: マニフェストと iOS 用の meta・アイコンが <head> にあり、ブラウザが検出できる",
       "status": "passed",
-      "duration_ms": 614
+      "duration_ms": 892
     },
     {
       "file": "pwa.spec.ts",
       "project": "android",
       "title": "A11: Service Worker が登録されてページを制御し、オフラインでは /offline を表示する",
       "status": "passed",
-      "duration_ms": 970
+      "duration_ms": 2290
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "SW: オフライン用キャッシュはビルドごと、/_next/static のキャッシュは上限（200 件）を超えると古い順に消える",
+      "status": "passed",
+      "duration_ms": 1985
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "初回表示で使う別オリジン（Supabase）へ事前に接続する（preconnect）",
+      "status": "passed",
+      "duration_ms": 44
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "DM: 圏外で送信すると「入力中…」のまま止まらず、通信エラーと再送ボタンを表示する",
+      "status": "passed",
+      "duration_ms": 6725
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "読み取り: Supabase に届かない・応答が止まったときも、スケルトンのままにせずエラー表示にする",
+      "status": "passed",
+      "duration_ms": 19136
+    },
+    {
+      "file": "pwa.spec.ts",
+      "project": "android",
+      "title": "コメント: 圏外で投稿すると、送信中のまま止まらずに通信エラーを表示する",
+      "status": "passed",
+      "duration_ms": 1393
     },
     {
       "file": "rls.spec.ts",
       "project": "iphone",
       "title": "A13: 他ユーザーの会話・メッセージ・記憶は RLS と API の所有者チェックで取得できない",
       "status": "passed",
-      "duration_ms": 2509
+      "duration_ms": 3793
     },
     {
       "file": "rls.spec.ts",
       "project": "android",
       "title": "A13: 他ユーザーの会話・メッセージ・記憶は RLS と API の所有者チェックで取得できない",
       "status": "passed",
-      "duration_ms": 1955
+      "duration_ms": 2850
     },
     {
       "file": "screenshots.spec.ts",
       "project": "iphone",
       "title": "スクリーンショット（全画面 × ライト / ダーク）",
       "status": "passed",
-      "duration_ms": 66190
+      "duration_ms": 67282
     },
     {
       "file": "screenshots.spec.ts",
       "project": "android",
       "title": "スクリーンショット（全画面 × ライト / ダーク）",
       "status": "skipped",
-      "duration_ms": 224
+      "duration_ms": 222
     }
   ]
 }

@@ -1,7 +1,7 @@
 [
   {
     "event_type": "conversation.create",
-    "created_at": "2026-09-25T07:37:53.724Z",
+    "created_at": "2026-09-25T15:38:52.079Z",
     "payload_keys": [
       "conversation_id",
       "greeting",
@@ -12,26 +12,26 @@
     ],
     "payload": {
       "greeting": "……え、ほんとにあんた？ 急に連絡くるからびっくりしたじゃん！ 最近どうしてんの？",
-      "request_id": "6fc703af-147d-4926-867d-54560bb1fc00",
+      "request_id": "16fcf171-2643-49c1-b677-3314525dd641",
       "persona_key": "osananajimi",
-      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
+      "conversation_id": "1d99f588-0ed6-4323-a907-b8d8077b8356",
       "persona_fallback": false,
-      "greeting_message_id": "f510e935-365a-440c-9be6-d72bdcd10d12"
+      "greeting_message_id": "4e8593cf-2dc1-4f17-b65a-9233fe5c75c4"
     }
   },
   {
     "event_type": "chat.request",
-    "created_at": "2026-09-25T07:37:54.179Z",
+    "created_at": "2026-09-25T15:38:52.482Z",
     "payload_keys": ["conversation_id", "message", "request_id"],
     "payload": {
       "message": "はじめまして！",
-      "request_id": "76cb67e2-971b-4bab-84ec-d2277e7810dc",
-      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c"
+      "request_id": "6c6ee52c-090d-42a6-b0ba-fb2f467801bd",
+      "conversation_id": "1d99f588-0ed6-4323-a907-b8d8077b8356"
     }
   },
   {
     "event_type": "chat.response",
-    "created_at": "2026-09-25T07:37:54.225Z",
+    "created_at": "2026-09-25T15:38:52.507Z",
     "payload_keys": [
       "conversation_id",
       "extraction",
@@ -43,15 +43,18 @@
       "memories_updated",
       "memories_used",
       "memory_candidates",
+      "memory_save_error",
       "message_id",
       "model",
       "moderated",
       "moderation_stage",
       "persona_fallback",
       "persona_key",
+      "prompt_chars",
       "prompt_messages",
       "reply",
       "request_id",
+      "retrieval_skipped",
       "usage",
       "user_message_id"
     ],
@@ -59,39 +62,44 @@
       "model": "mock-persona-v1",
       "reply": "そうなんだ。あんたの話、もっと聞きたいな。あんた、また夜更かししてるでしょ。文面でわかるし",
       "usage": {
-        "total_tokens": 1128,
-        "prompt_tokens": 1106,
+        "total_tokens": 1174,
+        "prompt_tokens": 1152,
         "completion_tokens": 22
       },
       "moderated": false,
-      "latency_ms": 51,
-      "message_id": "6d774ee0-7b39-48b2-8942-f6412c0f154c",
-      "request_id": "76cb67e2-971b-4bab-84ec-d2277e7810dc",
+      "latency_ms": 25,
+      "message_id": "d6a782dc-e5a9-44a9-a5ae-70df21050ad2",
+      "request_id": "6c6ee52c-090d-42a6-b0ba-fb2f467801bd",
       "persona_key": "osananajimi",
+      "prompt_chars": 2304,
       "memories_used": [],
       "llm_latency_ms": 0,
-      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
-      "user_message_id": "f11202b9-1d4b-4958-9ab7-9540de0e092b",
+      "conversation_id": "1d99f588-0ed6-4323-a907-b8d8077b8356",
+      "user_message_id": "fe7b4455-ba85-466f-8d79-24fabc3ed4e6",
       "history_messages": 1,
       "memories_created": [],
+      "memories_updated": [],
       "moderation_stage": null,
       "persona_fallback": false,
-      "memory_candidates": 0
+      "memory_candidates": 0,
+      "memory_save_error": null,
+      "retrieval_skipped": false,
+      "memories_skipped_user_edited": []
     }
   },
   {
     "event_type": "chat.request",
-    "created_at": "2026-09-25T07:37:56.553Z",
+    "created_at": "2026-09-25T15:38:54.848Z",
     "payload_keys": ["conversation_id", "message", "request_id"],
     "payload": {
       "message": "今日は仕事で疲れたよ",
-      "request_id": "db7f4d13-e110-4667-aa80-bc7636a9c159",
-      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c"
+      "request_id": "ebd4885d-780e-4ddf-bb2a-d31dcba3635f",
+      "conversation_id": "1d99f588-0ed6-4323-a907-b8d8077b8356"
     }
   },
   {
     "event_type": "chat.response",
-    "created_at": "2026-09-25T07:37:56.580Z",
+    "created_at": "2026-09-25T15:38:54.877Z",
     "payload_keys": [
       "conversation_id",
       "extraction",
@@ -103,15 +111,18 @@
       "memories_updated",
       "memories_used",
       "memory_candidates",
+      "memory_save_error",
       "message_id",
       "model",
       "moderated",
       "moderation_stage",
       "persona_fallback",
       "persona_key",
+      "prompt_chars",
       "prompt_messages",
       "reply",
       "request_id",
+      "retrieval_skipped",
       "usage",
       "user_message_id"
     ],
@@ -119,24 +130,29 @@
       "model": "mock-persona-v1",
       "reply": "そっか…話してくれてありがとう。あたしはちゃんと味方だよ。おっ、やっと連絡きた！ 遅いっての、ばーか。……で、元気？",
       "usage": {
-        "total_tokens": 1162,
-        "prompt_tokens": 1133,
+        "total_tokens": 1208,
+        "prompt_tokens": 1179,
         "completion_tokens": 29
       },
       "moderated": false,
-      "latency_ms": 28,
-      "message_id": "21b04da7-5d67-4944-b963-567fb0135183",
-      "request_id": "db7f4d13-e110-4667-aa80-bc7636a9c159",
+      "latency_ms": 29,
+      "message_id": "de973923-713e-497a-a32a-94e7e4c18305",
+      "request_id": "ebd4885d-780e-4ddf-bb2a-d31dcba3635f",
       "persona_key": "osananajimi",
+      "prompt_chars": 2359,
       "memories_used": [],
       "llm_latency_ms": 0,
-      "conversation_id": "9265462e-dceb-4210-8658-fed359739c6c",
-      "user_message_id": "43170810-0af9-4ee1-a8c7-48b7fd35fd1b",
+      "conversation_id": "1d99f588-0ed6-4323-a907-b8d8077b8356",
+      "user_message_id": "93e20478-64fe-4928-b9d5-b6aaae19cc8b",
       "history_messages": 3,
-      "memories_created": ["d6380b27-0ec1-46d1-9844-8584733b771a"],
+      "memories_created": ["d286da23-0051-4cd6-9d5c-b58176a7174d"],
+      "memories_updated": [],
       "moderation_stage": null,
       "persona_fallback": false,
-      "memory_candidates": 1
+      "memory_candidates": 1,
+      "memory_save_error": null,
+      "retrieval_skipped": false,
+      "memories_skipped_user_edited": []
     }
   }
 ]

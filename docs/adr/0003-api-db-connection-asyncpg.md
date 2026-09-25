@@ -1,6 +1,6 @@
 # ADR-0003: Python API の DB 接続（asyncpg + postgres ロール + 明示的な所有者チェック）
 
-- ステータス: 採用
+- ステータス: 採用（DB 接続の TLS 必須化を [ADR-0025](0025-db-tls-and-api-entry-failures.md) で追補）
 - 日付: 2026-09-25
 - 関連: [ADR-0002](0002-data-access-split.md) / 実装: `apps/api/app/core/db.py`, `apps/api/app/services/*.py`, `apps/api/tests/integration/`
 

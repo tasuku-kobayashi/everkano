@@ -1,6 +1,6 @@
 # ADR-0002: データアクセス分離（読み取りは Supabase RLS 直結・ユーザー由来テキストの書き込みは API 経由）
 
-- ステータス: 採用
+- ステータス: 採用（Web の取得の仕方（既存の DM 会話の直接の読み取り・差分の回収・先読み）を [ADR-0030](0030-web-data-fetching-dm-and-prefetch.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §2・§6・§10・H6 / [ADR-0003](0003-api-db-connection-asyncpg.md) / 実装: `infra/supabase/migrations/20260925000000_init.sql`（grant・policy）, `apps/web/lib/queries/`, `apps/web/lib/api/`
 

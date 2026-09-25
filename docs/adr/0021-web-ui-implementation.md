@@ -1,6 +1,6 @@
 # ADR-0021: Web の UI 実装方針（スマホ専用シェル・Instagram 準拠のトークン・自作 SVG アイコン）
 
-- ステータス: 採用
+- ステータス: 採用（読ませる文字の色・アクセシビリティの約束・端末の「戻る」・ホームの再読み込みを [ADR-0031](0031-web-ui-accessibility-and-dev-only-pages.md) で追補。`/dev/ui` の扱いは ADR-0031 により置き換え）
 - 日付: 2026-09-25
 - 関連: 仕様書 §4・H1・H2・§2（`next/image` 不使用） / 実装: `apps/web/app/globals.css`, `apps/web/components/ui/`（`main-shell.tsx`, `tab-bar.tsx`, `icons.tsx`, `wordmark.tsx`, `image.tsx`）, `apps/web/README.md`
 

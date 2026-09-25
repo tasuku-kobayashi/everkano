@@ -20,7 +20,8 @@
 
 ## 1. ログイン
 
-[ADR-0012](../adr/0012-pwa-and-login-magic-link-otp.md)。リンクとコードのどちらでも完了する。
+[ADR-0012](../adr/0012-pwa-and-login-magic-link-otp.md)・[ADR-0026](../adr/0026-magic-link-confirm-page.md)・[ADR-0033](../adr/0033-auth-hardening-password-otp-captcha.md)。リンクとコードのどちらでも完了し、
+どちらでもログイン前に開こうとしていたページ（`next`）へ戻る。リンクとコードの有効期限は 15 分。
 
 ```mermaid
 sequenceDiagram
@@ -32,12 +33,14 @@ sequenceDiagram
   participant C as Web /auth/confirm（サーバー）
   participant DB as Postgres
   U->>L: メールアドレスを入力
-  L->>A: signInWithOtp(email, emailRedirectTo = SITE_URL/auth/callback)
+  L->>A: signInWithOtp(email, emailRedirectTo = SITE_URL/auth/callback?next=（ログイン前のページ）)
   A->>DB: 初回なら auth.users を作成（トリガーで profiles も作成）
   A->>M: Magic Link（初回は Confirm signup）テンプレートで送信
-  Note over M: リンク /auth/confirm?token_hash=...&type=email&next=/ と 6 桁コード
+  Note over M: リンク /auth/confirm?token_hash=...&type=email&redirect_to=（emailRedirectTo の値）と 6 桁コード
   alt メールのリンクをタップ（どのブラウザでもよい）
     U->>C: GET /auth/confirm?token_hash=...
+    C-->>U: 確認画面「everkano にログインしますか？」（トークンはまだ検証しない。別のアカウントでログイン中なら切り替わると表示）
+    U->>C: 「ログインする」→ POST /auth/confirm/verify（同一オリジンのフォーム送信のみ受け付ける。ADR-0026）
     C->>A: verifyOtp(token_hash, type)
     A-->>C: セッション（Cookie を発行）
     C->>DB: profiles.deleted_at を確認（RLS。本人の行）
@@ -47,10 +50,15 @@ sequenceDiagram
     L->>A: verifyOtp(email, token, type = email)
     A-->>L: セッション
     L->>DB: profiles.deleted_at を確認
-    L-->>U: ホームへ遷移
+    L-->>U: next（ログイン前に開こうとしていたページ。無ければホーム）へ遷移
   end
   Note over L,A: 以後 middleware.ts が全リクエストでセッション Cookie を更新する
 ```
+
+- コード入力待ちの状態（メールアドレスと送信時刻。コードは保存しない）は端末に 15 分保存する。メールアプリへ切り替えている間に iOS がホーム画面の
+  PWA を再起動しても、コード入力画面から続けられる。送信間隔の制限（`over_email_send_rate_limit`）に当たった場合も、送信済みのコードの入力画面へ進む。
+- 使用済み・期限切れのリンクは `/login?error=link&next=<元のページ>`。ログイン後に使えなくなったセッション（ユーザーの削除・利用停止）は、端末の
+  セッションを消してから `/login?error=session` / `?error=banned` へ（`/` ⇄ `/login` のループにしない）。
 
 ## 2. フィードの表示
 
@@ -76,6 +84,8 @@ sequenceDiagram
 ```
 
 - カーソル方式なので、途中で予約投稿が公開されて先頭に増えてもページ境界で重複・欠落しない。
+- 先頭で Home タブ・ロゴを再タップ、下に引っ張る、5 分以上バックグラウンドにいた後に先頭で復帰、のいずれかで 1 ページ目から取り直す
+  （ホーム画面の PWA にはブラウザの再読み込みが無いため。[ADR-0031](../adr/0031-web-ui-accessibility-and-dev-only-pages.md)）。
 - 有料投稿をタップするとロックモーダル（「購入する（準備中）」→ トースト）。本体画像はどこからも取得しない（[ADR-0006](../adr/0006-paid-post-private-assets.md)）。
 
 ## 3. いいね
@@ -128,9 +138,9 @@ sequenceDiagram
     API-->>B: 201 {comment, reply_scheduled}
     Note over API: 確率 COMMENT_AUTO_REPLY_PROBABILITY で BackgroundTask を予約
     API->>L: comment_reply テンプレートで 1 文生成
-    API->>API: Gate ＃1（出力、キャラ別 NG ワード込み）
+    API->>API: Gate ＃1（出力、キャラ別 NG ワード込み。公開されるので URL・ドメイン名も差し止め）
     alt 通過
-      API->>DB: INSERT comments（author_type = character, parent_comment_id = ユーザーのコメント）
+      API->>DB: 同じコメントへの返信を直列化（アドバイザリーロック）し、返信がまだ無ければ INSERT comments（author_type = character, parent_comment_id = ユーザーのコメント）
       API->>DB: audit comment.generate（trigger = auto）
       DB-->>RT: INSERT イベント
       RT-->>B: キャラの返信を表示（RLS に一致する購読者だけ）
@@ -141,30 +151,40 @@ sequenceDiagram
 ```
 
 - 自分のコメントの削除はブラウザから直接 `DELETE comments`（RLS で本人のみ）。返信は cascade で消え、トリガーが `comment.delete` を記録する。
+- キャラの返信はコメント 1 件につき 1 件まで。`POST /comments/generate`（Web の画面からは未使用）は自分のコメントだけに使え、既に返信があれば
+  LLM を呼ばずにそれを返す（[ADR-0027](../adr/0027-comment-reply-generation-limits.md)）。
+- 一覧は新しい方から 500 件を取り、昇順に並べる（それより古いコメントは表示しない旨を出す）。返信の @メンションは公開名（`user_xxxxxx` /
+  キャラのハンドル）だけで、自分のコメントへの返信にはメンションを入れない（表示名・メールアドレスを公開しない）。
 
 ## 5. DM を開く
+
+既存の会話は Python API を経由せずに開く（[ADR-0030](../adr/0030-web-data-fetching-dm-and-prefetch.md)）。API が止まっていても既存の会話の履歴は読める。
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant B as ブラウザ（/dm/[characterId]）
-  participant API as Python API
   participant R as PostgREST / Realtime
+  participant API as Python API
   participant DB as Postgres
-  B->>API: POST /conversations {character_id}
-  alt 初回
+  Note over B: DM 一覧の行・「DMする」に触れた時点でキャラ情報（会話があれば最新ページ）を先読み
+  B->>R: 自分の会話（user_id = 自分, character_id）+ 最新 30 件のメッセージを埋め込みで取得（RLS）
+  alt 会話がある
+    R-->>B: 会話 + メッセージ（1 往復で表示）
+  else 会話がまだ無い
+    B->>API: POST /conversations {character_id}
     API->>DB: INSERT conversations + キャラの挨拶（persona.greeting）を messages に（1 トランザクション）
     API->>DB: audit conversation.create
     API-->>B: {conversation, created: true, greeting_message}
-  else 既存
-    API-->>B: {conversation, created: false, greeting_message: null}
   end
-  B->>R: messages を新しい順に 30 件（上へスクロールで過去へ）
   B->>R: 購読 messages INSERT（filter conversation_id）
+  B->>R: 差分の取得（キャッシュの最新より新しいものだけ。購読開始・再接続・画面復帰のたび）
   B->>R: RPC mark_conversation_read(conversation_id)（未読バッジを消す）
+  Note over B,R: 上へスクロールで 30 件ずつ過去へ
 ```
 
-- DM 一覧（`/dm`）は RPC `list_dm_threads()`（最新メッセージ・未読数）と、`messages` の INSERT の購読で更新する。
+- DM 一覧（`/dm`）は RPC `list_dm_threads()`（最新メッセージ・未読数）と、**自分の会話に絞った** `messages` の INSERT の購読
+  （`conversation_id=in.(...)`、最大 100 件）、30 秒ごとのポーリングで更新する。
 
 ## 6. DM を送る（`POST /chat`、13 ステップ）
 
@@ -191,9 +211,9 @@ sequenceDiagram
     API-->>B: 200 ChatResponse（moderated = true）
   else 通過（ここから締め切り CHAT_DEADLINE_SECONDS）
     API->>DB: (5) 短期: 直近 60 件（30 ターン）
-    API->>E: (6) 発言を埋め込み
-    API->>DB: (6) このペアの記憶を厳密検索 → 上位 5 件を重要度で再ランク + 最新の要約 2 件
-    API->>API: (7) ペルソナ YAML + dm_system テンプレート + 記憶 + 履歴でプロンプト組立
+    API->>E: (6) 発言を埋め込み（EMBEDDING_TIMEOUT_SECONDS。失敗・時間切れなら検索を省略し audit llm.error = embedding_query）
+    API->>DB: (6) このペアの記憶を厳密検索 → 上位 5 件を重要度で再ランク + 最新の要約 2 件（検索を省略した場合は要約だけ）
+    API->>API: (7) ペルソナ YAML + dm_system テンプレート + 記憶（1 件 1 行）+ 履歴（合計 16,000 字まで）でプロンプト組立
     par (8) 返答生成
       API->>L: chat（temperature 0.8）
     and (8) 記憶抽出
@@ -201,19 +221,23 @@ sequenceDiagram
     end
     API->>API: (9) Gate ＃1（出力。ヒットなら定型文に差し替え、audit moderation.flag）
     API->>DB: (10) ユーザー発言 → キャラ返答を 1 トランザクションで INSERT（last_message_at はトリガー）
-    API->>E: (11) 重要度 0.6 以上の候補を埋め込み
-    API->>DB: (11) 重複排除（cos 0.92 以上: ユーザー編集済みはスキップ / それ以外は更新）→ 新規は INSERT、audit memory.create / update
+    API->>E: (11) 重要度 0.6 以上の候補を埋め込み（失敗しても返答は 200。audit llm.error = memory_save）
+    API->>DB: (11) 重複排除（cos 0.92 以上: ユーザー編集済みはスキップ / それ以外は更新）→ 新規は INSERT（上限 500 件なら重要度の低い自動記憶と入れ替え）、audit memory.create / update
     API->>DB: (13) audit chat.response（返答・モデル・レイテンシ・使用量・使った / 作った記憶・プロンプト全文）
     API-->>B: 200 ChatResponse（reply, memories_used, memories_created, user_message, character_message）
-    Note over API,DB: (12) 応答後の BackgroundTask: 未要約が 100 件を超えたら古い部分を要約して summary 記憶を作り、summary_cursor を進める（audit memory.summary）
+    Note over API,DB: (12) 応答後の BackgroundTask: 未要約が 100 件を超えたら古い順に 12,000 字ずつ（最大 3 チャンク）要約して summary 記憶を作り、要約した分だけ summary_cursor を進める（audit memory.summary。失敗は会話ごとにバックオフ）
   end
   B->>B: 「入力中…」を最低 1.1 秒見せてから返答を表示。記憶が作られたら「〇〇があなたのことを覚えました」
+  B->>DB: RPC mark_conversation_read（1 往復につき 1 回）
   Note over B,DB: 他のタブ・端末には Realtime（messages INSERT）で届く
 ```
 
 - **LLM の失敗（リトライ後）または締め切り超過**: audit `llm.error` を記録して **503 `llm_unavailable`**。メッセージは何も保存しない。
   画面では自分の吹き出しが「送信失敗」になり、タップで再送できる。
 - 記憶の抽出が締め切りに間に合わない / 失敗した場合はチャットを成功させ、`llm.error`（`purpose = memory_extraction`）を記録する。
+- 端末がオフラインなら `/chat` はすぐに失敗し、自分の吹き出しが「送信できませんでした・タップで再送」になって通信エラーのトーストが出る
+  （「入力中…」のまま止まらない。[ADR-0029](../adr/0029-web-network-failure-policy.md)）。
+- 返答待ちのまま画面を離れて戻っても、送った発言と「入力中…」は残り、同じタブからは二重に送れない（別のタブ・端末からの同時送信は防いでいない）。
 
 ## 7. メモリパネルでの編集
 
@@ -230,9 +254,11 @@ sequenceDiagram
   API->>DB: 本人 × キャラの記憶（重要度 desc, created_at desc、最大 500 件）
   API-->>B: memories
   B->>API: POST /memories {character_id, content, importance, tags(secret)}
+  API->>API: レート制限（30 / 分、PATCH と共有）。summary タグの指定は 422
+  API->>DB: ペアの記憶の件数（500 件に達していたら 422）
   API->>API: Gate ＃1（入力。ヒットなら 422 moderation_blocked）
-  API->>E: 埋め込み（失敗なら 503）
-  API->>DB: INSERT memories（is_user_edited = true）、audit memory.create（source = user）
+  API->>E: 埋め込み（10 秒で打ち切り。失敗なら 503 と audit llm.error = user_memory）
+  API->>DB: ペア単位のロックを取って件数を数え直し、INSERT memories（is_user_edited = true）、audit memory.create（source = user）
   API-->>B: 201 MemoryDTO
   B->>API: PATCH /memories/{id} {importance / tags / content}
   API->>DB: 本人の記憶か（違えば 404）
@@ -241,7 +267,7 @@ sequenceDiagram
   B->>API: DELETE /memories/{id}（確認ダイアログの後）
   API->>DB: DELETE（本人の記憶のみ）、audit memory.delete
   API-->>B: 204
-  Note over B,DB: UI は楽観的更新 → 失敗時ロールバック → 最後に再取得
+  Note over B,DB: UI は楽観的更新 → 失敗時ロールバック（追加・編集の入力内容は消さずに戻す）→ 最後に再取得
 ```
 
 - 削除した記憶は次の `/chat` の検索対象から外れる（`memories_used` に出ない）。ユーザーが追加・編集した記憶は自動抽出の重複排除で上書きされない。

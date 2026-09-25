@@ -1,6 +1,6 @@
 # ADR-0008: LLM / Embedding プロバイダ抽象化とモックモード
 
-- ステータス: 採用
+- ステータス: 採用（埋め込みの専用のタイムアウト・リトライを [ADR-0022](0022-embedding-failures-and-audit-additions.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §2「LLM / 生成」・§17-3 / 実装: `apps/api/app/services/llm.py`, `apps/api/app/services/embedding.py`, `apps/api/app/core/config.py`
 

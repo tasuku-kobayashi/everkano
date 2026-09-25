@@ -1,6 +1,6 @@
 # ADR-0019: `/chat` の締め切り（CHAT_DEADLINE_SECONDS）と「何も保存しない」失敗
 
-- ステータス: 採用
+- ステータス: 採用（埋め込みの障害では 503 にしないことを [ADR-0022](0022-embedding-failures-and-audit-additions.md)、Web 側の通信失敗の扱いを [ADR-0029](0029-web-network-failure-policy.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §7・§15「エラーは握りつぶさない」 / [ADR-0009](0009-memory-engine.md) / 実装: `apps/api/app/services/chat.py`, `apps/api/app/core/config.py`（`chat_deadline_seconds`）, `apps/web/lib/api/client.ts`（`CHAT_TIMEOUT_MS`）
 

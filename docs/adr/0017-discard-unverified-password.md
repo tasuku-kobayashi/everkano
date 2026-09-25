@@ -1,6 +1,6 @@
 # ADR-0017: メール確認前パスワードの破棄と Confirm email 必須（事前乗っ取り対策）
 
-- ステータス: 採用
+- ステータス: 採用（既存ユーザーのパスワード設定の無効化・コードの有効期限・CAPTCHA の方針を [ADR-0033](0033-auth-hardening-password-otp-captcha.md) で追補）
 - 日付: 2026-09-25
 - 関連: [ADR-0012](0012-pwa-and-login-magic-link-otp.md) / 実装: マイグレーションの `discard_unverified_password()` と `on_auth_user_email_verified`, `infra/supabase/config.toml`（`[auth.email] enable_confirmations = true`）, `infra/supabase/tests/database/08_auth_password_hardening.test.sql`, `infra/supabase/tests/auth/signup_hardening.py`
 

@@ -9,7 +9,7 @@
 | 共通       | UI 文言は日本語、識別子は英語、コメントは日本語でよい。エラーは握りつぶさない（ログ + ユーザー向けメッセージ）。シークレットはコミットしない（新しい変数は `.env.example` にキー名だけ） |
 | TypeScript | strict、`any` 禁止（やむを得ない場合は理由をコメント）。ESLint（`eslint-config-next`）+ Prettier（`prettier-plugin-tailwindcss`）                                          |
 | Python     | 型ヒント必須、`ruff check` / `ruff format`（行 120）、`mypy --strict`（`app/`）。全エンドポイントに Pydantic スキーマ                                                     |
-| Web        | 読み取りは `getSupabaseBrowserClient()`（RLS）。`characters` は必ず `PUBLIC_CHARACTER_COLUMNS` で列を指定。ユーザーが書くテキストは必ず `api.*`（`lib/api`）経由。画像は `<CdnImage>` / `<Avatar>`（`next/image` 禁止）。色はトークン（`bg-ig-bg` など）。詳細は [apps/web/README.md](../../apps/web/README.md#実装ルール機能担当向け) |
+| Web        | 読み取りは `getSupabaseBrowserClient()`（RLS）。`characters` は必ず `PUBLIC_CHARACTER_COLUMNS` で列を指定。supabase-js のエラーは `if (error) throw toAppError(error);`。ユーザーが書くテキストは必ず `api.*`（`lib/api`）経由。画面の `useQuery` は `xxxQueryOptions()` を使い、リンクの `onPointerDown` から同じ設定で先読みする（読み取りだけ）。画像は `<CdnImage>` / `<Avatar>`（`next/image` 禁止）。色はトークン（`bg-ig-bg` など。読ませる文字の青・赤は `text-ig-blue-text` / `text-ig-red-text`、`ig-blue` / `ig-red` は塗り・アイコン専用）。(main) の画面は自分で `<main>` を出さず、h1 を 1 つ。エラー文は句点で終え、再試行の案内は「しばらくしてから再度お試しください。」。開発専用のページは `page.dev.tsx`。詳細は [apps/web/README.md](../../apps/web/README.md#実装ルール機能担当向け)、[ADR-0029](../adr/0029-web-network-failure-policy.md)〜[ADR-0031](../adr/0031-web-ui-accessibility-and-dev-only-pages.md) |
 | API        | **DB クエリは必ず検証済み `user_id` でスコープ**（他人のものは 404）。ユーザー由来テキストは Gate #1 を通す。重要な操作は監査ログに残す（payload に `request_id` は自動で入る） |
 | DB         | テーブル・列・関数の追加は「RLS 有効化 + 最小権限の grant + ポリシー + pgTAP テスト」をセットで。`database.types.ts` を再生成                                             |
 | スコープ   | 決済・画像生成・TTS / 音声・ユーザー投稿・フォロー・通知・管理画面・多言語は作らない（仕様書 §12。`check-scope.sh` が検出）                                               |
@@ -36,10 +36,11 @@
    監査ログが必要なら `AuditLogger.log()`（新しい `event_type` は `services/audit.py` の `AuditEventType` に追加し、[ADR-0013](../adr/0013-audit-log.md) の表も更新）。
    新しいサービスは `app/container.py` の `Services` / `build_services` に登録する。
 3. **ルーター**: `apps/api/app/routers/<領域>.py`。認証は `CurrentUserDep`、レート制限が必要なら `Depends(RateLimit("<bucket>"))` 相当
-   （バケットは `container.py` の `SlidingWindowRateLimiter` の辞書と設定に追加）。`responses=` に `ERROR_RESPONSES` / `NOT_FOUND_RESPONSE` を付ける。
+   （`container.py` の `ChatRateLimitedUser` などの型を参照。バケットは `container.py` の `SlidingWindowRateLimiter` の辞書と `app/core/config.py` の設定に追加）。`responses=` に `ERROR_RESPONSES` / `NOT_FOUND_RESPONSE` を付ける。
    `app/main.py` の `create_app()` で `include_router`。
 4. **共有の TS 型**: `packages/shared/src/api.ts` に同じ形（snake_case）の interface を追加。
-5. **契約テスト**: `apps/api/tests/test_openapi_contract.py` の `CONTRACT` にモデル名・フィールド・必須フィールドを追加。
+5. **契約テスト**: `apps/api/tests/test_openapi_contract.py` は **`api.ts` を読んで** OpenAPI の components と突き合わせる（interface の過不足・フィールド名・必須・
+   型・null 許容・エラーコード）ので、モデルの写しを書く必要は無い。新しいパスは同じファイルの `test_paths` の `expected` に追加する。
 6. **テスト**: 単体テストと、`apps/api/tests/integration/` に統合テスト（**他人のリソースで 404 になるテストを必ず書く**。認証無しで 401 も）。
 7. **OpenAPI**: `pnpm --filter @everkano/api openapi` で `docs/api/openapi.json` を再生成してコミット（CI が差分を検出する）。
 8. **Web クライアント**: `apps/web/lib/api/client.ts` の `createApiClient` にメソッドを追加（`call<T>({ method, path, body, ... })`）し、
@@ -77,16 +78,18 @@ YAML とテンプレートは API の起動時に読み込まれるので、変�
 
 ## テスト
 
-| 種類            | 場所                                              | 件数（2026-09-25） | 実行                                         | CI  |
+| 種類            | 場所                                              | 件数（2026-09-26） | 実行                                         | CI  |
 | --------------- | ------------------------------------------------- | ------------------ | -------------------------------------------- | --- |
-| Web 単体        | `apps/web/**/*.test.ts`（vitest）                 | 15 ファイル / 163  | `pnpm --filter @everkano/web test`           | ✓   |
-| API 単体 + 統合 | `apps/api/tests/`（統合は `tests/integration/`）  | 233                | `(cd apps/api && uv run pytest -q)`           | ✓   |
-| DB（pgTAP）     | `infra/supabase/tests/database/`                  | 9 ファイル / 173   | `pnpm db:test`                                | ✓   |
+| Web 単体        | `apps/web/**/*.test.ts`（vitest）                 | 35 ファイル / 351  | `pnpm --filter @everkano/web test`           | ✓   |
+| API 単体 + 統合 | `apps/api/tests/`（統合は `tests/integration/`）  | 389（うち統合 65） | `(cd apps/api && uv run pytest -q)`           | ✓   |
+| DB（pgTAP）     | `infra/supabase/tests/database/`                  | 10 ファイル / 195  | `pnpm db:test`                                | ✓   |
 | Auth 設定       | `infra/supabase/tests/auth/signup_hardening.py`   | —                  | `python3 infra/supabase/tests/auth/signup_hardening.py` | ✓（`--static-only`） |
-| E2E（Playwright）| `apps/web/e2e/`                                  | 13 spec / 27 × 2 端末 | 下記                                       | 手動 |
+| `check-secrets.sh` の回帰 | `scripts/tests/check-secrets.test.sh`     | 18                 | `bash scripts/tests/check-secrets.test.sh`   | ✓   |
+| E2E（Playwright）| `apps/web/e2e/`                                  | 14 spec / 72 × 2 端末 | 下記                                       | main への push・毎晩・手動 |
 
-- API の統合テストはローカル Supabase の Postgres に自前のユーザー・データを作り、終了時に削除する。**DB に接続できないと失敗ではなく skip** に
-  なるので、`pnpm db:start` 済みで実行し、`skipped` の件数を確認する（接続先は `TEST_DATABASE_URL`）。
+- API の統合テストはローカル Supabase の Postgres に自前のユーザー・データを作り、終了時に削除する。DB に接続できないとき、ローカルでは **skip**
+  になるので、`pnpm db:start` 済みで実行し、`skipped` の件数を確認する（接続先は `TEST_DATABASE_URL`）。`REQUIRE_TEST_DB=1`（未設定なら
+  環境変数 `CI=true` のとき有効）では skip せずに失敗する（所有者チェックなどのセキュリティのテストが黙って skip され、CI が成功扱いになるのを防ぐ）。
 - pgTAP の各ファイルは `begin; ... rollback;` で完結し、DB に何も残さない。
 
 ### E2E の実行
@@ -114,10 +117,10 @@ pnpm --filter @everkano/web exec playwright show-report
 詳細（環境変数・テストデータの扱い・スクリーンショットの更新）は [apps/web/e2e/README.md](../../apps/web/e2e/README.md)、最新の結果は
 [docs/acceptance/e2e-results.md](../acceptance/e2e-results.md)。E2E はモック LLM の決定的な返答を前提にしている。
 
-**CI**: `.github/workflows/ci.yml` の `e2e` ジョブ（Actions → CI → Run workflow の**手動実行のみ**）。Realtime と Mailpit を含めて
+**CI**: `.github/workflows/ci.yml` の `e2e` ジョブ（main への push・毎晩 03:17 JST の定期実行・Actions → CI → Run workflow の手動実行。PR では動かない）。Realtime と Mailpit を含めて
 `supabase start --workdir infra` → `pnpm install` / `uv sync` → `playwright install --with-deps chromium` → `setup-env.sh --force` → API と Web（本番ビルド）を
 バックグラウンド起動 → `pnpm --filter @everkano/web e2e` → `playwright-report` をアーティファクトに保存。GitHub 上ではまだ一度も実行していないので、
-最初の実行結果を確認すること。所要時間はローカルで約 2 分（テスト本体）。
+最初の実行結果を確認すること。所要時間はローカルで約 4 分（テスト本体、144 件・3 並列）。
 
 ## コミットと PR
 
@@ -175,9 +178,12 @@ gh api "repos/<owner>/<repo>/branches/main/protection" --jq '.required_status_ch
 ## 開発の小技
 
 - **API の Swagger UI**: http://localhost:8000/docs（`APP_ENV=production` では無効）。
-- **UI 部品のカタログ**: http://localhost:3000/dev/ui（本番ビルドでは 404）。Python API への疎通確認もできる。
-- **dev サーバーを複数並行で動かす**: `cd apps/web && NEXT_DIST_DIR=.next-browse pnpm exec next dev -p 3001`（`.next-*` は gitignore 済み。
-  `tsconfig.json` に登録済みの名前 `.next-foundation` / `.next-browse` / `.next-dm` / `.next-fix` 以外を使うと Next.js が `tsconfig.json` を書き換えるので、その変更はコミットしない）。
+- **UI 部品のカタログ**: http://localhost:3000/dev/ui（`next dev` のときだけ存在する。`app/(main)/dev/ui/page.dev.tsx`。本番ビルドにはルートもチャンクも
+  含まれない。開発専用のページは `page.dev.tsx` と名付ける。[ADR-0031](../adr/0031-web-ui-accessibility-and-dev-only-pages.md)）。Python API への疎通確認もできる。
+- **dev サーバーを複数並行で動かす**: `cd apps/web && NEXT_DIST_DIR=.next-browse pnpm exec next dev -p 3001`（`.next-*` は gitignore 済み）。
+  **既定（`.next`）以外の `NEXT_DIST_DIR` を使うと、Next.js が `apps/web/tsconfig.json` の `include` に `.next-xxx/types/**/*.ts` を自動で追加する**
+  （`next build` でも同じ）。この変更はコミットしないこと。戻すには `git checkout -- apps/web/tsconfig.json`。`tsconfig.json` に dist の名前を登録して
+  おく方式はやめた（型検査が古い生成物を拾うため。登録し直さない）。
   `.env.example`（= `pnpm setup:env` で作る `apps/api/.env`）の `CORS_ALLOW_ORIGINS` には 3000〜3002 が入っている。
 - **API をコンテナで**: `docker compose up --build api`（ビルドコンテキストはルート。片付けは `docker compose rm -sf api`）。
   Supabase のコンテナは Compose ではなく Supabase CLI が管理しているので、止めるときは `pnpm db:stop` を使う。

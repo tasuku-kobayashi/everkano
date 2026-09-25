@@ -1,8 +1,8 @@
 # ADR-0012: PWA とログイン方式（マジックリンク + 6 桁コード）
 
-- ステータス: 採用
+- ステータス: 採用（メールのリンクの扱い（「ログイン」の手順 2）は [ADR-0026](0026-magic-link-confirm-page.md) により置き換え。Service Worker の更新とキャッシュの上限を [ADR-0032](0032-service-worker-versioning.md)、認証の追加の守りを [ADR-0033](0033-auth-hardening-password-otp-captcha.md) で追補）
 - 日付: 2026-09-25
-- 関連: 仕様書 §2「PWA 対応」・§5.1・H1 / [ADR-0017](0017-discard-unverified-password.md) / 実装: `apps/web/components/auth/login-form.tsx`, `apps/web/app/auth/confirm/route.ts`, `apps/web/app/auth/callback/route.ts`, `infra/supabase/templates/magic_link.html`, `apps/web/public/manifest.json`, `apps/web/public/sw.js`, `apps/web/next.config.ts`
+- 関連: 仕様書 §2「PWA 対応」・§5.1・H1 / [ADR-0017](0017-discard-unverified-password.md) / 実装: `apps/web/components/auth/login-form.tsx`, `apps/web/app/auth/confirm/page.tsx`, `apps/web/app/auth/confirm/verify/route.ts`（ADR-0026）, `apps/web/app/auth/callback/route.ts`, `infra/supabase/templates/magic_link.html`, `apps/web/public/manifest.json`, `apps/web/public/sw.js`, `apps/web/next.config.ts`
 
 ## コンテキスト
 
@@ -17,9 +17,10 @@
 
 ### ログイン
 
-1. `/login` でメールアドレスを入力 → `signInWithOtp({ email, options: { emailRedirectTo: SITE_URL + '/auth/callback' } })`。
+1. `/login` でメールアドレスを入力 → `signInWithOtp({ email, options: { emailRedirectTo: SITE_URL + '/auth/callback?next=<ログイン後の遷移先>' } })`。
 2. メールテンプレート（`magic_link.html`。**Magic Link と Confirm signup の両方**に同じものを使う）に次の **両方** を入れる:
-   - リンク `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/` → Route Handler `/auth/confirm` がサーバー側で
+   - リンク `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&redirect_to={{ .RedirectTo | urlquery }}`（`redirect_to` の中の `next` が
+     ログイン後の遷移先。ADR-0026）→ Route Handler `/auth/confirm` がサーバー側で
      `verifyOtp({ token_hash, type })` してセッション Cookie を発行する（code_verifier に依存しないので、どのブラウザで開いてもよい）。
    - 6 桁の確認コード `{{ .Token }}` → `/login` 画面で `verifyOtp({ email, token, type: 'email' })`（6 桁入力で自動送信）。
      フォームは 6 桁固定（`OTP_LENGTH`）なので、Auth の OTP 長も 6 にする。

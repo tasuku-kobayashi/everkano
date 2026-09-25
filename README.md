@@ -29,8 +29,8 @@ everkano/
 │   │   │   │   ├── dm/[characterId]/      # DM 会話 + メモリパネル
 │   │   │   │   ├── search/                # [追加] キャラ検索（§4.2 のタブ）
 │   │   │   │   ├── me/                    # [追加] 自分のプロフィール（§5.7）
-│   │   │   │   └── dev/ui/                # [追加] 開発用 UI カタログ（本番は 404）
-│   │   │   ├── auth/confirm/, auth/callback/  # [追加] マジックリンク / PKCE の着地点
+│   │   │   │   └── dev/ui/                # [追加] 開発用 UI カタログ（page.dev.tsx。next dev のときだけ。本番ビルドに含めない）
+│   │   │   ├── auth/confirm/, auth/confirm/verify/, auth/callback/  # [追加] マジックリンクの確認画面とログイン（POST）/ PKCE の着地点
 │   │   │   ├── media/[...key]/            # [追加] Bunny.net トークン認証の署名 URL へ 302
 │   │   │   ├── offline/                   # [追加] Service Worker のオフラインページ
 │   │   │   ├── layout.tsx
@@ -47,7 +47,7 @@ everkano/
 │       │   ├── routers/                   # chat / comments / health + [追加] conversations / memories
 │       │   ├── services/                  # llm / persona / memory / moderation + [追加] chat / comments / embedding / prompt / audit / rate_limit ほか
 │       │   ├── models/                    # Pydantic（packages/shared/src/api.ts と一致）
-│       │   └── core/                      # config / security（JWT 検証）/ logging + [追加] db / errors / middleware
+│       │   └── core/                      # config / security（JWT 検証）/ logging + [追加] db / errors / middleware / http / observability（Sentry）
 │       ├── scripts/                       # [追加] OpenAPI の出力・ペルソナの検証・記憶の再埋め込み
 │       ├── tests/                         # [追加] 単体テスト + 統合テスト（ローカル Supabase）
 │       ├── Dockerfile
@@ -65,10 +65,10 @@ everkano/
 │   ├── templates/                        # [追加] ログインメール（リンク + 6 桁コード）
 │   └── tests/                            # [追加] pgTAP（RLS・権限）と Auth 設定のテスト
 ├── docs/
-│   ├── adr/                              # 設計判断の記録（ADR-0001〜0021）
+│   ├── adr/                              # 設計判断の記録（ADR-0001〜0034）
 │   ├── api/                              # OpenAPI（FastAPI から生成。CI で最新か検査）
 │   ├── handover/                         # 引き継ぎ資料
-│   └── acceptance/                       # [追加] 受け入れ検証レポート・E2E 結果・スクリーンショット
+│   └── acceptance/                       # [追加] 受け入れ検証レポート・納品前の検査の報告・E2E 結果・スクリーンショット
 ├── scripts/                              # [追加] env 生成・pgTAP 実行・シークレット / スコープ外機能 / DB 型の検査
 ├── .github/                              # [追加] CI（workflows/ci.yml）と PR テンプレート
 ├── .env.example                          # 環境変数の一覧（キー名とローカルの既定値のみ）
@@ -128,7 +128,7 @@ pnpm --filter @everkano/web dev # http://localhost:3000
 1. `curl http://localhost:8000/health` → `{"status":"ok", ..., "llm_mode":"mock","embedding_mode":"hash","db":"ok"}`
 2. ブラウザで http://localhost:3000 を開く。**スマホ専用の UI** なので、開発者ツールのデバイス表示（例: 390×844）にする。
 3. ログイン画面でメールアドレス（何でもよい。実際には送信されない）を入力 → **Mailpit（http://127.0.0.1:54324）** に届いたメールの
-   「ログインする」を開くか、メールの 6 桁コードをログイン画面に入力する。
+   「ログインする」を開いて確認画面の「ログインする」を押すか、メールの 6 桁コードをログイン画面に入力する。
 4. ホーム → キャラのプロフィール → 「DMする」で DM を送ると、モックの LLM がキャラの口調で返す。「来週、大阪に出張するんだ」のように
    予定を話すと記憶が作られ（ヘッダーの「i」でメモリパネル）、後で「大阪」の話をすると触れてくる。
 
@@ -145,7 +145,7 @@ pnpm --filter @everkano/web dev # http://localhost:3000
 
 - `pnpm setup:env` が「既に存在するため何も書き込みませんでした」で止まる → `pnpm setup:env --force`（元のファイルは `*.bak.<日時>` に退避される）。
 - `pnpm db:start` がイメージの取得で失敗する → `SUPABASE_INTERNAL_IMAGE_REGISTRY=mirror.gcr.io pnpm db:start`。
-- `docker compose up --build api` がベースイメージの取得で失敗する（Docker Hub のレート制限）→ `PYTHON_IMAGE=mirror.gcr.io/library/python:3.12-slim docker compose up --build api`。
+- `docker compose up --build api` がベースイメージの取得で失敗する（Docker Hub のレート制限）→ `PYTHON_IMAGE=mirror.gcr.io/library/python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9 docker compose up --build api`（digest は `apps/api/Dockerfile` の `PYTHON_IMAGE` と同じ）。
 - Web が「環境変数が不正です」で止まる → `apps/web/.env.local` を確認（`pnpm setup:env` で作り直せる）。
 - ポートが使われている → 3000 / 8000 / 54321〜54324 を使っているプロセスを止める。
 - ローカルの DB を最初の状態に戻したい / シードの投稿が古くなった（投稿時刻は投入時刻が基準）→ `pnpm db:reset`（**ローカルの全データが消える**）。
@@ -159,13 +159,14 @@ pnpm --filter @everkano/web dev # http://localhost:3000
 | Web                   | `pnpm --filter @everkano/web lint` / `typecheck` / `test` / `build`                               | ✓   |
 | API                   | `cd apps/api && uv run ruff check . && uv run ruff format --check . && uv run mypy app && uv run pytest` | ✓   |
 | DB（RLS・権限）       | `pnpm db:test`（pgTAP。ローカル Supabase が必要）、`pnpm db:types:check`（DB 型のずれ）           | ✓   |
-| E2E（受け入れ基準）   | API と Web の本番ビルドを起動してから `pnpm --filter @everkano/web e2e`（手順は [apps/web/e2e/README.md](apps/web/e2e/README.md)） | —   |
-| リポジトリの検査      | `pnpm check:secrets`（A14）/ `pnpm check:scope`（A16）/ `pnpm personas:validate` / `pnpm format:check` / `pnpm --filter @everkano/api openapi:check` | ✓   |
+| E2E（受け入れ基準）   | API と Web の本番ビルドを起動してから `pnpm --filter @everkano/web e2e`（手順は [apps/web/e2e/README.md](apps/web/e2e/README.md)） | main への push・毎晩・手動 |
+| リポジトリの検査      | `pnpm check:secrets`（A14。履歴は `bash scripts/check-secrets.sh --history <範囲>`）/ `pnpm check:scope`（A16）/ `pnpm personas:validate` / `pnpm format:check` / `pnpm --filter @everkano/api openapi:check` / `pnpm audit --audit-level high` | ✓   |
 
-- API の統合テストはローカル Supabase に自前のデータを作って削除する。**DB に接続できないと失敗ではなく skip** になるので、`pnpm db:start` 済みで
-  実行し、`skipped` の件数を確認する（接続先は `TEST_DATABASE_URL`）。
-- CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）は PR と main への push で 3 ジョブ（checks / web / api-db）を実行する。シークレットは使わない。
-- 2026-09-25 時点: vitest 163 件、pytest 233 件、pgTAP 173 件、E2E 53 件成功（詳細は [docs/acceptance/report.md](docs/acceptance/report.md)）。
+- API の統合テストはローカル Supabase に自前のデータを作って削除する。DB に接続できないとき、ローカルでは **skip** になるので、`pnpm db:start` 済みで
+  実行し、`skipped` の件数を確認する（接続先は `TEST_DATABASE_URL`）。`REQUIRE_TEST_DB=1`（CI では既定で有効）なら skip せずに失敗する。
+- CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）は PR と main への push で 3 ジョブ（checks / web / api-db）を実行する。E2E（`e2e` ジョブ）は
+  main への push・毎晩の定期実行・手動実行のときだけ動く。シークレットは使わない。
+- 2026-09-26 時点（納品前の再検査の指摘を修正した後の再実行）: vitest 351 件、pytest 389 件、pgTAP 195 件、E2E 143 件成功・1 件 skip（詳細は [docs/acceptance/report.md](docs/acceptance/report.md)）。
 
 ## デプロイ
 
@@ -197,11 +198,13 @@ Web の本番 URL（`https://<プロジェクト>.vercel.app` または独自ド
    `seed.sql` は固定 UUID の INSERT なので投入は 1 回だけ。以後のマイグレーションは `supabase db push --workdir infra`。
    投稿の時刻は投入時刻が基準で、予約投稿は時間とともにフィードに現れる。以後の投稿の追加は [06-operations.md](docs/handover/06-operations.md#投稿を追加する)。
 3. **Auth をダッシュボードで `config.toml` と揃える**（必須。一覧は [supabase-auth.md](docs/handover/supabase-auth.md)）:
-   - URL Configuration: Site URL = `https://<Web のドメイン>`、Redirect URLs に `https://<Web のドメイン>/auth/callback`
-   - Email: **Confirm email を ON**、**Email OTP Length = 6**、有効期限 3600 秒
+   - URL Configuration: Site URL = `https://<Web のドメイン>`、Redirect URLs に `https://<Web のドメイン>/auth/callback**`（`?next=` 付きを許可）
+   - Email: **Confirm email を ON**、**Secure password change を ON**、**Email OTP Length = 6**、有効期限 900 秒
    - Email Templates: **Magic Link と Confirm signup の両方** を `infra/supabase/templates/magic_link.html` の内容にする（リンク + 6 桁コード。
      既定のテンプレートのままだとホーム画面の PWA からログインできない）
+   - Email の通知: **Password changed** を有効にし、`infra/supabase/templates/password_changed_notification.html` の内容にする
    - SMTP: カスタム SMTP を設定する（Supabase 既定の送信サーバーは一般ユーザーに使えない）
+   - CAPTCHA（Attack Protection）は **当面 OFF**（Web の対応後に hCaptcha で ON。先に ON にするとログインできなくなる。[ADR-0033](docs/adr/0033-auth-hardening-password-otp-captcha.md)）
    - `supabase config push` は使わない（ローカル用の `site_url` などまで本番に書き込まれる）
 4. JWT の署名鍵: 新しいプロジェクト（非対称鍵 ES256）なら API は JWKS から公開鍵を自動取得するので設定不要。旧方式（HS256）のプロジェクトなら
    Project Settings → JWT の JWT Secret を API の `SUPABASE_JWT_SECRET` に設定する（[ADR-0007](docs/adr/0007-jwt-verification-jwks-and-hs256.md)）。
@@ -216,7 +219,7 @@ fly auth login
 fly apps create everkano-api        # 名前は apps/api/fly.toml の app。使われていたら fly.toml も書き換える
 
 fly secrets set --config apps/api/fly.toml --stage \
-  DATABASE_URL='postgresql://...' \
+  DATABASE_URL='postgresql://...?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt' \
   SUPABASE_URL='https://<project-ref>.supabase.co' \
   LLM_API_KEY='<OpenRouter または DeepSeek の API キー>' \
   CORS_ALLOW_ORIGINS='https://<Web のドメイン>'
@@ -231,6 +234,9 @@ curl https://everkano-api.fly.dev/health
 - `APP_ENV` が staging / production のとき、`SUPABASE_URL`（https 必須）や `CORS_ALLOW_ORIGINS` がローカルのまま、`LLM_MODE=live` で `LLM_API_KEY` が
   無い、などは起動時の検証で止まる（登録漏れの検出）。
 - Supavisor の transaction mode（:6543）で接続するなら `DATABASE_STATEMENT_CACHE_SIZE = "0"`。
+- `DATABASE_URL` は TLS 必須（ループバック以外の DB で `sslmode` が `require` / `verify-ca` / `verify-full` でない、または `PGSSLMODE` も無いと起動しない）。
+  `verify-full` にはルート証明書をマシンに置く必要がある（`fly.toml` の `[[files]]`。手順は [apps/api/README.md](apps/api/README.md) の「DB への接続（TLS）」）。
+  証明書を用意するまでの暫定は `?sslmode=require`。
 - レート制限はプロセス内なので、台数を増やすと実質の上限も台数倍になる（[ADR-0018](docs/adr/0018-in-process-rate-limit.md)）。
 
 ### 3. Web（Vercel）
@@ -280,8 +286,9 @@ H4 により画像は Vercel / Supabase Storage に置かない。シードの�
 ## 環境変数
 
 キー名とローカルの既定値は [.env.example](.env.example)（**値の入ったシークレットは書かない**）。ローカルでは `pnpm setup:env` が
-`apps/web/.env.local`（`NEXT_PUBLIC_*` / `BUNNY_*`）と `apps/api/.env`（それ以外）に分けて書き出す。Web は `lib/env.ts` / `lib/env.server.ts`（zod）、
-API は `app/core/config.py`（pydantic-settings）で起動時に検証し、不正なら起動しない。
+`apps/web/.env.local`（`NEXT_PUBLIC_*` / `BUNNY_*`）と `apps/api/.env`（それ以外）に分けて書き出す。Web は `lib/env.ts`（公開値。全画面のバンドルに入るため
+zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専用。zod）、API は `app/core/config.py`（pydantic-settings）で起動時に検証し、不正なら起動しない
+（API の検証エラーには入力値を出さない）。
 
 ### Web（Vercel / `apps/web/.env.local`）
 
@@ -296,6 +303,7 @@ API は `app/core/config.py`（pydantic-settings）で起動時に検証し、�
 | `BUNNY_TOKEN_AUTH_KEY`          | 任意（サーバー専用）  | 空                                     | 設定すると画像は `/media/*` 経由で署名 URL にリダイレクト（8 文字以上）                            |
 | `BUNNY_TOKEN_TTL_SECONDS`       | 任意（サーバー専用）  | `3600`                                 | 署名 URL の有効期限（60〜604800 秒）                                                               |
 | `NEXT_PUBLIC_ENABLE_SW`         | 任意                  | 空                                     | `1` で開発サーバーでも Service Worker を登録（本番ビルドでは常に登録）                             |
+| `NEXT_PUBLIC_BUILD_ID`          | 任意（通常は設定しない） | 自動                                 | Service Worker の登録 URL（`/sw.js?v=`）に付けるデプロイごとの ID。未設定なら `VERCEL_DEPLOYMENT_ID` → `VERCEL_GIT_COMMIT_SHA` → `GITHUB_SHA` → ビルド時刻（`next.config.ts`）。設定するならデプロイごとに変える（[ADR-0032](docs/adr/0032-service-worker-versioning.md)） |
 
 `NEXT_PUBLIC_MEDIA_SIGNED` は `next.config.ts` が `BUNNY_TOKEN_AUTH_KEY` の有無から自動で設定する（手で設定しない）。
 
@@ -305,7 +313,7 @@ API は `app/core/config.py`（pydantic-settings）で起動時に検証し、�
 | ----------------------------------------------- | ---------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `APP_ENV`                                       | 任意                                     | `local`                                                  | `local` / `staging` / `production`。production は `LLM_MODE=mock` を禁止し `/docs` を無効化        |
 | `LOG_LEVEL`                                     | 任意                                     | `INFO`                                                   | 監査ログの stdout 複製は常に出る                                                                   |
-| `DATABASE_URL`                                  | 必須（secret）                           | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` | Postgres（`postgres` ロール。RLS をバイパス → [ADR-0003](docs/adr/0003-api-db-connection-asyncpg.md)） |
+| `DATABASE_URL`                                  | 必須（secret）                           | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` | Postgres（`postgres` ロール。RLS をバイパス → [ADR-0003](docs/adr/0003-api-db-connection-asyncpg.md)）。staging / production でループバック以外の DB なら `?sslmode=verify-full&sslrootcert=...`（最低 `require`、または `PGSSLMODE`）が無いと起動しない（[apps/api/README.md](apps/api/README.md) の「DB への接続（TLS）」） |
 | `DATABASE_STATEMENT_CACHE_SIZE`                 | 任意                                     | `100`                                                    | Supavisor の transaction mode では `0`                                                             |
 | `DATABASE_POOL_MIN_SIZE` / `DATABASE_POOL_MAX_SIZE` | 任意                                 | `1` / `10`                                               | 接続プール（台数 × 最大値が Supabase の上限内に）                                                   |
 | `SUPABASE_URL`                                  | 必須（staging / production は https）    | `http://127.0.0.1:54321`                                 | JWKS の取得元と `iss` の既定                                                                       |
@@ -319,28 +327,34 @@ API は `app/core/config.py`（pydantic-settings）で起動時に検証し、�
 | `LLM_API_KEY`                                   | `live` のとき必須（secret）              | 空                                                       |                                                                                                   |
 | `LLM_MODEL`                                     | 任意                                     | `deepseek/deepseek-chat`                                 | DeepSeek 直なら `deepseek-chat`                                                                    |
 | `LLM_TEMPERATURE` / `LLM_MAX_TOKENS`            | 任意                                     | `0.8` / `400`                                            | DM 返答の生成パラメータ                                                                            |
-| `LLM_TIMEOUT_SECONDS` / `LLM_MAX_RETRIES`       | 任意                                     | `30` / `2`                                               | 1 回あたりのタイムアウト / 429・5xx・タイムアウト時のリトライ回数                                  |
+| `LLM_TIMEOUT_SECONDS` / `LLM_MAX_RETRIES`       | 任意                                     | `30` / `2`                                               | LLM 1 回あたりのタイムアウト / 429・5xx・タイムアウト時のリトライ回数（埋め込みには使わない）      |
 | `LLM_HTTP_REFERER` / `LLM_APP_TITLE`            | 任意                                     | 空 / `everkano`                                          | OpenRouter のときだけ送るヘッダー                                                                  |
 | `EMBEDDING_MODE`                                | 任意                                     | `hash`                                                   | `live` / `hash`。**切り替えたら記憶の再埋め込みが必須**                                            |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL`        | 任意                                     | `https://api.openai.com/v1` / `text-embedding-3-small`    | OpenAI 互換の `/embeddings`                                                                        |
 | `EMBEDDING_API_KEY`                             | `live` のとき必須（secret）              | 空                                                       |                                                                                                   |
 | `EMBEDDING_DIMENSIONS`                          | 任意                                     | `1536`                                                   | DB の `vector(1536)` と一致必須                                                                    |
+| `EMBEDDING_TIMEOUT_SECONDS` / `EMBEDDING_MAX_RETRIES` | 任意                               | `5` / `1`                                                | 埋め込み API 1 回あたりのタイムアウト / リトライ回数。`/chat` の記憶検索は間に合わなければ省略して返答する（`CHAT_DEADLINE_SECONDS` の半分未満） |
 | `MEMORY_SHORT_TERM_TURNS`                       | 任意                                     | `30`                                                     | 短期メモリのターン数（×2 件）                                                                      |
 | `MEMORY_SUMMARY_TRIGGER_TURNS`                  | 任意                                     | `50`                                                     | 未要約がこの ×2 件を超えたら中期要約                                                               |
 | `MEMORY_IMPORTANCE_THRESHOLD`                   | 任意                                     | `0.6`                                                    | 記憶を保存する最低重要度                                                                           |
 | `MEMORY_RETRIEVAL_TOP_K`                        | 任意                                     | `5`                                                      | 検索件数                                                                                          |
 | `MEMORY_DEDUP_SIMILARITY`                       | 任意                                     | `0.92`                                                   | 重複とみなすコサイン類似度                                                                         |
+| `MEMORY_MAX_PER_CHARACTER`                      | 任意                                     | `500`                                                    | ユーザー × キャラあたりの記憶の上限。ユーザーの追加は上限で 422、自動抽出・要約は重要度の低い自動記憶と入れ替える |
 | `RATE_LIMIT_CHAT_PER_MINUTE`                    | 任意                                     | `20`                                                     | ユーザー単位（プロセス内）                                                                         |
 | `RATE_LIMIT_COMMENTS_PER_MINUTE`                | 任意                                     | `10`                                                     | `/comments` と `/comments/generate` の合計                                                          |
+| `RATE_LIMIT_MEMORIES_PER_MINUTE`                | 任意                                     | `30`                                                     | `POST` / `PATCH /memories`（埋め込み API を呼ぶ）                                                   |
+| `MAX_REQUEST_BODY_BYTES`                        | 任意                                     | `65536`                                                  | リクエスト本文の上限（1024〜10485760）。超えたら本文を読まずに 413 `validation_error`（認証より前） |
 | `COMMENT_AUTO_REPLY_PROBABILITY`                | 任意                                     | `1.0`                                                    | コメントにキャラが自動返信する確率                                                                 |
 | `AUDIT_LOG_PROMPTS`                             | 任意                                     | `true`                                                   | 監査ログにプロンプト全文を含める                                                                   |
 | `CHAT_DEADLINE_SECONDS`                         | 任意                                     | `38`                                                     | `/chat` 全体の締め切り。Web のタイムアウト 45 秒より短くする（[ADR-0019](docs/adr/0019-chat-deadline.md)） |
 | `CLIENT_IP_HEADER`                              | 任意（Fly.io は `fly.toml` で設定済み）  | 空                                                       | ログに記録するクライアントIPの取得元（Fly.io: `Fly-Client-IP`）。X-Forwarded-For の先頭は偽装できるため使わない |
 | `PERSONAS_DIR` / `PROMPTS_DIR`                  | 任意（`.env.example` ではコメントアウト） | リポジトリ内の `packages/`（Docker は `/srv/everkano/...`） | ペルソナ YAML / テンプレートの場所。空の値を書かないこと                                          |
-| `SENTRY_DSN`                                    | 任意（secret）                           | 空                                                       | API の例外を Sentry に送る（Web は未対応）                                                         |
+| `SENTRY_DSN`                                    | 任意（secret）                           | 空                                                       | API の例外を Sentry に送る（Web は未対応）。トークン・本文・ローカル変数・ログのパンくずは送らない（[ADR-0034](docs/adr/0034-supply-chain-and-telemetry-minimization.md)） |
 
-`.env.example` に無い変数: `FORWARDED_ALLOW_IPS`（uvicorn が X-Forwarded-* を信頼するプロキシ。Dockerfile の既定は `127.0.0.1`、`fly.toml` で `*`）、`TEST_DATABASE_URL`（pytest の統合テストの接続先）、`NEXT_DIST_DIR`（Web の出力先。dev サーバーの並行起動用）、
-`PYTHON_IMAGE` / `API_DOCKER_*`（`docker-compose.yml`）、`E2E_*`（[apps/web/e2e/README.md](apps/web/e2e/README.md)）、`ENABLE_EXPERIMENTAL_COREPACK`（Vercel）。
+`.env.example` に無い変数: `FORWARDED_ALLOW_IPS`（uvicorn が X-Forwarded-* を信頼するプロキシ。Dockerfile の既定は `127.0.0.1`、`fly.toml` で `*`）、`PGSSLMODE`（`DATABASE_URL` に `sslmode` が無いときの TLS の指定）、
+`TEST_DATABASE_URL` / `REQUIRE_TEST_DB`（pytest の統合テストの接続先 / 接続できないときに skip せず失敗させる）、`NEXT_DIST_DIR`（Web の出力先。dev サーバーの並行起動用。
+既定以外にすると Next.js が `apps/web/tsconfig.json` を書き換えるので、その変更はコミットしない）、`NEXT_PUBLIC_BUILD_ID`（上表）、
+`PYTHON_IMAGE` / `UV_IMAGE`（API のイメージのビルド引数。digest 固定）/ `API_DOCKER_*`（`docker-compose.yml`）、`E2E_*`（[apps/web/e2e/README.md](apps/web/e2e/README.md)）、`ENABLE_EXPERIMENTAL_COREPACK`（Vercel）。
 
 ## LLM と埋め込みのモード（mock / live）
 
@@ -362,11 +376,13 @@ API は `app/core/config.py`（pydantic-settings）で起動時に検証し、�
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [docs/README.md](docs/README.md)                                            | ドキュメントの一覧                                                        |
 | [docs/handover/](docs/handover/README.md)                                   | 引き継ぎ資料（構成・データフロー・データモデル・API・メモリ / モデレーション・運用・セキュリティ・開発ガイド） |
-| [docs/adr/](docs/adr/README.md)                                             | 設計判断の記録（ADR-0001〜0021）                                           |
+| [docs/adr/](docs/adr/README.md)                                             | 設計判断の記録（ADR-0001〜0034）                                           |
 | [docs/acceptance/report.md](docs/acceptance/report.md)                      | 受け入れ基準 A1〜A16 の検証結果と、残りの確認手順                          |
+| [docs/acceptance/inspection-report.md](docs/acceptance/inspection-report.md) | 納品前の検査の報告（指摘の件数・修正前後の計測値・修正した項目・未対応の項目と推奨する対応） |
 | [docs/api/openapi.json](docs/api/openapi.json)                              | Python API の OpenAPI                                                     |
 | [apps/web/README.md](apps/web/README.md) / [apps/api/README.md](apps/api/README.md) | Web / API の構成と実装ルール                                      |
 | [packages/personas/README.md](packages/personas/README.md) / [packages/prompts/README.md](packages/prompts/README.md) | キャラクター・シード / プロンプト                 |
 | [infra/supabase/tests/README.md](infra/supabase/tests/README.md) / [scripts/README.md](scripts/README.md) | DB テスト / 補助スクリプト                                   |
+| [LICENSE](LICENSE) / [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) / [SECURITY.md](SECURITY.md) | 権利表示（非公開）/ 依存パッケージのライセンス一覧 / 脆弱性の報告窓口と対応の目安 |
 
 開発の約束（Conventional Commits、PR テンプレート、スキーマ変更・API 追加の手順、ブランチ保護）は [docs/handover/08-dev-guide.md](docs/handover/08-dev-guide.md)。

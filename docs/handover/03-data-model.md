@@ -96,7 +96,7 @@ erDiagram
 | 列             | 型          | 説明                                                                              |
 | -------------- | ----------- | --------------------------------------------------------------------------------- |
 | `id`           | uuid PK     | `auth.users.id`（`on delete cascade`）                                            |
-| `display_name` | text        | 初期値はメールアドレスの `@` より前。`/me` で変更可                               |
+| `display_name` | text        | 初期値はメールアドレスの `@` より前（30 文字に切り詰め）。`/me` で変更可。**check: NULL または 1〜30 文字**（コードポイント数。クライアントが直接 UPDATE できるため DB でも制限） |
 | `deleted_at`   | timestamptz | 退会日時（論理削除）。非 NULL なら退会済み。本人は設定のみ可・取り消し不可         |
 
 ### characters — AI キャラクター
@@ -142,7 +142,7 @@ erDiagram
 | `author_user_id` / `author_character_id` | uuid FK | どちらか一方だけ非 NULL（check）。`on delete set null` との矛盾は [ADR-0004](../adr/0004-schema-changes-from-spec.md) |
 | `body`                          | text    | 1〜1000 文字（API は 500 文字まで）                                                        |
 
-索引: `(post_id, created_at)`、`(parent_comment_id)`。
+索引: `(post_id, created_at)`、`(parent_comment_id)`、`(author_user_id) where author_user_id is not null`（ユーザーの物理削除で使う）。
 
 ### conversations — DM の会話（ユーザー × キャラで 1 件）
 
@@ -167,13 +167,15 @@ erDiagram
 | `user_id` / `character_id` | uuid FK                    | 誰の・どのキャラとの記憶か                                                             |
 | `content`                 | text                        | 1〜1000 文字（API は 500 文字まで）                                                     |
 | `importance`              | numeric(3,2)                | 0.00〜1.00。検索結果の再ランクに使う                                                    |
-| `tags`                    | text[]                      | `secret`（二人だけの秘密）/ `summary`（中期要約）                                       |
+| `tags`                    | text[]                      | `secret`（二人だけの秘密）/ `summary`（中期要約。利用者は新たに付けられない）           |
 | `embedding`               | extensions.vector(1536)     | **クライアント非公開**。HNSW 索引（DM 応答では使わない。[ADR-0005](../adr/0005-vector-index-and-exact-memory-search.md)） |
 | `source_message_id`       | uuid FK                     | 抽出元のユーザー発言（`set null`）                                                      |
 | `is_user_edited`          | boolean                     | true = ユーザーが追加・編集した記憶。自動処理で上書きしない                            |
 | `updated_at` [追加]       | timestamptz                 | トリガーで更新                                                                          |
 
-索引: `(user_id, character_id, created_at desc)`、HNSW `(embedding vector_cosine_ops)`。
+索引: `(user_id, character_id, created_at desc)`、`(source_message_id) where source_message_id is not null`（メッセージ削除時の `set null` 用。
+無いとユーザーの物理削除でメッセージ 1 件ごとに `memories` 全体を走査する）、HNSW `(embedding vector_cosine_ops)`。
+ペアあたりの件数の上限は API が守る（`MEMORY_MAX_PER_CHARACTER`、[ADR-0024](../adr/0024-memory-capacity-per-pair.md)）。
 
 ### audit_logs — 監査ログ（H6）
 
@@ -211,6 +213,7 @@ erDiagram
 | --------------------------------------------- | -------------------------------- | ------------------------------------------ | ---------------------------------------------------------------- |
 | `on_auth_user_created`                        | `auth.users` AFTER INSERT        | `handle_new_user()`（definer）             | `profiles` を作成                                                 |
 | `on_auth_user_email_verified`                 | `auth.users` BEFORE UPDATE       | `discard_unverified_password()`            | メールのトークンで確認済みになる時にパスワードを破棄（[ADR-0017](../adr/0017-discard-unverified-password.md)） |
+| `on_auth_user_password_update`                | `auth.users` BEFORE UPDATE OF `encrypted_password` | `ignore_password_update()`   | 既存ユーザーのパスワードの設定・変更を無効にする（元の値に戻す。消去は許可。Postgres のログに LOG。[ADR-0033](../adr/0033-auth-hardening-password-otp-captcha.md)） |
 | `profiles_guard_withdrawal`                   | `profiles` BEFORE UPDATE         | `guard_profile_withdrawal()`               | `authenticated` / `anon` による `deleted_at` の変更・取り消しを 42501 で拒否 |
 | `likes_sync_post_like_count`                  | `likes` AFTER INSERT / DELETE    | `sync_post_like_count()`（definer）        | `posts.like_count` ±1                                             |
 | `comments_sync_post_comment_count`            | `comments` AFTER INSERT / DELETE | `sync_post_comment_count()`（definer）     | `posts.comment_count` ±1                                          |
@@ -230,8 +233,8 @@ erDiagram
 ## Realtime
 
 - publication `supabase_realtime` に `messages` と `comments` を追加している。
-- Web が購読するもの: `messages` の INSERT（DM 画面は `conversation_id` で絞る。DM 一覧は全件 → RLS で自分の分だけ）、
-  `comments` の INSERT / DELETE（`post_id` で絞る）。
+- Web が購読するもの: `messages` の INSERT（DM 画面は `conversation_id=eq.<id>`、DM 一覧は一覧に出ている自分の会話の `conversation_id=in.(...)`。
+  最大 100 件。[ADR-0030](../adr/0030-web-data-fetching-dm-and-prefetch.md)）、`comments` の INSERT / DELETE（`post_id` で絞る）。
 - RLS に一致する行だけが配信される。DELETE イベントは Realtime の仕様で RLS が適用されず、主キーだけが全購読者に届く。
 
 ## シードデータ

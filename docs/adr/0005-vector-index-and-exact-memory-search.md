@@ -1,6 +1,6 @@
 # ADR-0005: ベクトル索引 HNSW と user×character 内の厳密検索
 
-- ステータス: 採用
+- ステータス: 採用（ペアあたりの記憶の上限で厳密検索の件数を抑えることを [ADR-0024](0024-memory-capacity-per-pair.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §6・§9.3 / [ADR-0009](0009-memory-engine.md) / 実装: マイグレーションの `memories_embedding_hnsw_idx`, `apps/api/app/services/memory.py`（`_RETRIEVE_SQL`, `_NEAREST_SQL`）
 

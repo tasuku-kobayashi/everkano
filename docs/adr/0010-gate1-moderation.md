@@ -1,6 +1,6 @@
 # ADR-0010: Gate #1 モデレーション設計
 
-- ステータス: 採用
+- ステータス: 採用（ラテン文字・ローマ字の照合と残存リスクを [ADR-0023](0023-gate1-latin-and-romaji-terms.md)、公開されるキャラの返信での URL・ドメイン名の差し止め（`link`）を [ADR-0027](0027-comment-reply-generation-limits.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §10・§8.2・§1（成人のみ） / [ADR-0013](0013-audit-log.md) / 実装: `apps/api/app/services/moderation.py`, `apps/api/tests/test_moderation.py`, `packages/personas/scripts/validate_personas.py`
 

@@ -1,6 +1,6 @@
 # ADR-0018: レート制限はプロセス内のスライディングウィンドウ（1 マシン 1 プロセス）
 
-- ステータス: 採用（スケールアウト時に再検討する）
+- ステータス: 採用（スケールアウト時に再検討する。`POST` / `PATCH /memories` のバケットを [ADR-0024](0024-memory-capacity-per-pair.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §14 D-3「レート制限」 / 実装: `apps/api/app/services/rate_limit.py`, `apps/api/app/container.py`（`RateLimit`）, `apps/api/Dockerfile`（`CMD`）, `apps/api/fly.toml`
 

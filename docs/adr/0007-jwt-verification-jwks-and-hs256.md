@@ -1,6 +1,6 @@
 # ADR-0007: JWT 検証（JWKS 非対称鍵 + 旧 HS256）
 
-- ステータス: 採用
+- ステータス: 採用（認証サーバー障害時の 503 を [ADR-0025](0025-db-tls-and-api-entry-failures.md)、JWKS 専用の HTTP クライアントを [ADR-0028](0028-llm-input-budgets-and-summary-retries.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §2「認証: Supabase JWT を `Authorization: Bearer` で受け取り検証」 / 実装: `apps/api/app/core/security.py`, `apps/api/tests/test_security.py`
 
