@@ -30,10 +30,11 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// ピンチズームは制限しない（maximumScale / userScalable を指定しない。WCAG 1.4.4）。
+// iOS の入力時の自動ズームは globals.css で入力欄を 16px にして防いでいる
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
   viewportFit: "cover",
   colorScheme: "light dark",
   themeColor: [

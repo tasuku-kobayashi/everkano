@@ -24,7 +24,7 @@ const DISPLAY_NAME_MAX = 30;
 const APP_VERSION = "0.1.0";
 
 export function MeView() {
-  const { data: account, isPending, isError, refetch, isRefetching } = useMyAccount();
+  const { data: account, isPending, refetch, isRefetching } = useMyAccount();
 
   return (
     <>
@@ -32,12 +32,13 @@ export function MeView() {
         variant="title"
         title={account ? accountDisplayName(account) : isPending ? "" : "プロフィール"}
       />
-      {isPending ? (
-        <MeSkeleton />
-      ) : isError || !account ? (
-        <ErrorState onRetry={() => void refetch()} retrying={isRefetching} />
-      ) : (
+      {account ? (
+        // 再取得の失敗（data は残る）でも読み込み済みのアカウント情報を表示し続ける
         <MeContent account={account} />
+      ) : isPending ? (
+        <MeSkeleton />
+      ) : (
+        <ErrorState onRetry={() => void refetch()} retrying={isRefetching} />
       )}
     </>
   );

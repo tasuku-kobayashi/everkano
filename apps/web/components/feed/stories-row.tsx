@@ -56,7 +56,8 @@ export function StoriesRow() {
     return [...data.filter(isActive), ...data.filter((item) => !isActive(item))];
   }, [data, seen]);
 
-  if (isError) return null; // フィード本体の表示を優先（エラーはコンソールに出ている）
+  // フィード本体の表示を優先（エラーはコンソールに出ている）。再取得の失敗（data は残る）では表示し続ける
+  if (isError && !data) return null;
 
   return (
     <nav aria-label="ストーリーズ" className="border-b border-ig-separator">

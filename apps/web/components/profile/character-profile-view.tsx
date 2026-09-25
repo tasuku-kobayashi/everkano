@@ -56,7 +56,8 @@ export function CharacterProfileView({ handle: rawHandle }: { handle: string }) 
         <PageUnavailable />
       ) : isPending ? (
         <ProfileSkeleton />
-      ) : isError ? (
+      ) : isError && character === undefined ? (
+        // 再取得の失敗（data は残る）では読み込み済みのプロフィールを表示し続ける
         <ErrorState onRetry={() => void refetch()} retrying={isRefetching} />
       ) : !character ? (
         <PageUnavailable />

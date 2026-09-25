@@ -111,7 +111,7 @@ export function useSendMessage({
       );
       try {
         const response = await mutateAsync(local.body);
-        addMessagesToCache(queryClient, conversationId, [
+        const cached = addMessagesToCache(queryClient, conversationId, [
           response.user_message,
           response.character_message,
         ]);
@@ -120,7 +120,11 @@ export function useSendMessage({
             ? previous
             : new Map(previous).set(response.user_message.id, local.localId),
         );
-        setLocals((previous) => previous.filter((item) => item.localId !== local.localId));
+        // キャッシュへ差し込めなかった（初回取得の完了待ち）場合は、保存済みの発言が表示されるまで
+        // 楽観的な吹き出しを残す（届いたら mergeTimeline のエコー照合 → confirmLocals で片付く）
+        if (cached) {
+          setLocals((previous) => previous.filter((item) => item.localId !== local.localId));
+        }
         // 即答でも「入力中…」を少し見せてから返答を出す
         const remaining = TYPING_DELAY_MS + MIN_TYPING_MS - (Date.now() - startedAt);
         if (remaining > 0) await sleep(remaining);

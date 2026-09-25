@@ -1,14 +1,20 @@
 import type { MessageDTO } from "@everkano/shared";
-import { describe, expect, it } from "vitest";
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+import { afterEach, describe, expect, it } from "vitest";
+import { queryKeys } from "./keys";
 import {
+  addMessagesToCache,
   compareMessagesAsc,
   flattenMessagesAsc,
   mergeTimeline,
   parseMessageRow,
+  resyncMessages,
   timestampToMicros,
   upsertMessagesInPages,
   type LocalMessage,
+  type MessagesCursor,
   type MessagesData,
+  type MessagesPage,
 } from "./messages";
 
 const CONV = "11111111-1111-4111-8111-111111111111";
@@ -229,5 +235,130 @@ describe("mergeTimeline（楽観的メッセージの合成）", () => {
   it("keyAliases（送信応答で置き換えたもの）を key に使う", () => {
     const { items } = mergeTimeline(server, [], new Map([["m2", "local-0"]]));
     expect(items.map((i) => i.key)).toEqual(["m1", "local-0"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// キャッシュ操作（実際の QueryClient + オブザーバー = 画面にマウントされた useMessages 相当）
+// ---------------------------------------------------------------------------
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function page(...messagesDesc: MessageDTO[]): MessagesPage {
+  return { messages: messagesDesc, nextCursor: null };
+}
+
+/** 呼ばれるたびに次の Deferred を返す queryFn で useMessages 相当のオブザーバーを作る */
+function mountMessages(queryClient: QueryClient) {
+  const calls: Deferred<MessagesPage>[] = [];
+  const observer = new InfiniteQueryObserver<
+    MessagesPage,
+    Error,
+    MessagesData,
+    ReturnType<typeof queryKeys.messages>,
+    MessagesCursor | null
+  >(queryClient, {
+    queryKey: queryKeys.messages(CONV),
+    queryFn: () => {
+      const call = deferred<MessagesPage>();
+      calls.push(call);
+      return call.promise;
+    },
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    retry: false,
+  });
+  const unsubscribe = observer.subscribe(() => undefined);
+  return { calls, unsubscribe };
+}
+
+/** 保留中の Promise の後続処理を流す */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
+
+function cachedIds(queryClient: QueryClient): string[] | undefined {
+  const data = queryClient.getQueryData<MessagesData>(queryKeys.messages(CONV));
+  return data ? flattenMessagesAsc(data).map((m) => m.id) : undefined;
+}
+
+describe("addMessagesToCache / resyncMessages", () => {
+  const greeting = msg("g1", "2026-09-25T03:00:00Z", "character", "はじめまして");
+  const sent = msg("u1", "2026-09-25T03:05:00.000001Z", "user", "読み込み中に送信");
+  const reply = msg("c1", "2026-09-25T03:05:00.000002Z", "character", "届いたよ");
+  let queryClient: QueryClient;
+  let unmount: () => void = () => undefined;
+
+  afterEach(() => {
+    unmount();
+    queryClient.clear();
+  });
+
+  it("キャッシュがあれば先頭ページへ差し込み true", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    calls[0]!.resolve(page(greeting));
+    await flush();
+
+    expect(addMessagesToCache(queryClient, CONV, [sent, reply])).toBe(true);
+    expect(cachedIds(queryClient)).toEqual(["g1", "u1", "c1"]);
+    expect(calls).toHaveLength(1); // 再取得しない
+  });
+
+  it("初回取得中（保存前のスナップショット）でも、取得完了後に差し込まれて消えない", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    expect(calls).toHaveLength(1); // 初回取得が進行中（/chat の保存より前に読んだ）
+
+    expect(addMessagesToCache(queryClient, CONV, [sent, reply])).toBe(false);
+    calls[0]!.resolve(page(greeting)); // 保存前のスナップショット
+    await flush();
+
+    expect(cachedIds(queryClient)).toEqual(["g1", "u1", "c1"]);
+  });
+
+  it("初回取得の失敗後に届いたメッセージは、取り直した結果に含まれる", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+    calls[0]!.reject(new Error("network"));
+    await flush();
+    expect(cachedIds(queryClient)).toBeUndefined();
+
+    expect(addMessagesToCache(queryClient, CONV, [reply])).toBe(false);
+    expect(calls).toHaveLength(2); // 取り直しを始める
+    calls[1]!.resolve(page(reply, sent, greeting));
+    await flush();
+    expect(cachedIds(queryClient)).toEqual(["g1", "u1", "c1"]);
+  });
+
+  it("購読開始が初回取得の途中でも、終わってから取り直して取りこぼしを回収する", async () => {
+    queryClient = new QueryClient();
+    const { calls, unsubscribe } = mountMessages(queryClient);
+    unmount = unsubscribe;
+
+    const resync = resyncMessages(queryClient, CONV); // SUBSCRIBED（初回取得はまだ進行中）
+    calls[0]!.resolve(page(greeting)); // 購読開始より前のスナップショット
+    await flush();
+    expect(calls).toHaveLength(2); // 合流で終わらせず、取り直す
+    calls[1]!.resolve(page(sent, greeting)); // その間に保存された発言
+    await resync;
+    expect(cachedIds(queryClient)).toEqual(["g1", "u1"]);
   });
 });

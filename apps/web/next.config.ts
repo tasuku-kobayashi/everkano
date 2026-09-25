@@ -6,7 +6,7 @@ import type { NextConfig } from "next";
  * - distDir: `NEXT_DIST_DIR` で出力先を切り替えられる（複数の dev サーバーを並行起動するため。
  *   例: `NEXT_DIST_DIR=.next-browse pnpm --filter @everkano/web exec next dev -p 3001`）。
  * - next/image は使わない（画像は StorageAdapter + CDN 変換パラメータ。仕様 §2）。
- * - CSP はプレースホルダ画像ホスト等を塞がないよう本 MVP では設定しない（ADR 参照）。
+ * - CSP はプレースホルダ画像ホスト等を塞がないよう本 MVP では設定しない（ADR-0015 参照）。
  */
 
 const securityHeaders = [
@@ -24,6 +24,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ["@everkano/shared"],
+  // メタデータのストリーミングを無効化し、すべての UA で <head> に出力する。
+  // Next.js 15.2+ は動的ページ（/login・/・/posts/* など）のメタデータを <body> 側にストリーミングするが、
+  // <link rel="manifest"> や apple-touch-icon が <head> に無いと Chrome はマニフェストを検出せず
+  // （ホーム画面に追加してもスタンドアロンで起動しない）、iOS もアイコンを拾わない（受け入れ基準 A11）。
+  // 本アプリのメタデータは静的か軽いクエリのみなので、ブロッキングにしても表示速度への影響は小さい。
+  htmlLimitedBots: /.*/,
   // dev のフローティングインジケーターがタブバーに重なるため非表示（エラーオーバーレイは表示される）
   devIndicators: false,
   env: {

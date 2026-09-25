@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isAccountSwitched } from "./account";
 import { authErrorMessage, isValidEmail } from "./errors";
 import { loginPath, parseLoginError, sanitizeNextPath } from "./redirect";
 
@@ -44,5 +45,17 @@ describe("authErrorMessage", () => {
     expect(isValidEmail(" a@b.co ")).toBe(true);
     expect(isValidEmail("a@b")).toBe(false);
     expect(isValidEmail("ab.co")).toBe(false);
+  });
+});
+
+describe("isAccountSwitched", () => {
+  it("キャッシュ済みのアカウントと別のユーザーでサインインしたときだけ true", () => {
+    const cached = { userId: "user-a" };
+    expect(isAccountSwitched(cached, "user-b")).toBe(true);
+    expect(isAccountSwitched(cached, "user-a")).toBe(false);
+    // キャッシュが無い / 未ログインとしてキャッシュされている / セッションが無い
+    expect(isAccountSwitched(undefined, "user-b")).toBe(false);
+    expect(isAccountSwitched(null, "user-b")).toBe(false);
+    expect(isAccountSwitched(cached, undefined)).toBe(false);
   });
 });

@@ -58,6 +58,17 @@ export function useMyAccount() {
   });
 }
 
+/**
+ * キャッシュ済みのアカウントとは別のユーザーでサインインしたか（別タブで別アカウントにログインした等）。
+ * true なら前のユーザーのキャッシュ（メールアドレス・会話 ID・DM 本文など）を使い続けないよう破棄する。
+ */
+export function isAccountSwitched(
+  cached: Pick<MyAccount, "userId"> | null | undefined,
+  sessionUserId: string | null | undefined,
+): boolean {
+  return Boolean(cached && sessionUserId && cached.userId !== sessionUserId);
+}
+
 /** 表示名（display_name → メールのローカル部 → 「ゲスト」） */
 export function accountDisplayName(account: MyAccount | null | undefined): string {
   if (!account) return "";

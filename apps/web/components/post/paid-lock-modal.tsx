@@ -35,9 +35,7 @@ export function PaidLockModal({ open, onClose, priceTokens, characterName }: Pai
       }
       title="この投稿は有料コンテンツです"
       description={
-        characterName
-          ? `${characterName}さんの限定公開の投稿です。`
-          : "限定公開の投稿です。"
+        characterName ? `${characterName}さんの限定公開の投稿です。` : "限定公開の投稿です。"
       }
       actions={[
         {

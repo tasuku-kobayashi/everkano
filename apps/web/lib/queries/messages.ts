@@ -384,15 +384,55 @@ export function useMessages(conversationId: string | undefined) {
   });
 }
 
-/** キャッシュにメッセージを追加（送信 API の応答・Realtime 受信） */
+function hasPages(data: MessagesData | undefined): data is MessagesData {
+  return data !== undefined && data.pages.length > 0;
+}
+
+/**
+ * キャッシュにメッセージを追加する（送信 API の応答・Realtime 受信）。差し込めたら true。
+ *
+ * キャッシュが未作成（初回取得中・初回取得の失敗後）のときは差し込み先が無い。そのまま捨てると、
+ * 進行中の初回取得が保存前のスナップショットだった場合に、送った発言やキャラの返答が次の再取得まで
+ * 表示されない。そこで、進行中の取得（無ければ新しい取得）が終わるのを待ってから差し込み、false を返す。
+ * （invalidate / refetch は data が無いと進行中の取得に合流するだけなので、それだけでは回収できない）
+ */
 export function addMessagesToCache(
   queryClient: QueryClient,
   conversationId: string,
   messages: readonly MessageDTO[],
-): void {
-  queryClient.setQueryData<MessagesData>(queryKeys.messages(conversationId), (data) =>
-    upsertMessagesInPages(data, messages),
-  );
+): boolean {
+  const queryKey = queryKeys.messages(conversationId);
+  if (hasPages(queryClient.getQueryData<MessagesData>(queryKey))) {
+    queryClient.setQueryData<MessagesData>(queryKey, (data) =>
+      upsertMessagesInPages(data, messages),
+    );
+    return true;
+  }
+  void queryClient.refetchQueries({ queryKey, exact: true }).then(() => {
+    // 取得に失敗した場合は data が無いまま（何もしない）。再試行の取得で保存済みの発言も読み込まれる
+    queryClient.setQueryData<MessagesData>(queryKey, (data) =>
+      upsertMessagesInPages(data, messages),
+    );
+  });
+  return false;
+}
+
+/**
+ * 取りこぼしの回収（Realtime の購読開始・再接続時）。
+ * 初回取得の途中だと invalidate はその取得（購読開始より前のスナップショット）に合流するだけなので、
+ * 終わるのを待ってから改めて取り直す。
+ */
+export async function resyncMessages(
+  queryClient: QueryClient,
+  conversationId: string,
+): Promise<void> {
+  const queryKey = queryKeys.messages(conversationId);
+  if (!hasPages(queryClient.getQueryData<MessagesData>(queryKey))) {
+    await queryClient.refetchQueries({ queryKey, exact: true });
+    // 失敗して data が無いままならエラー表示（再試行）に任せる
+    if (!hasPages(queryClient.getQueryData<MessagesData>(queryKey))) return;
+  }
+  await queryClient.invalidateQueries({ queryKey, exact: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +487,7 @@ export function useMessagesRealtime(
       .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
           // 初回: 取得〜購読開始の間の取りこぼしを回収 / 再接続: 切断中の取りこぼしを回収
-          void queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId) });
+          void resyncMessages(queryClient, conversationId);
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           // 自動で再接続される。フォーカス復帰時の再取得でも回収される
           console.warn(`[dm] realtime ${status}`, error?.message ?? "");

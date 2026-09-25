@@ -202,6 +202,9 @@ function ConversationBody({
   );
   const rows = useMemo(() => buildTimelineRows(visibleItems), [visibleItems]);
   const typing = Boolean(sender.pending?.typing);
+  // 返答待ちの間と、履歴の初回取得が終わるまで（読み込み中・読み込み失敗）は送信できない。
+  // 履歴が無いうちに送ると、送った発言と返答を差し込むキャッシュが無く、表示から消えてしまう
+  const sendDisabled = sender.pending !== null || !hasData;
 
   // ---- 入力欄の高さ（本文の下余白・トースト位置）
   const [footerHeight, setFooterHeight] = useState(DEFAULT_FOOTER_PX);
@@ -214,8 +217,6 @@ function ConversationBody({
     newest && newest.senderType === "user" && newest.status === "sent" ? newest.key : null;
   const scroll = useChatScroll({
     ready: hasData,
-    // 区切り行は過去ログ追加で消えることがあるため、基準は最初の「メッセージ」行にする
-    oldestKey: rows.find((row) => row.kind === "message")?.key ?? null,
     newestKey: newest?.key ?? null,
     newestIsOwn: newest?.senderType === "user",
     typing,
@@ -279,7 +280,7 @@ function ConversationBody({
                     characterAvatarUrl={character?.avatar_url}
                     characterName={characterName}
                     onRetry={sender.retry}
-                    retryDisabled={sender.pending !== null}
+                    retryDisabled={sendDisabled}
                   />
                   {row.key === seenKey ? (
                     <p className="mt-1 pr-4 text-right text-[12px] leading-4 text-ig-secondary">
@@ -318,7 +319,7 @@ function ConversationBody({
 
       <MessageComposer
         onSend={sender.send}
-        sendDisabled={sender.pending !== null}
+        sendDisabled={sendDisabled}
         onHeightChange={setFooterHeight}
       />
     </>

@@ -6,19 +6,15 @@
     "allowJs": false,
     "noEmit": true,
     "incremental": true,
-    "plugins": [{ "name": "next" }],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
     "paths": {
       "@/*": ["./*"]
     }
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next-foundation/types/**/*.ts",
-    ".next-browse/types/**/*.ts",
-    ".next-dm/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules", "public"]
 }

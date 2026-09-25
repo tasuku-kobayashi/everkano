@@ -134,7 +134,7 @@ export function DmInbox() {
             ))}
           </ul>
         </section>
-      ) : suggestionsQuery.isError ? (
+      ) : suggestionsQuery.isError && !suggestionsQuery.data ? (
         <p className="px-4 py-4 text-center text-[13px] text-ig-secondary">
           おすすめを読み込めませんでした
         </p>

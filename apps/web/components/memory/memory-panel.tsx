@@ -196,11 +196,20 @@ function AddMemoryForm({
   const [level, setLevel] = useState<MemoryLevel>(DEFAULT_MEMORY_LEVEL);
   const [secret, setSecret] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExpandedRef = useRef(false);
   const id = useId();
   const trimmed = content.trim();
 
   useEffect(() => {
-    if (expanded) textareaRef.current?.focus({ preventScroll: true });
+    if (expanded) {
+      textareaRef.current?.focus({ preventScroll: true });
+    } else if (wasExpandedRef.current) {
+      // 追加・キャンセルでフォームを閉じると、フォーカスしていたボタンが消えてフォーカスがシートの外（body）に
+      // 落ち、Esc でシートを閉じられなくなる。「覚えてほしいことを追加」ボタンへ戻す
+      addButtonRef.current?.focus({ preventScroll: true });
+    }
+    wasExpandedRef.current = expanded;
   }, [expanded]);
 
   const reset = () => {
@@ -213,6 +222,7 @@ function AddMemoryForm({
   if (!expanded) {
     return (
       <button
+        ref={addButtonRef}
         type="button"
         onClick={() => setExpanded(true)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left pressable"
@@ -245,7 +255,7 @@ function AddMemoryForm({
         rows={3}
         maxLength={MEMORY_CONTENT_MAX}
         onChange={(event) => setContent(event.target.value)}
-        placeholder="例: 来週の金曜日は大事なプレゼンがある"
+        placeholder="例: 10月2日（金）に大事なプレゼンがある"
         className="w-full resize-none rounded-lg border border-ig-input-border bg-ig-input-bg px-3 py-2 text-[16px] leading-[22px] outline-none placeholder:text-ig-secondary focus:border-ig-secondary"
       />
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">

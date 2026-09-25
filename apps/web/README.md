@@ -10,7 +10,8 @@ pnpm --filter @everkano/web dev         # http://localhost:3000
 pnpm --filter @everkano/web build
 pnpm --filter @everkano/web lint        # ESLint（flat config / eslint-config-next）
 pnpm --filter @everkano/web typecheck   # next typegen（ルート型生成）+ tsc --noEmit
-pnpm --filter @everkano/web test        # vitest（lib/**/*.test.ts）
+pnpm --filter @everkano/web test        # vitest（**/*.test.ts）
+pnpm --filter @everkano/web e2e         # Playwright（サーバーを起動してから。e2e/README.md）
 pnpm --filter @everkano/web icons       # public/icons を再生成（scripts/generate-icons.mjs）
 ```
 
@@ -25,9 +26,8 @@ NEXT_DIST_DIR=.next-browse pnpm exec next dev -p 3001
 NEXT_DIST_DIR=.next-dm     pnpm exec next dev -p 3002
 ```
 
-`.next-*` は `.gitignore` 済み。`tsconfig.json` の `include` には `.next-foundation` / `.next-browse` / `.next-dm` の
-型ディレクトリを事前に登録してあるため、これらの distDir なら Next.js が tsconfig を書き換えない
-（別名を使うと `include` に行が追加されるので、コミットしないこと）。
+`.next-*` は `.gitignore` 済み。既定以外の distDir で起動すると Next.js が `tsconfig.json` の `include` に
+`.next-xxx/types/**/*.ts` を自動追加する（整形も変わる）ので、その変更はコミットしないこと（`git checkout apps/web/tsconfig.json`）。
 
 ## 環境変数
 

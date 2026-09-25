@@ -227,7 +227,8 @@ export function PostComments({
     >
       {isPending ? (
         <CommentsSkeleton />
-      ) : isError ? (
+      ) : isError && !comments ? (
+        // 再取得の失敗（data は残る）では読み込み済みのコメントを表示し続ける
         <ErrorState
           compact
           message="コメントを読み込めませんでした"

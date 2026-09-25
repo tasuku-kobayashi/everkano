@@ -34,6 +34,10 @@ import { API_ERROR_MESSAGES, ApiError, apiErrorFromResponse } from "./errors";
  */
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * /chat のタイムアウト。API 側の CHAT_DEADLINE_SECONDS（既定 38 秒。超過時は何も保存せず 503）＋
+ * 記憶の保存時間より長くしておくこと。短いと、サーバーでは保存済みの発言を再送して二重送信になる。
+ */
 export const CHAT_TIMEOUT_MS = 45_000;
 
 export interface RequestOptions {

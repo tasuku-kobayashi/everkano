@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { MailIcon } from "@/components/ui/icons";
@@ -31,7 +30,6 @@ type Step = "email" | "code";
  *    ※ iOS のホーム画面 PWA は Safari と Cookie を共有しないため、PWA からはコード入力でログインする
  */
 export function LoginForm({ initialError, nextPath }: LoginFormProps) {
-  const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -112,6 +110,7 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
     if (verifying) return;
     setVerifying(true);
     setError(null);
+    let leaving = false;
     try {
       const supabase = getSupabaseBrowserClient();
       const { data, error: verifyError } = await supabase.auth.verifyOtp({
@@ -132,13 +131,18 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
         setStep("email");
         return;
       }
-      router.replace(nextPath);
-      router.refresh();
+      // ハードナビゲーションで遷移し、このタブに残っているクライアント状態（前にログインしていたユーザーの
+      // React Query のキャッシュ・アプリ内の戻る履歴の数など）を完全に破棄する。
+      // router.replace だとセッション切れで /login へソフトに戻された場合に前のユーザーのキャッシュ
+      // （メールアドレス・会話 ID・DM 本文など）が新しいユーザーに見えてしまう
+      leaving = true;
+      window.location.replace(nextPath);
     } catch (cause) {
       console.error("[login] verifyOtp threw:", cause);
       setError("通信できませんでした。電波の良い場所で再度お試しください");
     } finally {
-      setVerifying(false);
+      // 遷移中はボタンを「読み込み中」のままにする（二重送信防止）
+      if (!leaving) setVerifying(false);
     }
   }
 
@@ -148,14 +152,20 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
   }
 
   function onChangeCode(value: string) {
-    const digits = value.replace(/\D/g, "").slice(0, OTP_LENGTH);
-    setCode(digits);
-    // 6 桁そろったら自動でログイン（同じコードでは 1 回だけ）
-    if (digits.length === OTP_LENGTH && autoSubmittedRef.current !== digits) {
-      autoSubmittedRef.current = digits;
-      void verify(digits);
-    }
+    setCode(value.replace(/\D/g, "").slice(0, OTP_LENGTH));
   }
+
+  // 6 桁そろったら自動でログイン（同じコードでは 1 回だけ）。
+  // 検証中に別のコードが入力・貼り付けされた場合は、いまの検証が終わってから送る。
+  const verifyRef = useRef(verify);
+  verifyRef.current = verify;
+  useEffect(() => {
+    if (step !== "code" || verifying) return;
+    if (code.length === OTP_LENGTH && autoSubmittedRef.current !== code) {
+      autoSubmittedRef.current = code;
+      void verifyRef.current(code);
+    }
+  }, [code, step, verifying]);
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col px-8 pt-safe pb-safe">
