@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator
@@ -47,6 +47,178 @@ class Relationship(BaseModel):
     progression: NonEmptyStr
 
 
+# ===========================================================================
+# キャラクターエンジン v1.0 の追加項目（仕様 §10）。YAML の `engine:` セクション
+#   語彙は app/engine/types.py（AFFINITY_AXES / STAGES / SEASONAL_KEYS / PROACTIVE_TRIGGERS）と一致させる。
+# ===========================================================================
+
+Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+HHMM = Annotated[str, StringConstraints(pattern=r"^(?:[01]\d|2[0-4]):[0-5]\d$")]
+ShortLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+TagStr = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,30}$")]
+KeyStr = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{2,50}$")]
+SeasonalKey = Literal[
+    "new_year",
+    "setsubun",
+    "valentine",
+    "white_day",
+    "hanami",
+    "golden_week",
+    "tsuyu",
+    "tanabata",
+    "summer_festival",
+    "obon",
+    "tsukimi",
+    "halloween",
+    "autumn_leaves",
+    "christmas",
+    "year_end",
+]
+ProactiveTriggerName = Literal["calendar_event", "promise_due", "seasonal", "inactivity", "feed_post"]
+
+
+class _Frozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class AffinitySensitivity(_Frozen):
+    """軸ごとの変化の感度（倍率）。possessiveness は 0 なら使わない（ヤンデレなどだけ > 0）。"""
+
+    closeness: float = Field(default=1.0, ge=0, le=3)
+    trust: float = Field(default=1.0, ge=0, le=3)
+    romance: float = Field(default=1.0, ge=0, le=3)
+    awkwardness: float = Field(default=1.0, ge=0, le=3)
+    discontent: float = Field(default=1.0, ge=0, le=3)
+    possessiveness: float = Field(default=0.0, ge=0, le=3)
+
+
+class AffinityProfile(_Frozen):
+    sensitivity: AffinitySensitivity
+    stage_pace: float = Field(default=1.0, ge=0.3, le=3)  # 段階の上がりやすさ（大きいほど早く上がる）
+    expression_delay: float = Field(default=0.0, ge=0, le=1)  # 好意を表に出す遅さ（ツンデレ: 高い）
+    notes: NonEmptyStr  # 性格による動き方（評価プロンプトに渡す説明）
+
+
+class StageStyle(_Frozen):
+    """関係の段階ごとの振る舞い（A8）。call_user の {name} はユーザーの名前（記憶から分かる場合）に置き換わる。"""
+
+    call_user: NonEmptyStr  # 例: 「{name}さん」
+    call_user_fallback: NonEmptyStr  # 名前が分からないとき 例: 「きみ」
+    tone: NonEmptyStr  # 口調（敬語 / タメ口 …）
+    affection: NonEmptyStr  # 甘え方・好意の表し方
+    topics: list[NonEmptyStr] = Field(min_length=1)
+    examples: list[NonEmptyStr] = Field(min_length=2)
+    proactive_frequency: float = Field(ge=0, le=3)  # 自発メッセージの頻度の倍率（段階が低いうちは控えめに P2）
+
+
+class StagesProfile(_Frozen):
+    acquaintance: StageStyle
+    friend: StageStyle
+    close: StageStyle
+    lover: StageStyle
+
+
+class RoutineBlock(_Frozen):
+    """繰り返しの予定（C2）。end <= start なら日をまたぐ（例: 23:30〜07:00 の睡眠）。"""
+
+    days: list[Weekday] = Field(min_length=1)
+    start: HHMM
+    end: HHMM
+    activity: NonEmptyStr
+    location: NonEmptyStr
+    busyness: int = Field(ge=0, le=3)
+    mood: NonEmptyStr | None = None
+    status_label: ShortLabel  # UI 用（「仕事中」「おやすみ中」）
+    post_tags: list[TagStr] = Field(default_factory=list)  # この予定の後に投稿するときの画像タグ
+    post_probability: float = Field(default=0.0, ge=0, le=1)
+
+
+class EventTemplate(_Frozen):
+    """単発の出来事の候補（C3）。週ごとの確率で予定に入る。"""
+
+    key: KeyStr
+    title: NonEmptyStr
+    description: NonEmptyStr | None = None
+    location: NonEmptyStr
+    days: list[Weekday] = Field(min_length=1)
+    start: HHMM
+    end: HHMM
+    weekly_probability: float = Field(ge=0, le=1)
+    busyness: int = Field(ge=0, le=3)
+    mood: NonEmptyStr
+    status_label: ShortLabel
+    months: list[Annotated[int, Field(ge=1, le=12)]] | None = None  # 起こる月を限定する場合
+    min_interval_days: int = Field(default=0, ge=0, le=365)
+    post_tags: list[TagStr] = Field(default_factory=list)
+    post_probability: float = Field(default=0.0, ge=0, le=1)
+
+
+class Friend(_Frozen):
+    name: NonEmptyStr
+    relation: NonEmptyStr
+
+
+class Place(_Frozen):
+    name: NonEmptyStr
+    kind: NonEmptyStr
+
+
+class DefaultActivity(_Frozen):
+    """予定の無い時間の過ごし方。"""
+
+    activity: NonEmptyStr
+    location: NonEmptyStr
+    status_label: ShortLabel
+    busyness: int = Field(default=0, ge=0, le=3)
+
+
+class LifeProfile(_Frozen):
+    """生活の詳細（カレンダー生成の元）。"""
+
+    occupation: NonEmptyStr
+    workplace: NonEmptyStr | None = None
+    home: NonEmptyStr
+    birthday: Annotated[str, StringConstraints(pattern=r"^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")] | None = None
+    hobbies: list[NonEmptyStr] = Field(min_length=1)
+    friends: list[Friend] = Field(default_factory=list)
+    places: list[Place] = Field(min_length=1)
+    routine: list[RoutineBlock] = Field(min_length=1)
+    events: list[EventTemplate] = Field(min_length=5)
+    default_activity: DefaultActivity
+
+
+class SeasonalReaction(_Frozen):
+    """季節・行事への反応（C4）。attends なら行事の予定をカレンダーに入れる。"""
+
+    key: SeasonalKey
+    reaction: NonEmptyStr  # 行事への気持ち・過ごし方（プロンプト・自発メッセージの文脈）
+    attends: bool = False
+    title: NonEmptyStr | None = None  # attends のとき: 予定の名前
+    location: NonEmptyStr | None = None
+    start: HHMM | None = None
+    end: HHMM | None = None
+    post_tags: list[TagStr] = Field(default_factory=list)
+    post_probability: float = Field(default=0.0, ge=0, le=1)
+
+
+class ProactiveProfile(_Frozen):
+    """自発メッセージの傾向（§7）。"""
+
+    frequency: float = Field(ge=0, le=3)  # 頻度の倍率
+    triggers: list[ProactiveTriggerName] = Field(min_length=1)
+    style: NonEmptyStr  # どんなときに、どんな調子で送るか
+    inactivity_days: int = Field(ge=1, le=30)  # 何日話さなかったら様子をうかがうか
+    examples: list[NonEmptyStr] = Field(min_length=2)
+
+
+class EngineProfile(_Frozen):
+    affinity: AffinityProfile
+    stages: StagesProfile
+    life: LifeProfile
+    seasonal: list[SeasonalReaction] = Field(min_length=6)
+    proactive: ProactiveProfile
+
+
 class Persona(BaseModel):
     """ペルソナ定義。`fallback()` で作ったもの以外は YAML から検証済み。"""
 
@@ -67,6 +239,8 @@ class Persona(BaseModel):
     greeting: NonEmptyStr
     comment_style: NonEmptyStr
     moderation_reply: NonEmptyStr | None = None
+    # キャラクターエンジン v1.0（§10）。無い場合（フォールバック・未記入）はエンジン側の既定値で動く
+    engine: EngineProfile | None = None
     is_fallback: bool = Field(default=False, exclude=True)
 
     @field_validator("age", mode="before")
@@ -108,6 +282,7 @@ class Persona(BaseModel):
             greeting=f"はじめまして、{character.name}だよ。",
             comment_style="",
             moderation_reply=None,
+            engine=None,
             is_fallback=True,
         )
 

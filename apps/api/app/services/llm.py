@@ -19,7 +19,7 @@ import json
 import random
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal, Protocol
@@ -35,7 +35,10 @@ from app.services.types import HistoryItem, RetrievedMemory
 
 logger = get_logger("llm")
 
-Purpose = Literal["chat", "memory_extraction", "memory_summary", "comment_reply"]
+# 用途（監査ログ・コスト集計・モデルの使い分けのキー）。キャラクターエンジンの各モジュールが用途を追加する:
+#   chat / memory_extraction / memory_summary / comment_reply（MVP）
+#   memory_analysis / affinity_eval / proactive_message / feed_caption / sim_user / eval_judge（エンジン v1.0）
+Purpose = str
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +62,10 @@ class LLMRequest:
     max_tokens: int
     json_mode: bool = False
     hints: MockHints | None = None
+    # 用途ごとのモデルの上書き（None = LLM_MODEL）。例: 分析系は安いモデルに分ける
+    model: str | None = None
+    # MockLLM の用途別ハンドラに渡す構造化データ（live では使わない）
+    mock_context: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +139,7 @@ class OpenAICompatibleLLM:
 
     async def complete(self, request: LLMRequest) -> LLMResult:
         body: dict[str, Any] = {
-            "model": self._model,
+            "model": request.model or self._model,
             "messages": request.messages,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
@@ -808,6 +815,23 @@ def mock_comment_reply(hints: MockHints) -> str:
     )
 
 
+MockHandler = Callable[[LLMRequest], str]
+_MOCK_HANDLERS: dict[str, MockHandler] = {}
+
+
+def register_mock_handler(purpose: str, handler: MockHandler) -> None:
+    """MockLLM に用途別の応答生成関数を登録する（キャラクターエンジンの各モジュールが import 時に登録）。
+
+    登録済みの用途では、hints より先にこのハンドラが使われる。ハンドラは live と同じ形式の文字列
+    （JSON モードなら JSON 文字列）を返す。request.mock_context に構造化データが入る。
+    """
+    _MOCK_HANDLERS[purpose] = handler
+
+
+def registered_mock_purposes() -> frozenset[str]:
+    return frozenset(_MOCK_HANDLERS)
+
+
 class MockLLM:
     """外部 API を呼ばない決定的な LLM。"""
 
@@ -818,7 +842,10 @@ class MockLLM:
     async def complete(self, request: LLMRequest) -> LLMResult:
         started = time.perf_counter()
         hints = request.hints
-        if hints is None:
+        handler = _MOCK_HANDLERS.get(request.purpose)
+        if handler is not None:
+            text = handler(request)
+        elif hints is None:
             text = self._without_hints(request)
         elif request.purpose == "chat":
             text = mock_chat_reply(hints)

@@ -15,6 +15,7 @@ dependencies = [
   "pyyaml>=6.0",
   "sentry-sdk[fastapi]>=2.0",
   "tzdata>=2024.1",
+  "holidays>=0.60",
 ]
 
 [dependency-groups]
