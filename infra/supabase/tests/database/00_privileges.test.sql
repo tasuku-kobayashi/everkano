@@ -12,7 +12,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(14);
+select plan(16);
 
 -- ---------------------------------------------------------------------------
 -- RLS
@@ -57,7 +57,7 @@ select is_empty(
 );
 
 -- anon の列権限は Realtime 用の主キー列のみ（RLS の評価経路に乗せて 401 イベントの配信を止めるため）。
--- anon 向けポリシーは無いので、この権限で読める行は無い（06 で確認）。
+-- anon 向けポリシーは無いので、この権限で読める行は無い（06 / 10 で確認）。
 select set_eq(
   $$ select c.relname::text, att.attname::text, x.privilege_type::text
        from pg_attribute att
@@ -65,8 +65,8 @@ select set_eq(
        cross join lateral aclexplode(att.attacl) x
       where c.relnamespace = 'public'::regnamespace
         and x.grantee = 'anon'::regrole $$,
-  $$ values ('comments', 'id', 'SELECT'), ('messages', 'id', 'SELECT') $$,
-  'anon の列単位権限は Realtime 対象テーブルの主キー列（messages.id / comments.id）の SELECT のみ'
+  $$ values ('comments', 'id', 'SELECT'), ('messages', 'id', 'SELECT'), ('memories', 'id', 'SELECT') $$,
+  'anon の列単位権限は Realtime 対象テーブルの主キー列（messages.id / comments.id / memories.id）の SELECT のみ'
 );
 
 select set_eq(
@@ -101,12 +101,31 @@ select set_eq(
        ('characters', 'name', 'SELECT'), ('characters', 'avatar_url', 'SELECT'),
        ('characters', 'bio', 'SELECT'), ('characters', 'follower_count', 'SELECT'),
        ('characters', 'is_active', 'SELECT'), ('characters', 'created_at', 'SELECT'),
-       -- memories: embedding 以外
+       -- memories: embedding 以外（エンジン v1.0 の列を含む）
        ('memories', 'id', 'SELECT'), ('memories', 'user_id', 'SELECT'),
        ('memories', 'character_id', 'SELECT'), ('memories', 'content', 'SELECT'),
        ('memories', 'importance', 'SELECT'), ('memories', 'tags', 'SELECT'),
        ('memories', 'source_message_id', 'SELECT'), ('memories', 'is_user_edited', 'SELECT'),
        ('memories', 'created_at', 'SELECT'), ('memories', 'updated_at', 'SELECT'),
+       ('memories', 'kind', 'SELECT'), ('memories', 'status', 'SELECT'),
+       ('memories', 'superseded_by', 'SELECT'), ('memories', 'superseded_at', 'SELECT'),
+       ('memories', 'last_referenced_at', 'SELECT'), ('memories', 'reference_count', 'SELECT'),
+       ('memories', 'source_conversation_id', 'SELECT'),
+       -- character_states: DM ヘッダーの表示用だけ（activity / location / mood / event_id は非公開）
+       ('character_states', 'character_id', 'SELECT'), ('character_states', 'status_label', 'SELECT'),
+       ('character_states', 'busyness', 'SELECT'), ('character_states', 'updated_at', 'SELECT'),
+       -- promises: メモリパネルの約束（source_message_id / event_id は非公開）
+       ('promises', 'id', 'SELECT'), ('promises', 'user_id', 'SELECT'), ('promises', 'character_id', 'SELECT'),
+       ('promises', 'content', 'SELECT'), ('promises', 'due_at', 'SELECT'), ('promises', 'due_precision', 'SELECT'),
+       ('promises', 'status', 'SELECT'), ('promises', 'source_memory_id', 'SELECT'),
+       ('promises', 'mentioned_at', 'SELECT'), ('promises', 'completed_at', 'SELECT'),
+       ('promises', 'cancelled_at', 'SELECT'), ('promises', 'created_at', 'SELECT'),
+       ('promises', 'updated_at', 'SELECT'),
+       -- proactive_settings: 本人の設定（変更は API 経由）
+       ('proactive_settings', 'id', 'SELECT'), ('proactive_settings', 'user_id', 'SELECT'),
+       ('proactive_settings', 'character_id', 'SELECT'), ('proactive_settings', 'enabled', 'SELECT'),
+       ('proactive_settings', 'quiet_start', 'SELECT'), ('proactive_settings', 'quiet_end', 'SELECT'),
+       ('proactive_settings', 'updated_at', 'SELECT'),
        -- 更新可能な列
        ('profiles', 'display_name', 'UPDATE'), ('profiles', 'deleted_at', 'UPDATE'),
        ('conversations', 'user_last_read_at', 'UPDATE') $$,
@@ -165,6 +184,30 @@ select is_empty(
   'post_private_assets / audit_logs にはポリシーが無い（= クライアントから不可視）'
 );
 
+-- キャラクターエンジンの内部状態（好感度・キャラ側の記憶・墓標・予定・ジョブ・自発メッセージの記録・画像プール）は
+-- ポリシーも権限も無い（= クライアントから一切参照できない。API / スケジューラだけが使う）
+select is_empty(
+  $$ select c.relname, p.policyname, a.privilege_type
+       from pg_class c
+       left join pg_policies p on p.schemaname = 'public' and p.tablename = c.relname
+       left join lateral aclexplode(c.relacl) a on a.grantee in ('anon'::regrole, 'authenticated'::regrole)
+      where c.relnamespace = 'public'::regnamespace
+        and c.relname in ('memory_tombstones', 'character_events', 'character_memories', 'affinity_states',
+                          'affinity_history', 'proactive_messages', 'engine_jobs', 'engine_schedules',
+                          'post_image_pool')
+        and (p.policyname is not null or a.privilege_type is not null) $$,
+  'エンジン内部のテーブルにはクライアント向けのポリシー・権限が無い'
+);
+
+select set_eq(
+  $$ select tablename::text || ':' || cmd::text
+       from pg_policies
+      where schemaname = 'public'
+        and tablename in ('promises', 'proactive_settings', 'character_states') $$,
+  array['promises:SELECT', 'proactive_settings:SELECT', 'character_states:SELECT'],
+  'promises / proactive_settings / character_states のポリシーは参照（SELECT）だけ（変更は API 経由）'
+);
+
 -- ---------------------------------------------------------------------------
 -- Realtime
 -- ---------------------------------------------------------------------------
@@ -173,8 +216,8 @@ select set_eq(
        from pg_publication_tables
       where pubname = 'supabase_realtime'
         and schemaname = 'public' $$,
-  array['comments', 'messages'],
-  'supabase_realtime publication の public テーブルは messages / comments のみ'
+  array['comments', 'messages', 'memories'],
+  'supabase_realtime publication の public テーブルは messages / comments / memories（「覚えました」の通知）のみ'
 );
 
 -- 購読者のロールが主キー列を SELECT できないと、Realtime は RLS を評価せずに本文なしの
