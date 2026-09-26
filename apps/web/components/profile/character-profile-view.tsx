@@ -10,6 +10,7 @@ import { ActionSheet } from "@/components/post/post-options-sheet";
 import { PostGrid, PostGridSkeleton } from "@/components/post/post-grid";
 import { useCopyLink } from "@/components/post/use-share";
 import { AppHeader, HeaderIconButton } from "@/components/ui/app-header";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonClassName } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -142,7 +143,12 @@ function ProfileHeader({ character }: { character: PublicCharacter }) {
           <Stat label="フォロワー" value={formatCount(character.follower_count)} />
         </dl>
       </div>
-      <h2 className="mt-3 text-[14px] leading-[18px] font-semibold">{character.name}</h2>
+      <div className="mt-3 flex min-w-0 items-center gap-1.5">
+        <h2 className="min-w-0 truncate text-[14px] leading-[18px] font-semibold">
+          {character.name}
+        </h2>
+        <AiBadge />
+      </div>
       {character.bio ? (
         <p className="text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line">
           {character.bio}

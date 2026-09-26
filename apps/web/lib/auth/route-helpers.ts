@@ -4,9 +4,34 @@ import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { loginPath, type LoginErrorReason } from "./redirect";
 import { isProfileWithdrawn } from "./withdrawn";
 
-/** 同一オリジン内のパスへリダイレクト（303: POST 後でも GET で遷移させる） */
+/**
+ * 確認画面（components/auth/confirm-login-form.tsx）が fetch で送信したか（Accept: application/json）。
+ * その場合は 303 の代わりに遷移先を JSON で返し、画面が location.replace() で遷移する。フォームの送信（ナビゲーション）
+ * + 303 では確認画面（/auth/confirm?token_hash=…）が履歴に残り、ログイン後の「戻る」で確認画面へ戻ってしまうため。
+ */
+export function wantsJsonRedirect(request: NextRequest): boolean {
+  return (
+    request.method === "POST" && /\bapplication\/json\b/i.test(request.headers.get("accept") ?? "")
+  );
+}
+
+/** fetch で送信した確認画面への応答の形 */
+export interface JsonRedirectBody {
+  /** 遷移先（同一オリジンの相対パス） */
+  location: string;
+}
+
+/**
+ * 同一オリジン内のパスへリダイレクト（303: POST 後でも GET で遷移させる）。
+ * fetch で送信された場合（wantsJsonRedirect）は 200 + { location } を返す（Cookie の発行は同じ）。
+ */
 export function redirectTo(request: NextRequest, path: string): NextResponse {
-  return NextResponse.redirect(new URL(path, request.nextUrl.origin), { status: 303 });
+  const url = new URL(path, request.nextUrl.origin);
+  if (wantsJsonRedirect(request)) {
+    const body: JsonRedirectBody = { location: `${url.pathname}${url.search}${url.hash}` };
+    return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.redirect(url, { status: 303 });
 }
 
 /**

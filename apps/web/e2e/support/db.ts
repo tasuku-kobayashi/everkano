@@ -48,9 +48,21 @@ export async function closeDb(): Promise<void> {
  */
 export async function deleteUsersById(ids: readonly string[]): Promise<number> {
   if (ids.length === 0) return 0;
-  await sql("delete from public.comments where author_user_id = any($1::uuid[])", [ids]);
-  const rows = await sql("delete from auth.users where id = any($1::uuid[]) returning id", [ids]);
-  return rows.length;
+  // エンジン v1.0: 返答の後の非同期ジョブ（記憶の抽出・好感度の評価）が、テストの終了と同時にそのユーザーの行を
+  // 書き込んでいることがある（外部キー・デッドロックで削除が失敗する）。少し待って数回やり直す
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await sql("delete from public.comments where author_user_id = any($1::uuid[])", [ids]);
+      const rows = await sql("delete from auth.users where id = any($1::uuid[]) returning id", [
+        ids,
+      ]);
+      return rows.length;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      console.warn(`[e2e] ユーザーの削除をやり直します（${attempt} 回目）:`, error);
+      await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+    }
+  }
 }
 
 /** メールアドレスのパターン（LIKE）に一致するテストユーザーをまとめて削除する */

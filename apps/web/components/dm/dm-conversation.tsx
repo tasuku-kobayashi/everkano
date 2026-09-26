@@ -1,7 +1,6 @@
 "use client";
 
-import type { ChatResponse, MessageDTO, PublicCharacter } from "@everkano/shared";
-import { useQueryClient } from "@tanstack/react-query";
+import type { MessageDTO, PublicCharacter } from "@everkano/shared";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MemoryPanel } from "@/components/memory/memory-panel";
@@ -15,17 +14,25 @@ import { useBottomBarHeight } from "@/components/ui/toast";
 import { getErrorMessage, isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
 import { useConversation, useDmCharacter, useMarkConversationRead } from "@/lib/queries/dm";
-import { queryKeys } from "@/lib/queries/keys";
+import { useMemoryCreatedRealtime } from "@/lib/queries/memories";
 import {
   flattenMessagesAsc,
   mergeTimeline,
   useMessages,
   useMessagesRealtime,
 } from "@/lib/queries/messages";
+import { useSafetyResources } from "@/lib/queries/safety";
 import { ConversationIntro } from "./conversation-intro";
 import { DmHeader } from "./dm-header";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
+import { SafetyResourceCard } from "./safety-resource-card";
+import {
+  chatStreamStore,
+  markDeliveredWhileStreaming,
+  streamingTimelineItem,
+  useChatStream,
+} from "./stream-state";
 import { buildTimelineRows, holdCharacterReplies, isUuid } from "./timeline";
 import { TypingIndicator } from "./typing-indicator";
 import { useChatScroll } from "./use-chat-scroll";
@@ -39,9 +46,13 @@ export interface DmConversationProps {
 }
 
 /**
- * DM 会話画面（/dm/[characterId]、仕様 §5.6 / C-2）。
+ * DM 会話画面（/dm/[characterId]、仕様 §5.6 / C-2 / エンジン v1.0）。
  * 開いたら会話を取得（既存の会話は DM 一覧のキャッシュ・直接参照で開き、無ければ POST /conversations で作成。
  * 初回はキャラの挨拶が届く）し、メッセージを表示・送信する。ヘッダー右の「i」でメモリパネル。
+ * - 返答は POST /chat/stream で届いた分から順に表示する（use-send-message.ts）
+ * - キャラからの自発メッセージ（is_proactive）は通常の吹き出しと同じに表示する（P6。特別な演出で返信を促さない）
+ * - 安全対応をした返答（messages.safety_triggered）の下には相談窓口のカード（E6。履歴・別の端末でも出る）
+ * - 会話から新しく覚えたこと（返答の後に非同期で作られる）は Realtime で届き、「〇〇があなたのことを覚えました」を出す
  */
 export function DmConversation({ characterId }: DmConversationProps) {
   const valid = isUuid(characterId);
@@ -119,7 +130,6 @@ function ConversationBody({
   character,
   onOpenMemory,
 }: ConversationBodyProps) {
-  const queryClient = useQueryClient();
   const messagesQuery = useMessages(conversationId);
   // 分割代入すると判別共用体の絞り込みで fetchNextPage が never になるため、必要な値だけ取り出す
   const data = messagesQuery.data;
@@ -167,21 +177,11 @@ function ConversationBody({
   useMessagesRealtime(conversationId, onRealtimeInsert);
 
   // ---- 送信
-  const [memoryNotices, setMemoryNotices] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const onReplied = useCallback(
-    (response: ChatResponse) => {
-      // 既読化は返答待ちが終わったとき（下の effect）。DM 一覧・未読バッジの更新は送信側
-      // （useSendMessage のミューテーション）で行う
-      readAfterSendRef.current = true;
-      if (response.memories_created.length > 0) {
-        setMemoryNotices((previous) =>
-          new Map(previous).set(response.character_message.id, response.memories_created.length),
-        );
-        void queryClient.invalidateQueries({ queryKey: queryKeys.memories(characterId) });
-      }
-    },
-    [characterId, queryClient],
-  );
+  const onReplied = useCallback(() => {
+    // 既読化は返答待ちが終わったとき（下の effect）。DM 一覧・未読バッジの更新は送信側
+    // （useSendMessage のミューテーション）で行う
+    readAfterSendRef.current = true;
+  }, []);
   const sender = useSendMessage({
     conversationId,
     characterId,
@@ -206,12 +206,64 @@ function ConversationBody({
     confirmLocals(confirmed);
   }, [confirmed, confirmLocals]);
 
-  const visibleItems = useMemo(
-    () => (sender.pending ? holdCharacterReplies(items, sender.pending.holdAfter) : items),
-    [items, sender.pending],
+  // ---- 受信中のキャラの返答（/chat/stream の delta を順に表示する吹き出し）
+  const stream = useChatStream(conversationId);
+  const savedIds = useMemo(() => new Set(serverAsc.map((message) => message.id)), [serverAsc]);
+  const activeLocalId = sender.pending?.localId ?? null;
+  const streamItem = useMemo(
+    () =>
+      streamingTimelineItem(stream, {
+        activeLocalId,
+        revealed: Boolean(sender.pending?.revealed),
+        savedIds,
+      }),
+    [stream, activeLocalId, sender.pending?.revealed, savedIds],
   );
+  // 表示を終えて保存済みの返答に置き換わった受信中の状態は片付ける
+  useEffect(() => {
+    if (
+      stream &&
+      stream.localId !== activeLocalId &&
+      stream.messageId &&
+      savedIds.has(stream.messageId)
+    ) {
+      chatStreamStore.clear(conversationId, stream.localId);
+    }
+  }, [stream, activeLocalId, savedIds, conversationId]);
+
+  const visibleItems = useMemo(() => {
+    // 返答待ちの間は、送信時点より新しいキャラの発言（Realtime で先に届いた返答）を隠す
+    const held = sender.pending ? holdCharacterReplies(items, sender.pending.holdAfter) : items;
+    if (!streamItem) return held;
+    // 返答が届き始めたら、自分の発言は（まだ保存前でも）送信済みの見た目にする
+    return [...markDeliveredWhileStreaming(held, activeLocalId), streamItem];
+  }, [items, sender.pending, streamItem, activeLocalId]);
   const rows = useMemo(() => buildTimelineRows(visibleItems), [visibleItems]);
-  const typing = Boolean(sender.pending?.typing);
+  // 「入力中…」は最初の文字が表示されるまで
+  const typing = Boolean(sender.pending?.typing) && streamItem === null;
+
+  // ---- E6: 安全対応をした返答（messages.safety_triggered）があれば相談窓口の一覧を用意する
+  const hasSafetyReply = useMemo(
+    () => visibleItems.some((item) => item.senderType === "character" && item.safetyTriggered),
+    [visibleItems],
+  );
+  const safetyResources = useSafetyResources(hasSafetyReply);
+
+  // ---- 「〇〇があなたのことを覚えました」（記憶は返答の後に非同期で作られ、Realtime で届く）。
+  // 届いた時点の最新の吹き出しの下に出す
+  const [memoryNotices, setMemoryNotices] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const newestKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    newestKeyRef.current = visibleItems[visibleItems.length - 1]?.key ?? null;
+  }, [visibleItems]);
+  const onMemoriesCreated = useCallback((count: number) => {
+    const anchor = newestKeyRef.current;
+    if (!anchor) return;
+    setMemoryNotices((previous) =>
+      new Map(previous).set(anchor, (previous.get(anchor) ?? 0) + count),
+    );
+  }, []);
+  useMemoryCreatedRealtime(characterId, onMemoriesCreated);
   // 返答待ちの間と、履歴の初回取得が終わるまで（読み込み中・読み込み失敗）は送信できない。
   // 履歴が無いうちに送ると、送った発言と返答を差し込むキャッシュが無く、表示から消えてしまう
   const sendDisabled = sending || !hasData;
@@ -231,8 +283,10 @@ function ConversationBody({
     newestIsOwn: newest?.senderType === "user",
     typing,
     bottomInset: footerHeight,
-    // 送信失敗の表示・「既読」・メモリ通知で末尾の高さが変わったときも最下部を保つ
-    tailSignature: `${newest?.status ?? ""}|${seenKey ?? ""}|${memoryNotices.size}`,
+    // 送信失敗の表示・「既読」・受信中の本文・相談窓口・メモリ通知で末尾の高さが変わったときも最下部を保つ
+    tailSignature: `${newest?.status ?? ""}|${seenKey ?? ""}|${streamItem?.body.length ?? 0}|${
+      newest?.safetyTriggered ? (safetyResources.resources?.length ?? -1) : 0
+    }|${memoryNotices.size}`,
   });
 
   return (
@@ -297,7 +351,15 @@ function ConversationBody({
                       既読
                     </p>
                   ) : null}
-                  {memoryNotices.has(row.message.id) ? (
+                  {row.message.senderType === "character" && row.message.safetyTriggered ? (
+                    <SafetyResourceCard
+                      resources={safetyResources.resources}
+                      loading={safetyResources.loading}
+                      error={safetyResources.error}
+                      onRetry={safetyResources.retry}
+                    />
+                  ) : null}
+                  {memoryNotices.has(row.key) ? (
                     <MemoryNotice name={characterName} onOpen={onOpenMemory} />
                   ) : null}
                 </div>

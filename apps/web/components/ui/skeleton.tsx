@@ -8,7 +8,16 @@ export interface SkeletonProps {
   style?: CSSProperties;
 }
 
-/** 読み込み中のプレースホルダー（シマー付き）。サイズは className（w-*, h-*）で指定 */
+/** className で高さを指定しているか（h-* / size-*） */
+function hasHeightClass(className: string | undefined): boolean {
+  return className !== undefined && /(?:^|\s)(?:h|size)-/.test(className);
+}
+
+/**
+ * 読み込み中のプレースホルダー（シマー付き）。サイズは className（w-*, h-*）で指定。
+ * shape="text" の既定の高さ（h-3）は、className で高さを指定していないときだけ付ける
+ * （cn は同じ種類のクラスの衝突を解決しないため、両方を付けると CSS の順序で h-3 が勝つことがある）。
+ */
 export function Skeleton({ className, shape = "rect", style }: SkeletonProps) {
   return (
     <span
@@ -18,7 +27,8 @@ export function Skeleton({ className, shape = "rect", style }: SkeletonProps) {
         "block skeleton",
         shape === "circle" && "rounded-full",
         shape === "rect" && "rounded",
-        shape === "text" && "h-3 rounded-full",
+        shape === "text" && "rounded-full",
+        shape === "text" && !hasHeightClass(className) && "h-3",
         className,
       )}
     />

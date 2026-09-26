@@ -10,6 +10,7 @@ import {
   characterPostsQueryOptions,
   characterQueryOptions,
 } from "./characters";
+import { characterStateQueryOptions } from "./character-state";
 import { commentsQueryOptions } from "./comments";
 import { dmCharacterKey, dmCharacterQueryOptions, prefetchDmConversation } from "./dm";
 import { queryKeys } from "./keys";
@@ -205,14 +206,20 @@ describe("prefetchDmConversation（DM 一覧・プロフィールの「DMする�
     };
   }
 
-  it("会話のまだ無いキャラ（おすすめ）: ヘッダーのキャラ情報だけを取りに行き、会話は作らない", async () => {
+  it("会話のまだ無いキャラ（おすすめ）: ヘッダーのキャラ情報と今の状況だけを取りに行き、会話は作らない", async () => {
     prefetchDmConversation(queryClient, CHARACTER_ID);
     await settle(queryClient);
 
-    expect(cachedKeys(queryClient)).toEqual([key(dmCharacterQueryOptions(CHARACTER_ID).queryKey)]);
+    expect(cachedKeys(queryClient)).toEqual(
+      [
+        key(dmCharacterQueryOptions(CHARACTER_ID).queryKey),
+        key(characterStateQueryOptions(CHARACTER_ID).queryKey),
+      ].sort(),
+    );
     expect(dmCharacterKey(CHARACTER_ID)).toEqual(dmCharacterQueryOptions(CHARACTER_ID).queryKey);
-    expect(tables()).toEqual(["characters"]);
+    expect(tables()).toEqual(["characters", "character_states"]);
     expect(eqFilters(state.queries[0])).toEqual([["id", CHARACTER_ID]]);
+    expect(eqFilters(state.queries[1])).toEqual([["character_id", CHARACTER_ID]]);
     expect(state.apiCalls, "POST /conversations（副作用）は先読みしない").toEqual([]);
   });
 
@@ -228,10 +235,11 @@ describe("prefetchDmConversation（DM 一覧・プロフィールの「DMする�
       [
         key(queryKeys.dmThreads()),
         key(dmCharacterQueryOptions(CHARACTER_ID).queryKey),
+        key(characterStateQueryOptions(CHARACTER_ID).queryKey),
         key(messagesQueryOptions(CONVERSATION_ID).queryKey),
       ].sort(),
     );
-    expect(tables().sort()).toEqual(["characters", "messages"]);
+    expect(tables().sort()).toEqual(["character_states", "characters", "messages"]);
     expect(state.apiCalls).toEqual([]);
   });
 });

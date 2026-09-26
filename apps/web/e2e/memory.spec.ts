@@ -60,14 +60,28 @@ test("A9: 1 往復目に話したことを、10 往復後に話題にすると�
   await login(page, user);
   await openConversation(page, MISAKI);
 
-  // 1 往復目: 覚えてほしい事実
+  // 1 往復目: 覚えてほしい事実。
+  // エンジン v1.0: 記憶の抽出は返答の後に非同期で行う（post_turn ジョブ。done の memories_created は常に空）。
+  // 作られた記憶は Realtime（memories の INSERT）で届き、「覚えました」が出る。
+  // API は ENGINE_POST_TURN_DELAY_SECONDS を小さくして起動しておくこと（既定 20 秒でも待てる長さにしてある）
   const first = await sendAndWaitReply(page, MISAKI, "来週、大阪に出張するんだ");
-  expect(first.response.memories_created.length, "重要な発言から記憶が作られる").toBeGreaterThan(0);
-  await expect(page.getByText(`${MISAKI.name}があなたのことを覚えました`)).toBeVisible();
-  const memories = await sql<{ id: string; content: string }>(
-    "select id, content from public.memories where user_id = $1 and character_id = $2",
-    [user.id, MISAKI.id],
-  );
+  expect(first.response.memories_created, "記憶の抽出は返答の後（非同期）").toEqual([]);
+  let memories: { id: string; content: string }[] = [];
+  await expect
+    .poll(
+      async () => {
+        memories = await sql<{ id: string; content: string }>(
+          "select id, content from public.memories where user_id = $1 and character_id = $2 and status = 'active'",
+          [user.id, MISAKI.id],
+        );
+        return memories.some((m) => m.content.includes("大阪") && m.content.includes("出張"));
+      },
+      { message: "重要な発言から記憶が作られる", timeout: 60_000, intervals: [1_000] },
+    )
+    .toBe(true);
+  await expect(page.getByText(`${MISAKI.name}があなたのことを覚えました`)).toBeVisible({
+    timeout: 15_000,
+  });
   const osaka = memories.find((m) => m.content.includes("大阪") && m.content.includes("出張"));
   expect(osaka, `抽出された記憶: ${JSON.stringify(memories)}`).toBeTruthy();
 
@@ -86,9 +100,11 @@ test("A9: 1 往復目に話したことを、10 往復後に話題にすると�
   expect(recall.response.memories_used).toContain(osaka?.id);
   expect(recall.response.reply, "以前話した「大阪に出張する」ことを踏まえた返答").toContain("出張");
 
-  // メモリパネルにも表示されている
+  // メモリパネルにも表示されている（記憶の一覧。同じ発言から「約束・予定」の一覧にも入る: M6）
   const panel = await openMemoryPanel(page);
-  await expect(panel.getByRole("list")).toContainText("大阪に出張");
+  await expect(panel.getByRole("list", { name: `${MISAKI.name}が覚えていること` })).toContainText(
+    "大阪に出張",
+  );
 });
 
 test("A10: メモリパネルで記憶を追加・削除でき、削除した記憶は返答に反映されない", async ({
@@ -123,6 +139,8 @@ test("A10: メモリパネルで記憶を追加・削除でき、削除した記
     "aria-pressed",
     "true",
   );
+  // 種類は既定の「事実」（エンジン v1.0 M2）
+  await expect(item.getByTestId("memory-kind")).toHaveText("事実");
   // 自分で追加した記憶は「あなたが追加」（編集していないので「編集済み」ではない）
   await expect(item.getByText("あなたが追加", { exact: true })).toBeVisible();
   await expect(item.getByText("編集済み", { exact: true })).toHaveCount(0);
@@ -145,6 +163,8 @@ test("A10: メモリパネルで記憶を追加・削除でき、削除した記
   await target.getByRole("button", { name: "この記憶を削除" }).click();
   const confirm = page.getByRole("alertdialog", { name: "この記憶を削除しますか？" });
   await expect(confirm).toContainText(`削除すると${MISAKI.name}はこのことを忘れます`);
+  // E5: 削除した記憶を会話から自動で覚え直さないことを説明する
+  await expect(confirm).toContainText("自動で覚え直すこともありません");
   const deleted = page.waitForResponse(
     (res) =>
       res.url() === `${E2E.apiURL}/memories/${memory.id}` && res.request().method() === "DELETE",
@@ -186,7 +206,10 @@ test("記憶の追加に失敗しても「保存中…」の記憶が残らず�
   // 記憶の API だけ止める（一覧も読み込めない）
   await page.route(`${E2E.apiURL}/memories**`, (route) => route.abort("connectionrefused"));
   let panel = await openMemoryPanel(page);
-  await expect(panel.getByRole("button", { name: "再読み込み" })).toBeVisible({ timeout: 15_000 });
+  // 記憶の一覧の読み込みエラー（role=alert）の「再読み込み」（約束・自発メッセージの設定の行と区別する）
+  await expect(panel.getByRole("alert").getByRole("button", { name: "再読み込み" })).toBeVisible({
+    timeout: 15_000,
+  });
 
   const TEXT = "大事なことを覚えてほしい（API停止中）";
   await panel.getByRole("button", { name: "覚えてほしいことを追加" }).click();

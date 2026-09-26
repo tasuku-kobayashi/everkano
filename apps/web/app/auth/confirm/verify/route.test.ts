@@ -33,6 +33,30 @@ async function verify(
   return { status: res.status, location: res.headers.get("location") };
 }
 
+/** 確認画面の JS からの送信（fetch・Accept: application/json）。遷移先を JSON で受け取る */
+async function verifyByFetch(
+  body: string,
+  headers: Record<string, string> = { "sec-fetch-site": "same-origin" },
+) {
+  const res = await POST(
+    new NextRequest(`${ORIGIN}/auth/confirm/verify`, {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+        ...headers,
+      },
+    }),
+  );
+  return {
+    status: res.status,
+    location: res.headers.get("location"),
+    cacheControl: res.headers.get("cache-control"),
+    body: (await res.json()) as unknown,
+  };
+}
+
 describe("POST /auth/confirm/verify", () => {
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -112,6 +136,36 @@ describe("POST /auth/confirm/verify", () => {
     await expect(
       verify(form({ token_hash: TOKEN, type: "email", next: "//evil.example" })),
     ).resolves.toMatchObject({ location: `${ORIGIN}/login?error=link` });
+  });
+
+  it("確認画面の JS からの送信（Accept: application/json）には、303 の代わりに遷移先を JSON で返す（履歴を置き換えて遷移するため）", async () => {
+    await expect(
+      verifyByFetch(form({ token_hash: TOKEN, type: "email", next: "/posts/p1?x=1" })),
+    ).resolves.toEqual({
+      status: 200,
+      location: null,
+      cacheControl: "no-store",
+      body: { location: "/posts/p1?x=1" },
+    });
+    expect(fake.auth.verifyOtp).toHaveBeenCalledWith({ type: "email", token_hash: TOKEN });
+
+    // 失敗・拒否の場合も同じ形（遷移先はログイン画面）。他サイトからの送信はトークンを消費しない
+    fake.auth.verifyOtp.mockClear();
+    await expect(
+      verifyByFetch(form({ token_hash: TOKEN, type: "email" }), {
+        "sec-fetch-site": "cross-site",
+        origin: "https://evil.example",
+      }),
+    ).resolves.toMatchObject({ status: 200, body: { location: "/login?error=link" } });
+    expect(fake.auth.verifyOtp).not.toHaveBeenCalled();
+
+    fake.auth.verifyOtp.mockResolvedValue({
+      data: { user: null },
+      error: { code: "otp_expired", message: "expired" },
+    });
+    await expect(
+      verifyByFetch(form({ token_hash: TOKEN, type: "email", next: "/me" })),
+    ).resolves.toMatchObject({ body: { location: "/login?error=link&next=%2Fme" } });
   });
 
   it("退会済みならサインアウトして /login?error=withdrawn", async () => {

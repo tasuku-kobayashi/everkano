@@ -1,5 +1,11 @@
 import { freePostWithComments } from "./support/data";
-import { composer, messageLog, openConversation, typingIndicator } from "./support/dm";
+import {
+  composer,
+  isChatStreamResponse,
+  messageLog,
+  openConversation,
+  typingIndicator,
+} from "./support/dm";
 import { E2E, MISAKI } from "./support/env";
 import { expect, test } from "./support/fixtures";
 import { tab, toast } from "./support/ui";
@@ -265,10 +271,7 @@ test.describe("D-3: 通信が切れたとき", () => {
     }
 
     // 電波が戻ったら、失敗した吹き出しをタップして再送できる
-    const response = page.waitForResponse(
-      (res) => res.url() === `${E2E.apiURL}/chat` && res.request().method() === "POST",
-      { timeout: 30_000 },
-    );
+    const response = page.waitForResponse(isChatStreamResponse, { timeout: 30_000 });
     await messageLog(page, MISAKI.name)
       .getByRole("button", { name: `送信できませんでした。タップで再送: ${text}` })
       .click();

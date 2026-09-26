@@ -1,6 +1,11 @@
 "use client";
 
-import { MEMORY_TAG_SECRET, type MemoryDTO, type UpdateMemoryRequest } from "@everkano/shared";
+import {
+  MEMORY_TAG_SECRET,
+  type MemoryDTO,
+  type MemoryKind,
+  type UpdateMemoryRequest,
+} from "@everkano/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
@@ -12,10 +17,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/api/errors";
 import {
+  DEFAULT_MEMORY_KIND,
   DEFAULT_MEMORY_LEVEL,
+  filterMemoriesByKind,
   levelToImportance,
   MEMORY_CONTENT_MAX,
   nextTempMemoryId,
+  presentMemoryKinds,
+  splitMemoriesByStatus,
   stableMemoryOrder,
   stashMemoryDraft,
   takeMemoryDraft,
@@ -25,10 +34,14 @@ import {
   useMemoryDraft,
   useUpdateMemory,
   type MemoryDraft,
+  type MemoryKindFilter,
   type MemoryLevel,
 } from "@/lib/queries/memories";
-import { MemoryItem } from "./memory-item";
+import { MemoryItem, SupersededMemoryItem } from "./memory-item";
+import { MemoryKindFilterBar, MemoryKindSelect } from "./memory-kind";
 import { PriorityControl } from "./priority-control";
+import { ProactiveToggleRow } from "./proactive-toggle-row";
+import { PromiseList } from "./promise-list";
 import { SecretChip } from "./secret-chip";
 
 export interface MemoryPanelProps {
@@ -39,9 +52,12 @@ export interface MemoryPanelProps {
 }
 
 /**
- * メモリパネル（DM ヘッダーの「i」、仕様 §5.6 / §9.4 / C-6）。
- * そのキャラが覚えていることの一覧・追加・編集・削除・優先度変更・「二人だけの秘密」。
- * 一覧も更新もすべて Python API（/memories）経由。
+ * メモリパネル（DM ヘッダーの「i」、仕様 §5.6 / §9.4 / C-6 / エンジン v1.0 M11）。
+ * - 先頭: そのキャラからの自発メッセージのオン・オフ（E4）
+ * - 約束・予定（M6。これからの順。完了・取り消し）
+ * - そのキャラが覚えていることの一覧・追加・編集（内容・種類）・削除・優先度変更・「二人だけの秘密」
+ * - 種類で絞り込み、「以前の記憶」（新しい情報で置き換えられた記憶。読むだけ）の表示切り替え
+ * 一覧も更新もすべて Python API 経由。削除した記憶は自動で覚え直さない（E5）。
  */
 export function MemoryPanel({ open, onClose, characterId, characterName }: MemoryPanelProps) {
   return (
@@ -71,23 +87,39 @@ function MemoryPanelContent({
   const [deleting, setDeleting] = useState<MemoryDTO | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // 今の記憶と、置き換えられた以前の記憶（履歴）に分ける
+  const all = memoriesQuery.data;
+  const { active: memories, superseded } = useMemo(() => splitMemoriesByStatus(all ?? []), [all]);
+  const loaded = all !== undefined;
+  const [kindFilter, setKindFilter] = useState<MemoryKindFilter>("all");
+  const [showSuperseded, setShowSuperseded] = useState(false);
+
   // パネルを開いている間は表示順を固定（優先度を変えても行が飛ばない）。閉じると unmount されてリセット
-  const memories = memoriesQuery.data;
   const [order, setOrder] = useState<string[]>([]);
   const nextOrder = useMemo(
-    () => (memories ? stableMemoryOrder(order, memories) : order),
-    [memories, order],
+    () => (loaded ? stableMemoryOrder(order, memories) : order),
+    [loaded, memories, order],
   );
   if (nextOrder.length !== order.length || nextOrder.some((id, index) => id !== order[index])) {
     setOrder(nextOrder);
   }
   const ordered = useMemo(() => {
-    const byId = new Map((memories ?? []).map((memory) => [memory.id, memory]));
+    const byId = new Map(memories.map((memory) => [memory.id, memory]));
     return nextOrder.flatMap((id) => {
       const memory = byId.get(id);
       return memory ? [memory] : [];
     });
   }, [memories, nextOrder]);
+  const kindOptions = useMemo(
+    () => presentMemoryKinds(showSuperseded ? [...memories, ...superseded] : memories, kindFilter),
+    [memories, superseded, showSuperseded, kindFilter],
+  );
+  const visible = useMemo(() => filterMemoriesByKind(ordered, kindFilter), [ordered, kindFilter]);
+  const visibleSuperseded = useMemo(
+    () => filterMemoriesByKind(superseded, kindFilter),
+    [superseded, kindFilter],
+  );
+  const byId = useMemo(() => new Map((all ?? []).map((memory) => [memory.id, memory])), [all]);
 
   const onError = (error: unknown) => toast.error(getErrorMessage(error));
 
@@ -104,7 +136,7 @@ function MemoryPanelContent({
     );
 
   /** 追加して、成功したら true */
-  const onCreate = ({ content, level, secret }: MemoryDraft): Promise<boolean> =>
+  const onCreate = ({ content, level, secret, kind }: MemoryDraft): Promise<boolean> =>
     createMemory
       .mutateAsync({
         tempId: nextTempMemoryId(),
@@ -113,6 +145,7 @@ function MemoryPanelContent({
           content,
           importance: levelToImportance(level),
           tags: secret ? [MEMORY_TAG_SECRET] : [],
+          kind,
         },
       })
       .then(
@@ -143,6 +176,8 @@ function MemoryPanelContent({
 
   return (
     <div ref={rootRef} tabIndex={-1} className="pb-4 outline-none">
+      <ProactiveToggleRow characterId={characterId} characterName={characterName} />
+
       <p className="px-4 pt-3 pb-1 text-[13px] leading-[18px] text-ig-secondary">
         {characterName}
         は、あなたとの会話で大切だと感じたことを覚えています。覚えていてほしいことを追加したり、忘れてほしいことを削除したりできます。
@@ -150,17 +185,19 @@ function MemoryPanelContent({
 
       <AddMemoryForm characterId={characterId} characterName={characterName} onSubmit={onCreate} />
 
+      <PromiseList characterId={characterId} characterName={characterName} />
+
       {memoriesQuery.isPending ? (
         <MemoryListSkeleton />
-      ) : memoriesQuery.isError && !memories ? (
+      ) : memoriesQuery.isError && !loaded ? (
         <ErrorState
           compact
           message={getErrorMessage(memoriesQuery.error)}
           onRetry={() => void memoriesQuery.refetch()}
           retrying={memoriesQuery.isRefetching}
         />
-      ) : ordered.length === 0 ? (
-        <div className="flex flex-col items-center px-8 pt-10 pb-6 text-center">
+      ) : ordered.length === 0 && superseded.length === 0 ? (
+        <div className="flex flex-col items-center border-t border-ig-sheet-separator px-8 pt-10 pb-6 text-center">
           <div className="mb-3 flex size-14 items-center justify-center rounded-full border-2 border-ig-text">
             <BookmarkIcon size={26} strokeWidth={1.6} />
           </div>
@@ -170,26 +207,72 @@ function MemoryPanelContent({
           </p>
         </div>
       ) : (
-        <ul
-          aria-label={`${characterName}が覚えていること`}
-          className="border-t border-ig-sheet-separator"
-        >
-          {ordered.map((memory) => (
-            <MemoryItem
-              key={memory.id}
-              memory={memory}
-              onUpdate={onUpdate}
-              onDelete={setDeleting}
-            />
-          ))}
-        </ul>
+        <div className="border-t border-ig-sheet-separator pt-3">
+          <MemoryKindFilterBar
+            options={kindOptions}
+            value={kindFilter}
+            onChange={setKindFilter}
+            supersededCount={superseded.length}
+            showSuperseded={showSuperseded}
+            onToggleSuperseded={setShowSuperseded}
+          />
+          {visible.length > 0 ? (
+            <ul
+              aria-label={`${characterName}が覚えていること`}
+              className="border-t border-ig-sheet-separator"
+            >
+              {visible.map((memory) => (
+                <MemoryItem
+                  key={memory.id}
+                  memory={memory}
+                  onUpdate={onUpdate}
+                  onDelete={setDeleting}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="border-t border-ig-sheet-separator px-4 py-6 text-center text-[14px] text-ig-secondary">
+              この種類の記憶はありません
+            </p>
+          )}
+          {showSuperseded ? (
+            <section aria-labelledby="superseded-heading" className="pt-4">
+              <h3
+                id="superseded-heading"
+                className="px-4 text-[13px] leading-4 font-semibold text-ig-secondary"
+              >
+                以前の記憶
+              </h3>
+              <p className="px-4 pt-1 pb-2 text-[12px] leading-4 text-ig-secondary">
+                {`新しく聞いたことで置き換わった記憶です。${characterName}は今の記憶の方を覚えています。`}
+              </p>
+              {visibleSuperseded.length > 0 ? (
+                <ul aria-label="以前の記憶" className="border-t border-ig-sheet-separator">
+                  {visibleSuperseded.map((memory) => (
+                    <SupersededMemoryItem
+                      key={memory.id}
+                      memory={memory}
+                      replacement={
+                        memory.superseded_by ? byId.get(memory.superseded_by) : undefined
+                      }
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="border-t border-ig-sheet-separator px-4 py-4 text-center text-[13px] text-ig-secondary">
+                  この種類の以前の記憶はありません
+                </p>
+              )}
+            </section>
+          ) : null}
+        </div>
       )}
 
       <Modal
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title="この記憶を削除しますか？"
-        description={`削除すると${characterName}はこのことを忘れます`}
+        description={`削除すると${characterName}はこのことを忘れます。会話から同じことを自動で覚え直すこともありません（あとから自分で追加し直すことはできます）。`}
         actions={[
           { label: "削除", variant: "destructive", onClick: confirmDelete },
           { label: "キャンセル", onClick: () => setDeleting(null) },
@@ -220,6 +303,7 @@ function AddMemoryForm({
   const [content, setContent] = useState("");
   const [level, setLevel] = useState<MemoryLevel>(DEFAULT_MEMORY_LEVEL);
   const [secret, setSecret] = useState(false);
+  const [kind, setKind] = useState<MemoryKind>(DEFAULT_MEMORY_KIND);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const wasExpandedRef = useRef(false);
@@ -235,6 +319,7 @@ function AddMemoryForm({
     setContent(stashed.content);
     setLevel(stashed.level);
     setSecret(stashed.secret);
+    setKind(stashed.kind);
     setExpanded(true);
   }, [stashed, idle, characterId, queryClient]);
 
@@ -254,6 +339,7 @@ function AddMemoryForm({
     setContent("");
     setLevel(DEFAULT_MEMORY_LEVEL);
     setSecret(false);
+    setKind(DEFAULT_MEMORY_KIND);
   };
 
   if (!expanded) {
@@ -278,7 +364,7 @@ function AddMemoryForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!trimmed) return;
-        const draft: MemoryDraft = { content: trimmed, level, secret };
+        const draft: MemoryDraft = { content: trimmed, level, secret, kind };
         reset();
         void onSubmit(draft).then((saved) => {
           if (!saved) stashMemoryDraft(queryClient, characterId, draft);
@@ -299,6 +385,7 @@ function AddMemoryForm({
         className="w-full resize-none rounded-lg border border-ig-input-border bg-ig-input-bg px-3 py-2 text-[16px] leading-[22px] outline-none placeholder:text-ig-secondary focus:border-ig-secondary"
       />
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <MemoryKindSelect value={kind} onChange={setKind} />
         <PriorityControl value={level} onChange={setLevel} />
         <SecretChip active={secret} onToggle={setSecret} />
       </div>

@@ -1,14 +1,17 @@
-import type { ChatResponse } from "@everkano/shared";
 import type { Page } from "@playwright/test";
 import { chat, createConversation } from "./support/api";
 import { accessTokenFor } from "./support/auth";
 import { sql } from "./support/db";
 import { E2E, MISAKI } from "./support/env";
 import {
+  CHAT_STREAM_URL,
+  captureChatStreams,
+  chatStreamResult,
   composer,
   messageLog,
   openConversation,
   sendAndWaitReply,
+  suggestionLink,
   typingIndicator,
 } from "./support/dm";
 import { expect, test } from "./support/fixtures";
@@ -47,7 +50,7 @@ test("A8: DM で 10 往復して、毎回「入力中…」のあとにキャラ
 
   // DM 一覧（会話なし）→ おすすめからキャラを選ぶ
   await expect(page.getByText("メッセージはまだありません")).toBeVisible();
-  await page.getByRole("link", { name: `${MISAKI.name}にメッセージを送る` }).click();
+  await suggestionLink(page, MISAKI).click();
   await expect(page).toHaveURL(new RegExp(`/dm/${MISAKI.id}$`));
   const log = messageLog(page, MISAKI.name);
   await expect(log).toBeVisible({ timeout: 20_000 });
@@ -183,23 +186,22 @@ test("返答待ちのまま画面を離れて戻っても、送った発言と�
 }) => {
   const user = await makeUser();
   await login(page, user, "/dm");
-  await page.getByRole("link", { name: `${MISAKI.name}にメッセージを送る` }).click();
+  await suggestionLink(page, MISAKI).click();
   const log = messageLog(page, MISAKI.name);
   await expect(log).toBeVisible({ timeout: 20_000 });
 
   // 本番の LLM のように返答に時間がかかる状態にする
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => (release = resolve));
-  await page.route(`${E2E.apiURL}/chat`, async (route) => {
+  const capture = await captureChatStreams(page);
+  // 後から登録したハンドラが先に呼ばれる: 止めておき、release() で応答の取得（capture）へ回す
+  await page.route(CHAT_STREAM_URL, async (route) => {
     await gate;
-    await route.continue();
+    await route.fallback();
   });
   const LINE = "大事な相談があるんだけど";
   await composer(page).fill(LINE);
-  const responsePromise = page.waitForResponse(
-    (res) => res.url() === `${E2E.apiURL}/chat` && res.request().method() === "POST",
-    { timeout: 30_000 },
-  );
+  const responsePromise = capture.next();
   await page.getByRole("button", { name: "送信", exact: true }).click();
   await expect(log.getByText(LINE, { exact: true })).toBeVisible();
   await expect(typingIndicator(page, MISAKI.name)).toBeVisible();
@@ -218,7 +220,7 @@ test("返答待ちのまま画面を離れて戻っても、送った発言と�
   ).toBeDisabled();
 
   release();
-  const response = (await (await responsePromise).json()) as ChatResponse;
+  const response = chatStreamResult(await responsePromise);
   await expect(log.getByText(response.reply, { exact: true })).toBeVisible();
   await expect(typingIndicator(page, MISAKI.name)).toBeHidden();
   await expect(page.getByRole("button", { name: "送信", exact: true })).toBeEnabled();

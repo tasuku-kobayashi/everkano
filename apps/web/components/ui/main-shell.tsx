@@ -22,10 +22,24 @@ export function MainShell({ children }: { children: ReactNode }) {
   return (
     <div className="relative mx-auto flex min-h-dvh w-full max-w-[480px] flex-col bg-ig-bg">
       <main id="main" className={cn("flex flex-1 flex-col", showTabBar && "pb-tabbar")}>
-        {children}
+        <RouteContent>{children}</RouteContent>
       </main>
       {pathname === "/" ? <HomeFeedRefresher /> : null}
       <TabBar />
     </div>
   );
+}
+
+/**
+ * レイアウトから渡された children（RSC）をそのまま返すだけの境界。ハイドレーションエラー（React #418）の回避。
+ *
+ * children にはサーバーから分割して届く未解決の要素（RSC の lazy 参照）が含まれることがある。<main> のような
+ * ホスト要素の直下でそれを解決すると、ハイドレーション中に中断（suspend）→ 再開（replay）したとき、React
+ * （Next.js 15.5 同梱の 19.2 canary）は <main> を作り直す際にハイドレーションの位置を戻さず、<main> を
+ * その最初の子（<!--$-->）に対応付けようとして不一致になる（その場合 React はルート全体をクライアントで描画し直す）。
+ * 負荷が高く RSC の到着とハイドレーションが重なったときだけ起きていた（/dm・/dm/[characterId] など）。
+ * 関数コンポーネントで挟むと、中断・再開はこのコンポーネントで起き、DOM の対応付けの位置はずれない。
+ */
+function RouteContent({ children }: { children: ReactNode }) {
+  return children;
 }

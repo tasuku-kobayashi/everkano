@@ -1,8 +1,14 @@
 /**
- * メモリパネル（C-6）のデータ層。
+ * メモリパネル（C-6 / エンジン v1.0 M11）のデータ層。
  *
  * - 一覧・追加・更新・削除はすべて Python API（/memories）経由（書き込みは Gate #1 + 監査ログのため API 必須。
  *   一覧も API の並び順「重要度 → 新しい順」に揃える）。
+ * - 一覧は置き換えられた古い記憶（status = superseded。M4 の履歴）も含めて 1 回で取得し、画面で
+ *   「今の記憶」と「以前の記憶」に分ける（include_superseded=true）。
+ * - 記憶の種類（kind: 事実 / 好み / 出来事 / 約束・予定 / 気持ち / ふたりの関係 / 会話の要約）で絞り込める。
+ *   追加・編集で種類を選べる（会話の要約は自動で作られるものだけで、選べない）。
+ * - 会話から自動で覚えた記憶は返答の後に非同期で作られる（memories_created は常に空）。Realtime の memories の
+ *   INSERT（キャラで絞り込み。RLS で自分の分だけ届く）で「〇〇があなたのことを覚えました」を出す。
  * - ミューテーションは楽観的更新 → 失敗時ロールバック → 最後の 1 件が終わったら再取得。
  *   トースト表示・入力内容の復元は呼び出し側（mutateAsync の結果）で行う。mutate(vars, { onError }) の
  *   コールバックは同じフックで最後に呼んだ 1 回分しか実行されないため、連続した操作の失敗を取りこぼす。
@@ -15,6 +21,7 @@ import {
   MEMORY_TAG_SUMMARY,
   type CreateMemoryRequest,
   type MemoryDTO,
+  type MemoryKind,
   type UpdateMemoryRequest,
 } from "@everkano/shared";
 import {
@@ -25,8 +32,77 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/queries/keys";
+import { uniqueSuffix } from "@/lib/queries/messages";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+// ---------------------------------------------------------------------------
+// 記憶の種類（M2）
+// ---------------------------------------------------------------------------
+
+export interface MemoryKindOption {
+  kind: MemoryKind;
+  label: string;
+}
+
+/** 種類と表示名（並びはパネルの絞り込みの順） */
+export const MEMORY_KIND_OPTIONS: readonly MemoryKindOption[] = [
+  { kind: "fact", label: "事実" },
+  { kind: "preference", label: "好み" },
+  { kind: "episode", label: "出来事" },
+  { kind: "promise", label: "約束・予定" },
+  { kind: "emotion", label: "気持ち" },
+  { kind: "relationship", label: "ふたりの関係" },
+  { kind: "summary", label: "会話の要約" },
+] as const;
+
+/** ユーザーが追加・編集で選べる種類（会話の要約は自動で作られるものだけ） */
+export const EDITABLE_MEMORY_KINDS: readonly MemoryKindOption[] = MEMORY_KIND_OPTIONS.filter(
+  (option) => option.kind !== "summary",
+);
+
+/** 記憶を追加するときの既定の種類（API の既定と同じ） */
+export const DEFAULT_MEMORY_KIND: MemoryKind = "fact";
+
+export function memoryKindLabel(kind: MemoryKind): string {
+  return MEMORY_KIND_OPTIONS.find((option) => option.kind === kind)?.label ?? "事実";
+}
+
+/** 絞り込み（"all" = すべて） */
+export type MemoryKindFilter = MemoryKind | "all";
+
+export function filterMemoriesByKind<T extends Pick<MemoryDTO, "kind">>(
+  memories: readonly T[],
+  filter: MemoryKindFilter,
+): T[] {
+  return filter === "all" ? [...memories] : memories.filter((memory) => memory.kind === filter);
+}
+
+/** 記憶がある種類（MEMORY_KIND_OPTIONS の順）。選択中の種類は 0 件でも残す */
+export function presentMemoryKinds(
+  memories: readonly Pick<MemoryDTO, "kind">[],
+  selected: MemoryKindFilter = "all",
+): MemoryKindOption[] {
+  const present = new Set(memories.map((memory) => memory.kind));
+  return MEMORY_KIND_OPTIONS.filter(
+    (option) => present.has(option.kind) || option.kind === selected,
+  );
+}
+
+/** 今の記憶（有効）と以前の記憶（置き換えられた履歴。置き換わった新しい順）に分ける */
+export function splitMemoriesByStatus<
+  T extends Pick<MemoryDTO, "status" | "superseded_at" | "updated_at">,
+>(memories: readonly T[]): { active: T[]; superseded: T[] } {
+  const active: T[] = [];
+  const superseded: T[] = [];
+  for (const memory of memories)
+    (memory.status === "superseded" ? superseded : active).push(memory);
+  const at = (memory: T) => memory.superseded_at ?? memory.updated_at;
+  superseded.sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0));
+  return { active, superseded };
+}
 
 // ---------------------------------------------------------------------------
 // 優先度（importance ↔ 3 段階）
@@ -87,9 +163,11 @@ export function isSecretMemory(memory: Pick<MemoryDTO, "tags">): boolean {
   return hasTag(memory, MEMORY_TAG_SECRET);
 }
 
-/** 自動要約（中期メモリ） */
-export function isSummaryMemory(memory: Pick<MemoryDTO, "tags">): boolean {
-  return hasTag(memory, MEMORY_TAG_SUMMARY);
+/** 自動要約（中期メモリ）。kind = summary（エンジン導入前は summary タグ） */
+export function isSummaryMemory(
+  memory: Pick<MemoryDTO, "tags"> & Partial<Pick<MemoryDTO, "kind">>,
+): boolean {
+  return memory.kind === "summary" || hasTag(memory, MEMORY_TAG_SUMMARY);
 }
 
 /** タグの付け外し（他のタグと順序は保つ・重複しない） */
@@ -106,7 +184,8 @@ export function withTag(tags: readonly string[], tag: string, enabled: boolean):
  * （is_user_edited は「自動更新で上書きしない」印で、追加した記憶にも立つため、それだけで「編集済み」にしない）
  */
 export function memoryOriginLabel(
-  memory: Pick<MemoryDTO, "is_user_edited" | "source_message_id" | "tags">,
+  memory: Pick<MemoryDTO, "is_user_edited" | "source_message_id" | "tags"> &
+    Partial<Pick<MemoryDTO, "kind">>,
 ): "あなたが追加" | "編集済み" | null {
   if (!memory.is_user_edited) return null;
   return memory.source_message_id === null && !isSummaryMemory(memory)
@@ -155,6 +234,7 @@ export function patchMemory(
           ...(patch.content !== undefined ? { content: patch.content } : {}),
           ...(patch.importance !== undefined ? { importance: patch.importance } : {}),
           ...(patch.tags !== undefined ? { tags: [...patch.tags] } : {}),
+          ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
           is_user_edited: true,
           updated_at: now,
         }
@@ -184,6 +264,12 @@ export function buildTempMemory(
     source_message_id: null,
     created_at: now,
     updated_at: now,
+    kind: request.kind ?? DEFAULT_MEMORY_KIND,
+    status: "active",
+    superseded_by: null,
+    superseded_at: null,
+    last_referenced_at: null,
+    reference_count: 0,
   };
 }
 
@@ -194,11 +280,15 @@ export function buildTempMemory(
 const memoriesMutationKey = (characterId: string) =>
   [...queryKeys.memories(characterId), "mutation"] as const;
 
-/** そのキャラが覚えていること（GET /memories?character_id=） */
+/**
+ * そのキャラが覚えていること（GET /memories?character_id=&include_superseded=true）。
+ * 置き換えられた古い記憶（履歴）も含む。表示は splitMemoriesByStatus で分ける。
+ */
 export function useMemories(characterId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.memories(characterId),
-    queryFn: async ({ signal }) => (await api.listMemories(characterId, { signal })).memories,
+    queryFn: async ({ signal }) =>
+      (await api.listMemories(characterId, { signal, includeSuperseded: true })).memories,
     enabled,
     // パネルを開くたびに最新化（会話で新しく覚えたことを反映する）
     staleTime: 0,
@@ -314,6 +404,7 @@ export interface MemoryDraft {
   content: string;
   level: MemoryLevel;
   secret: boolean;
+  kind: MemoryKind;
 }
 
 /**
@@ -399,4 +490,84 @@ export function useDeleteMemory(characterId: string) {
     onError: (_error, _variables, context) => rollback(queryClient, characterId, context),
     onSettled: () => settle(queryClient, characterId),
   });
+}
+
+// ---------------------------------------------------------------------------
+// 「〇〇があなたのことを覚えました」（Realtime: memories の INSERT）
+// ---------------------------------------------------------------------------
+
+/** 新しい記憶の通知をまとめる時間（1 回の会話の分析で複数の記憶が続けて作られる） */
+export const MEMORY_NOTICE_BATCH_MS = 800;
+
+/**
+ * 「覚えました」と知らせる記憶か（Realtime のペイロード）。
+ * - 会話の要約（自動で作られる整理用）は知らせない
+ * - ユーザーが自分で追加した記憶（is_user_edited）は追加した画面で知らせているので除く
+ * - 置き換えで作られた新しい記憶は active なので知らせる（古い方は UPDATE で届く）
+ */
+export function isNoticeWorthyMemory(row: unknown): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  if (typeof r.id !== "string") return false;
+  if (r.kind === "summary") return false;
+  if (Array.isArray(r.tags) && r.tags.includes(MEMORY_TAG_SUMMARY)) return false;
+  if (r.is_user_edited === true) return false;
+  return r.status === undefined || r.status === "active";
+}
+
+/**
+ * そのキャラとの新しい記憶（自動抽出）を購読し、まとめて onCreated(件数) を呼ぶ。
+ * 記憶の一覧（メモリパネル）も取り直す。
+ */
+export function useMemoryCreatedRealtime(
+  characterId: string | undefined,
+  onCreated: (count: number) => void,
+): void {
+  const queryClient = useQueryClient();
+  const onCreatedRef = useRef(onCreated);
+  useEffect(() => {
+    onCreatedRef.current = onCreated;
+  }, [onCreated]);
+
+  useEffect(() => {
+    if (!characterId) return;
+    const supabase = getSupabaseBrowserClient();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending = 0;
+    const flush = () => {
+      const count = pending;
+      pending = 0;
+      if (count === 0) return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.memories(characterId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.promises(characterId) });
+      onCreatedRef.current(count);
+    };
+    const channel = supabase
+      .channel(`dm-memories:${characterId}:${uniqueSuffix()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "memories",
+          filter: `character_id=eq.${characterId}`,
+        },
+        (payload) => {
+          if (!isNoticeWorthyMemory(payload.new)) return;
+          pending += 1;
+          clearTimeout(timer);
+          timer = setTimeout(flush, MEMORY_NOTICE_BATCH_MS);
+        },
+      )
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // 通知が出ないだけ（メモリパネルは開くたびに最新を取得する）
+          console.warn(`[dm] memories realtime ${status}`, error?.message ?? "");
+        }
+      });
+    return () => {
+      clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [characterId, queryClient]);
 }

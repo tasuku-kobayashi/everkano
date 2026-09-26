@@ -53,8 +53,16 @@ export const queryKeys = {
   /** 会話のメッセージ（過去ログは useInfiniteQuery で遡る） */
   messages: (conversationId: string) => ["dm", "messages", conversationId] as const,
 
-  /** メモリパネル（そのキャラが覚えていること） */
+  /** メモリパネル（そのキャラが覚えていること。置き換えられた古い記憶も含む） */
   memories: (characterId: string) => ["memories", characterId] as const,
+  /** メモリパネルの約束・予定（そのキャラとの未達・話題にした約束） */
+  promises: (characterId: string) => ["promises", characterId] as const,
+
+  /** 自発メッセージの設定（全体 + キャラ別。GET /proactive/settings） */
+  proactiveSettings: () => ["proactive-settings"] as const,
+
+  /** E6: 相談窓口の一覧（GET /safety/resources。全員に同じ内容） */
+  safetyResources: () => ["safety-resources"] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;

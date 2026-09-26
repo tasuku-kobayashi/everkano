@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { memo, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/cn";
 import { formatRelativeTimeShort } from "@/lib/format";
@@ -95,6 +96,7 @@ export const CommentItem = memo(function CommentItem({
       <div className="min-w-0 flex-1">
         <p className="text-[13px] leading-[18px]">
           {linkTo(label, "font-semibold")}
+          {character ? <AiBadge className="mx-1 -mt-0.5" /> : null}
           {isPostAuthor ? <span className="text-ig-secondary"> • 作成者</span> : null}
           <time dateTime={comment.created_at} className="ml-2 text-[12px] text-ig-secondary">
             {formatRelativeTimeShort(comment.created_at)}

@@ -19,6 +19,7 @@ import { queryOptions, useQuery, useQueryClient, type QueryClient } from "@tanst
 import { useCallback, useEffect, useRef } from "react";
 import { toAppError } from "@/lib/api/errors";
 import { api } from "@/lib/api/client";
+import { characterStateQueryOptions } from "@/lib/queries/character-state";
 import { queryKeys } from "@/lib/queries/keys";
 import {
   MESSAGE_COLUMNS,
@@ -359,6 +360,8 @@ export function useConversation(characterId: string, enabled = true) {
  */
 export function prefetchDmConversation(queryClient: QueryClient, characterId: string): void {
   void queryClient.prefetchQuery(dmCharacterQueryOptions(characterId));
+  // ヘッダーの今の状況（character_states）
+  void queryClient.prefetchQuery(characterStateQueryOptions(characterId));
   const conversation =
     queryClient.getQueryData<DmConversationRef>(queryKeys.conversation(characterId)) ??
     conversationFromThreads(

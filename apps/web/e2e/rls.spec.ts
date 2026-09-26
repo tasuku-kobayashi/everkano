@@ -136,6 +136,34 @@ test("A13: 他ユーザーの会話・メッセージ・記憶は RLS と API �
   });
   expect(chatAsB.status).toBe(404);
   expect(isApiError(chatAsB.body) && chatAsB.body.error.code).toBe("not_found");
+  // ストリーミング版も、ストリームを始める前に通常の JSON エラー（404）で断る
+  const streamAsB = await apiCall(tokenB, "POST", "/chat/stream", {
+    character_id: MISAKI.id,
+    conversation_id: conversation.id,
+    message: "Aの会話に書き込めるか",
+  });
+  expect(streamAsB.status).toBe(404);
+  expect(isApiError(streamAsB.body) && streamAsB.body.error.code).toBe("not_found");
+
+  // 約束（エンジン v1.0）: B からは読めず（RLS）、API でも変更できない（404）
+  const promise = await sqlOne<{ id: string }>(
+    `insert into public.promises (user_id, character_id, content, due_at, due_precision)
+     values ($1, $2, 'Aと来週映画を見る', now() + interval '3 days', 'day') returning id`,
+    [userA.id, MISAKI.id],
+  );
+  const ownPromises = await asA.from("promises").select("id").eq("id", promise.id);
+  expect(ownPromises.data, "A 本人は約束を読める").toHaveLength(1);
+  const bPromises = await asB.from("promises").select("id").eq("id", promise.id);
+  expect(bPromises.data ?? [], "B から A の約束は 0 件").toEqual([]);
+  const patchPromiseAsB = await apiCall(tokenB, "PATCH", `/promises/${promise.id}`, {
+    status: "cancelled",
+  });
+  expect(patchPromiseAsB.status).toBe(404);
+  const promiseAfter = await sqlOne<{ status: string }>(
+    "select status from public.promises where id = $1",
+    [promise.id],
+  );
+  expect(promiseAfter.status).toBe("pending");
 
   const patchAsB = await apiCall(tokenB, "PATCH", `/memories/${memory.id}`, { content: "改ざん" });
   expect(patchAsB.status).toBe(404);

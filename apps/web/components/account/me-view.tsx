@@ -21,6 +21,7 @@ import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/queries/keys";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { codePointLength, firstGrapheme } from "@/lib/text";
+import { ProactiveSettingsSection } from "./proactive-settings-section";
 
 const DISPLAY_NAME_MAX = 30;
 const APP_VERSION = "0.1.0";
@@ -112,6 +113,8 @@ function MeContent({ account }: { account: MyAccount }) {
         <Row label="メールアドレス" value={account.email ?? "—"} />
         <Row label="表示名" value={displayName} onClick={() => setEditOpen(true)} />
       </ul>
+
+      <ProactiveSettingsSection />
 
       <SectionTitle>ログイン</SectionTitle>
       <ul className="border-y border-ig-separator">

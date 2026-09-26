@@ -162,3 +162,27 @@ export async function expectNoOrphanLine(locator: Locator, label: string): Promi
     expect(Array.from(line).length, `${label}: 行 ${JSON.stringify(lines)}`).toBeGreaterThan(1);
   }
 }
+
+export interface SessionHistory {
+  /** 各エントリのパス + クエリ（about:blank などはそのまま） */
+  paths: string[];
+  /** 今のエントリの位置 */
+  current: number;
+}
+
+/** このタブのセッション履歴（CDP の Page.getNavigationHistory。「戻る」「進む」で移れるエントリ） */
+export async function sessionHistory(page: Page): Promise<SessionHistory> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { entries, currentIndex } = await cdp.send("Page.getNavigationHistory");
+    const paths = entries.map((entry) => {
+      const url = new URL(entry.url);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? `${url.pathname}${url.search}`
+        : entry.url;
+    });
+    return { paths, current: currentIndex };
+  } finally {
+    await cdp.detach();
+  }
+}

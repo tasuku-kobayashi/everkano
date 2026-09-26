@@ -31,6 +31,8 @@ export interface MessageBubbleProps {
  * - キャラ: 左寄せ・グレー（ダーク #262626）。グループ最後の吹き出しの横にアバター
  * - 絵文字だけの短いメッセージは吹き出し無しで大きく
  * - 送信中は薄く、送信失敗は赤い「!」と「送信できませんでした・タップで再送」
+ * - 受信中（ストリーミング）のキャラの返答は通常の吹き出しに順に追記される（aria-busy）
+ * - キャラからの自発メッセージも通常の吹き出し（返信を急かすような特別な表示はしない。P4 / P6）
  * - スクリーンリーダー向けに、吹き出しごとに送り手（「あなた: 」/「<キャラ名>: 」）を読み上げる
  *   （会話ログ role="log" の中でユーザーとキャラの発言が区別できるように。アバターは装飾扱い）
  */
@@ -47,6 +49,7 @@ export function MessageBubble({
   const emojiOnly = isEmojiOnly(message.body);
   const failed = message.status === "failed";
   const sending = message.status === "sending";
+  const streaming = message.status === "streaming";
 
   const bubble = (
     <div
@@ -108,7 +111,12 @@ export function MessageBubble({
   }
 
   return (
-    <div className={cn("flex items-end gap-2 pr-16 pl-3", isFirstInGroup ? "mt-2" : "mt-0.5")}>
+    <div
+      className={cn("flex items-end gap-2 pr-16 pl-3", isFirstInGroup ? "mt-2" : "mt-0.5")}
+      data-status={message.status}
+      // 受信中（/chat/stream の途中）の吹き出しは、届くたびに読み上げが繰り返されないよう完了まで busy にする
+      aria-busy={streaming || undefined}
+    >
       <div className="w-7 shrink-0" aria-hidden="true">
         {isLastInGroup ? <Avatar src={characterAvatarUrl} alt={characterName} size={28} /> : null}
       </div>

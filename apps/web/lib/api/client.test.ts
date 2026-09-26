@@ -53,6 +53,12 @@ const memory: MemoryDTO = {
   source_message_id: null,
   created_at: "2026-09-25T00:00:00Z",
   updated_at: "2026-09-25T00:00:00Z",
+  kind: "fact",
+  status: "active",
+  superseded_by: null,
+  superseded_at: null,
+  last_referenced_at: null,
+  reference_count: 0,
 };
 
 afterEach(() => {
@@ -92,6 +98,8 @@ describe("createApiClient: 正常系", () => {
         sender_type: "user",
         body: "ただいま",
         created_at: "2026-09-25T00:00:00Z",
+        is_proactive: false,
+        safety_triggered: false,
       },
       character_message: {
         id: "msg-2",
@@ -99,8 +107,11 @@ describe("createApiClient: 正常系", () => {
         sender_type: "character",
         body: "おかえり！",
         created_at: "2026-09-25T00:00:01Z",
+        is_proactive: false,
+        safety_triggered: false,
       },
       moderated: false,
+      safety: null,
     };
     const { client, fetchMock } = setup(async () => jsonResponse(200, chat));
     const res = await client.sendChat({
@@ -108,7 +119,7 @@ describe("createApiClient: 正常系", () => {
       conversation_id: "conv-1",
       message: "ただいま",
     });
-    expect(res.reply).toBe("おかえり！");
+    expect(res).toEqual(chat);
     const { url, init, headers } = lastCall(fetchMock);
     expect(url).toBe("http://api.test/chat");
     expect(init.method).toBe("POST");
@@ -159,8 +170,13 @@ describe("createApiClient: 正常系", () => {
     });
 
     const list = await client.listMemories("c 1");
-    expect(list.memories).toHaveLength(1);
+    expect(list.memories).toEqual([memory]);
     expect(lastCall(fetchMock).url).toBe("http://api.test/memories?character_id=c+1");
+
+    await client.listMemories("c1", { includeSuperseded: true });
+    expect(lastCall(fetchMock).url).toBe(
+      "http://api.test/memories?character_id=c1&include_superseded=true",
+    );
 
     await client.createMemory({ character_id: "c1", content: "秘密", tags: ["secret"] });
     expect(lastCall(fetchMock).init.method).toBe("POST");

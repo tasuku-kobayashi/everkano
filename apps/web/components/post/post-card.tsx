@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { memo, useState } from "react";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import {
   BookmarkIcon,
@@ -101,7 +102,7 @@ export const PostCard = memo(function PostCard({
       data-post-id={post.id}
       data-paid={post.is_paid ? "true" : "false"}
     >
-      {/* ヘッダー: アバター + handle + 「…」 */}
+      {/* ヘッダー: アバター + handle + 「AIキャラクター」バッジ（E3）+ 「…」 */}
       <header className="flex h-[54px] items-center gap-2.5 pr-1 pl-3">
         <Link
           href={profilePath}
@@ -111,14 +112,15 @@ export const PostCard = memo(function PostCard({
         >
           <Avatar src={post.character.avatar_url} alt={post.character.name} size="sm" />
         </Link>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <Link
             href={profilePath}
             onPointerDown={prefetchProfile}
-            className="block truncate text-[14px] leading-[18px] font-semibold"
+            className="min-w-0 truncate text-[14px] leading-[18px] font-semibold"
           >
             {post.character.handle}
           </Link>
+          <AiBadge />
         </div>
         <button
           type="button"
