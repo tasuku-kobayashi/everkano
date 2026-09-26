@@ -3,7 +3,7 @@
 
 使い方（packages/personas ディレクトリで実行）:
     pnpm validate
-    # = uv run --with pyyaml python scripts/validate_personas.py
+    # = uv run --frozen --project ../../apps/api python scripts/validate_personas.py
 
 チェック内容:
   1. 必須フィールドと型（BRIEF §2.7 のスキーマ）
@@ -13,6 +13,11 @@
   5. 未成年を想起させる語・20歳未満の年齢表記が YAML / feed.yaml / seed.sql に含まれないこと
   6. infra/supabase/seed.sql に各キャラの行（handle / name / persona_key / avatar / bio）があること
   7. seed.sql が generate_seed.py の生成結果と一致すること（手編集・再生成忘れの検出）
+  8. API の Pydantic モデル（app.services.persona.Persona / EngineProfile）で読み込めること
+  9. engine セクション（キャラクターエンジン v1.0）の追加規則（scripts/engine_checks.py）:
+     routine の重なり・すき間、タグ語彙、SEASONAL_KEYS、E2/E3/Gate #1 の語、自発メッセージの文言 など。
+     apps/api/tests/fixtures/personas/test_persona.yaml の engine も同じ規則で検証する
+     （API のモジュールを import するため、apps/api の uv 環境で実行する）
 """
 
 from __future__ import annotations
@@ -24,8 +29,15 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# app.services.persona など API のモデルで検証する（apps/api の uv 環境で実行すること）
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "apps" / "api"))
 
-import generate_seed  # 同じディレクトリのモジュール（sys.path に追加済み）
+import engine_checks  # 同じディレクトリのモジュール（sys.path に追加済み）
+import generate_seed
+from app.services.persona import Persona, PersonaLoadError, load_persona_file
+
+API_ROOT = generate_seed.REPO_ROOT / "apps" / "api"
+FIXTURE_PERSONA = API_ROOT / "tests" / "fixtures" / "personas" / "test_persona.yaml"
 
 HANDLE_RE = re.compile(r"^[a-z0-9_.]{2,30}$")
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -205,6 +217,15 @@ def validate_persona(path: Path, data: Any, errors: list[str], warnings: list[st
             errors.append(f"{name}: 未成年を想起させる表現「{hit}」が含まれています")
 
 
+def load_model(path: Path, errors: list[str]) -> Persona | None:
+    """API と同じ Pydantic モデルで読み込む（engine は extra="forbid" で未知のキーもエラー）。"""
+    try:
+        return load_persona_file(path)
+    except PersonaLoadError as exc:
+        errors.append(f"API モデルでの検証に失敗: {exc}")
+        return None
+
+
 def parse_seed_character_rows(sql: str) -> list[tuple[str, str, str, str]]:
     """seed.sql の characters 行から (id, handle, name, persona_key) を取り出す。"""
     row_re = re.compile(
@@ -227,6 +248,8 @@ def main() -> int:
         return 1
 
     personas: dict[str, dict[str, Any]] = {}
+    models: list[Persona] = []
+    reports: list[engine_checks.EngineReport] = []
     handles: dict[str, str] = {}
     names: dict[str, str] = {}
     for path in paths:
@@ -238,6 +261,10 @@ def main() -> int:
         validate_persona(path, data, errors, warnings)
         if not isinstance(data, dict):
             continue
+        model = load_model(path, errors)
+        if model is not None:
+            models.append(model)
+            reports.append(engine_checks.check_engine(model, path.name, errors, warnings))
         personas[path.stem] = data
         handle = data.get("handle")
         if isinstance(handle, str):
@@ -249,6 +276,14 @@ def main() -> int:
             if pname in names:
                 errors.append(f"{path.name}: name {pname!r} が {names[pname]} と重複しています")
             names[pname] = path.name
+
+    engine_checks.check_birthdays(models, warnings)
+
+    # テスト用ペルソナ（apps/api/tests/fixtures）の engine も同じ規則で検証する（他モジュールのテストが使う）
+    fixture = load_model(FIXTURE_PERSONA, errors)
+    if fixture is not None:
+        fixture_where = str(FIXTURE_PERSONA.relative_to(generate_seed.REPO_ROOT))
+        engine_checks.check_engine(fixture, fixture_where, errors, warnings)
 
     # feed.yaml（投稿・コメント）の表現チェック
     try:
@@ -313,6 +348,8 @@ def main() -> int:
             print(f"ERROR: {e}", file=sys.stderr)
         print(f"\n{len(errors)} error(s)", file=sys.stderr)
         return 1
+    for report in reports:
+        print(f"  {report.summary()}")
     print(f"OK: {len(personas)} personas validated ({', '.join(sorted(personas))}); {rel_seed} is in sync")
     return 0
 
