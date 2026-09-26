@@ -73,6 +73,11 @@ export interface MessageDTO {
   created_at: ISODateString;
   /** [エンジン v1.0] キャラからの自発メッセージ（返答ではない） */
   is_proactive: boolean;
+  /**
+   * [エンジン v1.0] E6: 自傷・希死念慮のシグナルに安全対応（相談窓口の案内）をしたキャラの返答。
+   * Web はこの返答の下に相談窓口のカードを出す（窓口の一覧は GET /safety/resources。履歴・別の端末でも同じ）。
+   */
+  safety_triggered: boolean;
 }
 
 /** POST /conversations — 会話の取得または作成（初回はキャラの挨拶メッセージを1件保存） */
@@ -124,6 +129,14 @@ export interface SafetyResource {
 
 export interface SafetyInfo {
   triggered: boolean;
+  resources: SafetyResource[];
+}
+
+/**
+ * GET /safety/resources — E6 の相談窓口の一覧（ログイン必須）。
+ * messages.safety_triggered の返答の下に出すカード用。ChatResponse.safety.resources と同じ内容・順序。
+ */
+export interface SafetyResourcesResponse {
   resources: SafetyResource[];
 }
 

@@ -146,6 +146,67 @@ SEASONAL_KEYS: Final[tuple[str, ...]] = (
     "year_end",  # 年末（12/28〜31）
 )
 
+# フィード投稿の画像タグ（C7。ENGINE_BRIEF §2.7）。次のすべてがこの 1 つの語彙を使う:
+#   - 事前に用意した画像のプール post_image_pool.tags（infra/supabase/seed_engine.sql。全タグに画像があること）
+#   - ペルソナ YAML の post_tags（packages/personas/scripts/engine_checks.py が検査する）
+#   - キャプションの写真の説明・絵文字（app/engine/calendar/captions.py の TAG_INFO。全タグに説明があること）
+#   - カレンダーの既定のタグ（行事・誕生日）と一貫性チェック（app/engine/calendar/）
+# 語彙を変えるときは seed_engine.sql と TAG_INFO も合わせる（tests/engine/calendar/test_captions.py が検査する）。
+TAG_VOCABULARY: Final[tuple[str, ...]] = (
+    "cafe",
+    "food",
+    "sweets",
+    "izakaya",
+    "bar",
+    "office",
+    "home",
+    "room",
+    "book",
+    "study",
+    "gym",
+    "running",
+    "yoga",
+    "travel",
+    "sea",
+    "mountain",
+    "forest",
+    "city",
+    "night_city",
+    "street",
+    "shopping",
+    "fashion",
+    "cosmetics",
+    "cooking",
+    "music",
+    "stage",
+    "live",
+    "karaoke",
+    "game",
+    "anime",
+    "art",
+    "flowers",
+    "sakura",
+    "rain",
+    "summer",
+    "festival",
+    "fireworks",
+    "autumn",
+    "autumn_leaves",
+    "snow",
+    "christmas",
+    "new_year",
+    "valentine",
+    "halloween",
+    "pet",
+    "sky",
+    "sunset",
+    "morning",
+    "train",
+    "library",
+    "school",
+    "park",
+)
+
 # ---------------------------------------------------------------------------
 # 値オブジェクト
 # ---------------------------------------------------------------------------
@@ -281,7 +342,7 @@ class SafetyAssessment:
 
 @dataclass(frozen=True, slots=True)
 class GuardResult:
-    """出力の追加検査（E2 購入と関係の結びつけ / E3 実在の人間だという主張）。"""
+    """出力の追加検査（E2: 購入と関係を結びつける発言の禁止 / E3: 実在の人間だという主張の禁止）。"""
 
     flagged: bool
     categories: tuple[str, ...] = ()

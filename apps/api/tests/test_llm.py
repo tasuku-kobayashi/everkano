@@ -8,7 +8,9 @@ from typing import Any
 import httpx
 import pytest
 
+from app.engine.memory.summary import parse_summary
 from app.services.llm import (
+    MOCK_REPLY_WITHOUT_HINTS,
     LLMError,
     LLMRequest,
     MockHints,
@@ -19,13 +21,11 @@ from app.services.llm import (
     current_activity,
     memory_core,
     mock_chat_reply,
-    mock_extract,
     parse_json_object,
     parse_schedule_days,
     pick_relevant_memory,
     strip_trailing,
 )
-from app.services.memory import parse_candidates, parse_summary
 from app.services.persona import load_persona_file
 from app.services.types import RetrievedMemory
 from tests.conftest import FIXTURES_DIR, REPO_ROOT, make_settings
@@ -91,43 +91,36 @@ def test_current_activity_weekday_and_weekend() -> None:
     assert current_activity(pattern, datetime(2026, 9, 26, 1, 0, tzinfo=UTC)) == "昼まで寝る"  # 土 10:00 JST
 
 
-def test_mock_extract_rules() -> None:
-    items = mock_extract("来週、大阪に出張するんだ。ちょっと緊張してる。今日はいい天気だね")
-    assert items == [
-        {"content": "ユーザーは「来週、大阪に出張するんだ」と話していた", "importance": 0.95, "category": "personal"},
-        {"content": "ユーザーは「ちょっと緊張してる」と話していた", "importance": 0.55, "category": "emotion"},
-    ]
-    # 質問・あいさつ・雑談は抽出しない
-    assert mock_extract("明日なにする？") == []
-    assert mock_extract("お昼ごはん食べた？") == []
-    assert mock_extract("今日はいい天気だね") == []
-    emotion_only = mock_extract("ちょっと緊張してる")
-    assert len(emotion_only) == 1
-    assert emotion_only[0]["importance"] < 0.6
-
-
-async def test_mock_extraction_output_parses() -> None:
+async def test_mock_without_registered_handler_or_hints() -> None:
+    """用途別のハンドラもヒントも無い呼び出しは決まった返事（MVP の memory_extraction の用途は廃止）。"""
     request = LLMRequest(
         purpose="memory_extraction",
         messages=[{"role": "user", "content": "x"}],
         temperature=0,
         max_tokens=100,
         json_mode=True,
-        hints=MockHints(persona=PERSONA, now=NOW, user_message="猫が好きなんだ"),
     )
     result = await MockLLM().complete(request)
-    candidates = parse_candidates(result.text)
-    assert [c.content for c in candidates] == ["ユーザーは「猫が好きなんだ」と話していた"]
-    assert candidates[0].importance >= 0.6
+    assert result.text == MOCK_REPLY_WITHOUT_HINTS
 
 
-def test_parse_candidates_is_defensive() -> None:
-    text = '説明です\n```json\n{"memories": [{"content": " ユーザーは犬派 ", "importance": 1.7}, {"content": ""},'
-    text += ' {"content": "x", "importance": "abc"}, "bad"]}\n```'
-    candidates = parse_candidates(text)
-    assert [(c.content, c.importance) for c in candidates] == [("ユーザーは犬派", 1.0)]
-    assert parse_candidates("not json") == []
-    assert parse_candidates('[{"content": "ユーザーは早起き", "importance": 0.8}]')[0].importance == 0.8
+async def test_mock_memory_summary_uses_the_engine_handler() -> None:
+    """中期要約のモックは記憶モジュールが登録したハンドラ（app.engine.memory.mock）が返す。"""
+    import app.engine.memory  # noqa: F401, PLC0415 - import 時にモックのハンドラを登録する
+
+    request = LLMRequest(
+        purpose="memory_summary",
+        messages=[{"role": "user", "content": "x"}],
+        temperature=0,
+        max_tokens=100,
+        json_mode=True,
+        mock_context={"transcript": [{"sender": "user", "body": "来週、大阪に出張するんだ"}]},
+    )
+    result = await MockLLM().complete(request)
+    assert "大阪に出張" in parse_summary(result.text)
+
+
+def test_parse_summary_variants() -> None:
     assert parse_summary('{"summary": "要約"}') == "要約"
     assert parse_summary("JSONではない要約") == "JSONではない要約"
 
@@ -147,11 +140,8 @@ def test_memory_core_and_relevance() -> None:
 
 
 def test_mock_memory_text_keeps_long_vowels_and_word_endings() -> None:
-    items = mock_extract("趣味はサッカー。好きな飲み物はコーヒー。")
-    assert [i["content"] for i in items] == [
-        "ユーザーは「趣味はサッカー」と話していた",
-        "ユーザーは「好きな飲み物はコーヒー」と話していた",
-    ]
+    assert memory_core("ユーザーは「趣味はサッカー」と話していた") == "趣味はサッカー"
+    assert memory_core("ユーザーは「好きな飲み物はコーヒー」と話していた") == "好きな飲み物はコーヒー"
     assert memory_core("ユーザーは「猫が好きなの」と話していた") == "猫が好き"
     assert memory_core("ユーザーは「好きな魚はさかな」と話していた") == "好きな魚はさかな"
     assert strip_trailing("楽しかったーーー！！w") == "楽しかった"
@@ -161,10 +151,7 @@ def test_mock_memory_text_keeps_long_vowels_and_word_endings() -> None:
     assert strip_trailing("new") == "new"
 
 
-def test_mock_extract_health_and_time_words() -> None:
-    sleep = mock_extract("最近眠れないんだ")
-    assert [i["content"] for i in sleep] == ["ユーザーは「最近眠れないんだ」と話していた"]
-    assert sleep[0]["importance"] >= 0.6
+def test_memory_relevance_ignores_time_words() -> None:
     # 時間表現だけの重なりでは記憶を持ち出さない
     assert "今日" not in content_tokens("今日は雨だったね")
     assert content_tokens("来週大阪に出張") >= {"大阪", "出張"}

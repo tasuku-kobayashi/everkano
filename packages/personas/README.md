@@ -82,9 +82,11 @@ API の Pydantic モデル `app.services.persona.EngineProfile`（`extra="forbid
 | `stage_pace` | float 0.3〜3（既定 1） | 段階の上がりやすさ（大きいほど早い） |
 | `expression_delay` | float 0〜1（既定 0） | 好意を表に出す遅さ（ツンデレは高い）。**値の変化ではなく表現**に効く（romance を 0 にしない） |
 | `notes` | string | 性格による動き方の説明（評価の補足・ドキュメント） |
+| `max_stage` | `acquaintance` / `friend` / `close` / `lover`（任意） | 関係の段階の上限。省略 = 上限なし（恋人まで）。好感度エンジンはこれより上に昇格させず、既に上にいるペア（YAML を後から変えた場合）は次の評価・日次処理でこの段階に戻す（監査ログ `affinity.stage_change` の `cause: max_stage`）。指針・自発メッセージの判定もこの段階までで扱う |
 
-- **人妻（楓）は `romance: 0` / `possessiveness: 0`**（検証でエラー）。恋人段階は romance を必要とするため到達しない。
-  `stages.lover` は万一のための記述で、内容は「家族ぐるみで付き合える親友」（恋愛ではない）。
+- **人妻（楓）は `romance: 0` / `possessiveness: 0` / `max_stage: close`**（検証でエラー）。恋人段階は romance も必要だが、
+  感度だけに頼らず上限でも止める（二重の歯止め）。`stages.lover` は使われない予備の記述で、内容は
+  「家族ぐるみで付き合える親友」（恋愛ではない）。
 
 ### stages（段階ごとの振る舞い・A8）
 
@@ -140,7 +142,9 @@ API の Pydantic モデル `app.services.persona.EngineProfile`（`extra="forbid
   `months` で季節を限定、`min_interval_days` で間隔をあける。`key` はキャラ内で一意。
 - 1つの出来事は18時間まで（**複数日にまたがる予定は表せない**ため、旅行は日帰りとして書く）。
 
-**タグ語彙**（`post_tags`。カレンダーの画像プール `post_image_pool.tags` と共通・ENGINE_BRIEF §2.7）:
+**タグ語彙**（`post_tags`。定義は `apps/api/app/engine/types.py` の `TAG_VOCABULARY` の 1 か所で、カレンダーの画像プール
+`post_image_pool.tags`（`infra/supabase/seed_engine.sql`。全タグに画像がある）・キャプションの写真の説明と共通。
+語彙外のタグは `pnpm personas:validate` がエラーにする）:
 `cafe food sweets izakaya bar office home room book study gym running yoga travel sea mountain forest city night_city street
 shopping fashion cosmetics cooking music stage live karaoke game anime art flowers sakura rain summer festival fireworks autumn
 autumn_leaves snow christmas new_year valentine halloween pet sky sunset morning train library school park`
@@ -154,7 +158,14 @@ summer_festival obon tsukimi halloween autumn_leaves christmas year_end`）。**
 |---|---|---|
 | `reaction` | string | 行事への気持ち・過ごし方（プロンプト・自発メッセージの文脈） |
 | `attends` | bool | `true` ならその行事の予定をカレンダーに入れる（そのとき `title` / `location` / `start` / `end` が必須） |
+| `busyness` | int 0〜3（任意） | `attends` の予定の忙しさ（C5 / C6: 返答の長さの指針）。省略 = 2 |
+| `mood` | string（任意） | `attends` の予定中の気分。省略 = 行事ごとの既定（バレンタインなら「ちょっとそわそわ」など） |
+| `status_label` | string ≤20（任意） | `attends` の予定中の UI の状態表示。省略 = 行事ごとの既定（「バレンタイン」など） |
 | `post_tags` / `post_probability` | | 行事のあとの投稿 |
+
+- 行事が**仕事の繁忙期**のキャラ（玲奈のバレンタイン・クリスマスの厨房、莉子のバレンタインネイルの予約）は、
+  `busyness` / `mood` / `status_label` を書いて「浮かれた行事」の既定の気分・表示にならないようにする
+  （`attends: false` の行事に書いても使われない。検証で警告）。
 
 行事の予定は全ユーザー共通の公開予定になるため、特定のユーザーとの関係を前提にした内容は書かない。
 
@@ -272,7 +283,7 @@ pnpm db:reset                                     # ローカルDBを作り直�
 - `engine:` の追加規則（`scripts/engine_checks.py`）: 全キャラに engine があること / routine の曜日ごとの重なり・すき間・
   `24:00` 表記・睡眠の語 / 単発の出来事 8件以上・`key` の重複・18時間以内 / タグ語彙 / 期待投稿数 週14件以下 /
   seasonal 10件以上・`SEASONAL_KEYS`・`attends` の必須項目 / `{name}` 以外のプレースホルダ・例文のプレースホルダ /
-  知り合い段階の自発頻度 ≤ 0.5 / ヤンデレの possessiveness > 0・人妻の romance = 0 / E2（課金・有料・購入・買って・
+  知り合い段階の自発頻度 ≤ 0.5 / ヤンデレの possessiveness > 0・人妻の romance = 0 と `max_stage`（`close` 以下）/ E2（課金・有料・購入・買って・
   トークン・物販 など）・E3（「人間だよ」「AIじゃない」など）・Gate #1（`moderation.py`）の語 / 自発メッセージの責める表現。
   `apps/api/tests/fixtures/personas/test_persona.yaml` の engine も同じ規則で検証する
 - 最後に、キャラごとの要約（routine のブロック数・出来事・行事・期待投稿数・呼び方の変化）を表示する

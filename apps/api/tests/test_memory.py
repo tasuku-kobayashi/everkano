@@ -13,22 +13,26 @@ import pytest
 from app.core.db import Pool
 from app.core.errors import ApiError
 from app.core.security import CurrentUser
-from app.services.audit import AuditLogger
-from app.services.embedding import EmbeddingClient, EmbeddingError, OpenAICompatibleEmbedding
-from app.services.llm import LLMError, MockLLM
-from app.services.memory import (
+from app.engine.memory import MemoryConfig, MemoryEngineService
+from app.engine.memory.embedding import EmbeddingClient, EmbeddingError, OpenAICompatibleEmbedding
+from app.engine.memory.panel import USER_MEMORY_EMBED_DEADLINE_SECONDS, UserMemoryService
+from app.engine.memory.summary import is_content_rejection, parse_summary
+from app.engine.memory.text import (
     MODERATED_PLACEHOLDER,
-    ExtractionResult,
-    MemoryEngine,
-    is_content_rejection,
-    parse_summary,
+    content_hash,
+    extract_call_name,
+    is_trivial_turn,
     sanitize_history,
 )
+from app.services import embedding as embedding_compat
+from app.services import memory as memory_compat
+from app.services import user_memories as user_memories_compat
+from app.services.audit import AuditLogger
+from app.services.llm import LLMError, MockLLM
 from app.services.moderation import Moderator
-from app.services.prompt import PromptBuilder
-from app.services.types import HistoryItem, MemoryCandidate, SenderType
-from app.services.user_memories import USER_MEMORY_EMBED_DEADLINE_SECONDS, UserMemoryService
-from tests.conftest import PROMPTS_DIR, make_settings
+from app.services.persona import PersonaRepository
+from app.services.types import HistoryItem, SenderType
+from tests.conftest import FIXTURES_DIR, PROMPTS_DIR, make_settings
 
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
 
@@ -71,28 +75,40 @@ def test_sanitize_history_keeps_character_messages() -> None:
     assert sanitize_history(history, Moderator(), drop=True) == history
 
 
-def test_extraction_audit_payload() -> None:
-    result = ExtractionResult(
-        candidates=[MemoryCandidate(content="ユーザーは猫が好き", importance=0.7, category="personal")],
-        messages=[{"role": "system", "content": "x"}],
-        model="m",
-        latency_ms=12,
-        usage={"total_tokens": 3},
-        raw_output='{"memories": []}',
-    )
-    payload = result.audit_payload(threshold=0.6, include_prompt=False)
-    assert payload == {
-        "failed": False,
-        "error": None,
-        "model": "m",
-        "latency_ms": 12,
-        "usage": {"total_tokens": 3},
-        "threshold": 0.6,
-        "candidates": [{"content": "ユーザーは猫が好き", "importance": 0.7, "category": "personal"}],
-    }
-    with_prompt = result.audit_payload(threshold=0.6, include_prompt=True)
-    assert with_prompt["prompt_messages"] == [{"role": "system", "content": "x"}]
-    assert ExtractionResult(candidates=[], error="timeout").failed
+def test_compat_modules_reexport_the_engine() -> None:
+    """旧パス（app.services.*）は engine/memory の実装を指す（コンテナ・スクリプト・旧テストの互換）。"""
+    assert user_memories_compat.UserMemoryService is UserMemoryService
+    assert embedding_compat.EmbeddingError is EmbeddingError
+    assert memory_compat.sanitize_history is sanitize_history
+    assert memory_compat.parse_summary is parse_summary
+
+
+def test_content_hash_normalizes_width_case_and_punctuation() -> None:
+    assert content_hash("ユーザーは猫が好き。") == content_hash("ユーザーは 猫が好き")
+    assert content_hash("ＡＢＣ！") == content_hash("abc")
+    assert content_hash("猫が好き") != content_hash("犬が好き")
+
+
+@pytest.mark.parametrize(
+    ("user_text", "reply", "trivial"),
+    [
+        ("うん", "そっか", True),
+        ("そうなんだ〜笑", "うん", True),
+        ("おやすみ！", "おやすみ", True),
+        ("ｗｗｗ", "ふふ", True),
+        ("うん", "わたし昨日カフェに行ったんだ", False),  # キャラの過去の出来事（M8）は分析する
+        ("猫が好き", "へえ", False),
+        ("来週面接", "がんばって", False),
+    ],
+)
+def test_is_trivial_turn(user_text: str, reply: str, trivial: bool) -> None:
+    assert is_trivial_turn(user_text, reply) is trivial
+
+
+def test_extract_call_name() -> None:
+    assert extract_call_name(["ユーザーは猫が好き", "ユーザーは「たっくん」と呼ばれたい"]) == "たっくん"
+    assert extract_call_name(["ユーザーは「タク」と呼んでほしい", "ユーザーは「たっくん」と呼ばれたい"]) == "タク"
+    assert extract_call_name(["ユーザーは猫が好き"]) is None
 
 
 # --------------------------------------------------------------------------- 要約の出力パース
@@ -148,23 +164,25 @@ class _RecordingAudit:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict[str, Any]]] = []
 
-    async def log(self, event_type: str, *, user_id: Any = None, character_id: Any = None, payload: Any = None) -> None:
+    async def log(
+        self, event_type: str, *, user_id: Any = None, character_id: Any = None, payload: Any = None, at: Any = None
+    ) -> None:
         self.events.append((event_type, dict(payload or {})))
 
 
 _IDS = {"user_id": uuid.uuid4(), "character_id": uuid.uuid4(), "conversation_id": uuid.uuid4()}
 
 
-def _engine(embedder: EmbeddingClient, audit: _RecordingAudit | None = None, **settings: Any) -> MemoryEngine:
+def _engine(embedder: EmbeddingClient, audit: _RecordingAudit | None = None, **settings: Any) -> MemoryEngineService:
     # embed_query は設定・埋め込みクライアント・監査ログしか使わない
-    return MemoryEngine(
-        settings=make_settings(**settings),
+    return MemoryEngineService(
         pool=cast(Pool, None),
-        embedder=embedder,
         llm=MockLLM(),
-        prompts=PromptBuilder.load_dir(PROMPTS_DIR),
+        embedder=embedder,
         audit=cast(AuditLogger, audit or _RecordingAudit()),
+        personas=PersonaRepository.load_dir(FIXTURES_DIR / "personas"),
         moderator=Moderator(),
+        config=MemoryConfig.from_settings(make_settings(**settings), prompts_dir=PROMPTS_DIR),
     )
 
 

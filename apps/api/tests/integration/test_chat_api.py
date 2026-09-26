@@ -167,7 +167,12 @@ async def test_chat_happy_path(app_factory: AppFactory, world: World) -> None:
     assert body["user_message"]["sender_type"] == "user"
     assert body["character_message"]["sender_type"] == "character"
     assert body["user_message"]["created_at"] < body["character_message"]["created_at"]
-    assert sorted(llm.calls) == ["chat", "memory_extraction"]
+    assert body["user_message"]["is_proactive"] is False
+    assert body["character_message"]["is_proactive"] is False
+    assert body["safety"] is None
+    assert body["memories_created"] == []
+    # E8: 記憶の抽出・好感度の評価は返答の後に非同期で行う（リクエストの中では応答生成の LLM 呼び出しだけ）
+    assert llm.calls == ["chat"]
 
     rows = await world.conn.fetch(
         "select sender_type, body from public.messages where conversation_id = $1 order by created_at",
@@ -345,36 +350,29 @@ async def test_empty_reply_is_503_and_saves_nothing(app_factory: AppFactory, wor
     assert [(e["purpose"], e["error"]) for e in errors] == [("chat", "empty reply after cleanup")]
 
 
-async def test_unexpected_error_is_500_and_cancels_extraction(app_factory: AppFactory, world: World) -> None:
-    """応答生成中の想定外の例外は 500。並行している記憶抽出も取り消し、何も保存しない。"""
+async def test_unexpected_error_is_500_and_saves_nothing(app_factory: AppFactory, world: World) -> None:
+    """応答生成中の想定外の例外は 500。何も保存せず、返答の後のジョブも登録しない。"""
 
     class CrashingLLM(MockLLM):
-        def __init__(self) -> None:
-            self.extraction_cancelled = False
-
         async def complete(self, request: LLMRequest) -> LLMResult:
-            if request.purpose == "memory_extraction":
-                try:
-                    await asyncio.sleep(30)
-                except asyncio.CancelledError:
-                    self.extraction_cancelled = True
-                    raise
             await asyncio.sleep(0.05)
             raise RuntimeError("unexpected bug")
 
-    llm = CrashingLLM()
-    client = await app_factory(llm=llm)
+    client = await app_factory(llm=CrashingLLM())
     user = await world.create_user()
     conversation = (await _start(client, world, user.headers))["conversation"]
     res = await _chat(client, world, conversation["id"], "来週大阪に出張するんだ", user.headers)
     assert res.status_code == 500
     assert res.json()["error"]["code"] == "internal_error"
-    assert llm.extraction_cancelled
     count = await world.conn.fetchval(
         "select count(*) from public.messages where conversation_id = $1", uuid.UUID(conversation["id"])
     )
     assert count == 1
     assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) == 0
+    jobs = await world.conn.fetchval(
+        "select count(*) from public.engine_jobs where dedupe_key = $1", conversation["id"]
+    )
+    assert jobs == 0
 
 
 async def test_conversation_deleted_during_generation_is_404(app_factory: AppFactory, world: World) -> None:
@@ -439,38 +437,36 @@ async def test_moderated_input_is_not_fed_back_to_later_turns(app_factory: AppFa
     prompt_text = "\n".join(m["content"] for m in response["prompt_messages"])
     assert "高校生" not in prompt_text
     assert "（不適切な発言のため省略）" in prompt_text
-    extraction_text = "\n".join(m["content"] for m in response["extraction"]["prompt_messages"])
-    assert "高校生" not in extraction_text
     assert response["history_messages"] == 3  # 挨拶 + 差し止めた発言（置き換え済み）+ 定型返答
 
 
-async def test_extraction_failure_is_audited_and_chat_still_succeeds(app_factory: AppFactory, world: World) -> None:
-    class ExtractionDownLLM(MockLLM):
-        async def complete(self, request: LLMRequest) -> LLMResult:
-            if request.purpose == "memory_extraction":
-                raise LLMError("HTTP 429: rate limited", status_code=429, retryable=True, attempts=3)
-            return await super().complete(request)
-
-    client = await app_factory(llm=ExtractionDownLLM())
+async def test_post_turn_job_is_enqueued_not_executed_on_request_path(app_factory: AppFactory, world: World) -> None:
+    """記憶の抽出・約束・好感度の評価は post_turn ジョブとして登録され、リクエストの中では実行されない（E8）。"""
+    llm = CountingLLM()
+    client = await app_factory(llm=llm)
     user = await world.create_user()
     conversation = (await _start(client, world, user.headers))["conversation"]
-    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ", user.headers)
+    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ。ちょっと緊張してる", user.headers)
     assert res.status_code == 200, res.text
     assert res.json()["memories_created"] == []
+    assert llm.calls == ["chat"]
+    jobs = await world.conn.fetch(
+        "select kind, status, payload, run_at, created_at from public.engine_jobs where dedupe_key = $1 order by kind",
+        conversation["id"],
+    )
+    assert [(j["kind"], j["status"]) for j in jobs] == [("memory.summarize", "queued"), ("post_turn", "queued")]
+    post_turn = jobs[1]
+    assert post_turn["payload"]["user_id"] == str(user.id)
+    assert post_turn["payload"]["character_id"] == str(world.character_id)
+    # ENGINE_POST_TURN_DELAY_SECONDS（既定 180 秒）後にまとめて処理する
+    assert (post_turn["run_at"] - post_turn["created_at"]).total_seconds() == pytest.approx(180, abs=1)
+    assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) == 0
+    response = next(e["payload"] for e in await _audit_events(world, user.id) if e["event_type"] == "chat.response")
+    assert response["post_turn_job_id"] is not None
+    assert response["memories_created"] == []
 
-    events = await _audit_events(world, user.id)
-    errors = [e["payload"] for e in events if e["event_type"] == "llm.error"]
-    assert len(errors) == 1
-    assert errors[0]["purpose"] == "memory_extraction"
-    assert errors[0]["status_code"] == 429
-    assert errors[0]["attempts"] == 3
-    assert errors[0]["conversation_id"] == conversation["id"]
-    response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
-    assert response["extraction"]["failed"] is True
-    assert response["extraction"]["candidates"] == []
 
-
-async def test_chat_response_audits_extraction_details(app_factory: AppFactory, world: World) -> None:
+async def test_chat_response_audits_context_budget(app_factory: AppFactory, world: World) -> None:
     client = await app_factory()
     user = await world.create_user()
     conversation = (await _start(client, world, user.headers))["conversation"]
@@ -478,18 +474,18 @@ async def test_chat_response_audits_extraction_details(app_factory: AppFactory, 
     assert res.status_code == 200, res.text
     events = await _audit_events(world, user.id)
     response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
-    extraction = response["extraction"]
-    assert extraction["failed"] is False
-    assert extraction["model"] == "mock-persona-v1"
-    assert extraction["usage"]["total_tokens"] > 0
-    assert extraction["threshold"] == 0.6
-    assert [c["content"] for c in extraction["candidates"]] == [
-        "ユーザーは「来週、大阪に出張するんだ」と話していた",
-        "ユーザーは「ちょっと緊張してる」と話していた",  # 閾値未満（保存されない）候補も残る
-    ]
-    assert extraction["prompt_messages"][0]["role"] == "system"
-    assert "memories" in extraction["raw_output"]
-    assert response["memories_created"] == res.json()["memories_created"]
+    budget = response["context_budget"]
+    for key in ("persona", "world_state", "relationship", "memories", "character_memories", "promises", "history"):
+        assert isinstance(budget[key], int), key
+    assert budget["world_state"] <= 300
+    assert budget["relationship"] <= 400
+    assert budget["memories"] <= 1200
+    assert budget["history"] <= 4000
+    assert response["ttft_ms"] is not None
+    assert response["context_degraded"] == []
+    assert response["stage_used"] == "acquaintance"
+    assert response["state_used"]["activity"]
+    assert response["engine_flags"] == {"memory": True, "calendar": True, "affinity": True, "proactive": True}
 
 
 async def test_chat_deadline_returns_503_and_saves_nothing(app_factory: AppFactory, world: World) -> None:
@@ -516,28 +512,6 @@ async def test_chat_deadline_returns_503_and_saves_nothing(app_factory: AppFacto
     assert [e["purpose"] for e in errors] == ["chat"]
     assert "deadline exceeded" in errors[0]["error"]
     assert "chat.response" not in [e["event_type"] for e in events]
-
-
-async def test_slow_extraction_is_abandoned_at_deadline(app_factory: AppFactory, world: World) -> None:
-    class SlowExtractionLLM(MockLLM):
-        async def complete(self, request: LLMRequest) -> LLMResult:
-            if request.purpose == "memory_extraction":
-                await asyncio.sleep(5)
-            return await super().complete(request)
-
-    client = await app_factory(make_settings(chat_deadline_seconds=0.5), llm=SlowExtractionLLM())
-    user = await world.create_user()
-    conversation = (await _start(client, world, user.headers))["conversation"]
-    started = time.perf_counter()
-    res = await _chat(client, world, conversation["id"], "来週、大阪に出張するんだ", user.headers)
-    assert time.perf_counter() - started < 3
-    assert res.status_code == 200, res.text
-    assert res.json()["memories_created"] == []
-    events = await _audit_events(world, user.id)
-    errors = [e["payload"] for e in events if e["event_type"] == "llm.error"]
-    assert [e["purpose"] for e in errors] == ["memory_extraction"]
-    response = next(e["payload"] for e in events if e["event_type"] == "chat.response")
-    assert response["extraction"]["failed"] is True
 
 
 async def test_control_characters_are_rejected_before_any_work(app_factory: AppFactory, world: World) -> None:

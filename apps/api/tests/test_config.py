@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from app.core.config import Settings
 from tests.conftest import REPO_ROOT, make_settings
 
 
@@ -195,3 +196,69 @@ def test_validation_errors_do_not_echo_secret_inputs() -> None:
     with pytest.raises(ValidationError) as exc:
         make_settings(database_url=BAD_SCHEME_DB)
     assert "PASSWORD" not in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# キャラクターエンジン v1.0 の設定
+# ---------------------------------------------------------------------------
+
+
+def test_engine_defaults() -> None:
+    s = Settings(_env_file=None)  # make_settings はテスト用にワーカー等を止めるので素の既定値で確かめる
+    assert (s.engine_memory_enabled, s.engine_calendar_enabled, s.engine_affinity_enabled) == (True, True, True)
+    assert s.engine_proactive_enabled is True
+    assert s.engine_worker_enabled is True
+    assert s.engine_scheduler_enabled is True
+    assert s.engine_post_turn_delay_seconds == 180
+    assert s.engine_post_turn_max_turns == 10
+    assert s.engine_job_max_attempts == 5
+    assert s.engine_calendar_days_ahead == 7
+    assert s.engine_affinity_daily_hour_jst == 4
+    assert s.engine_proactive_daily_limit == 3
+    assert (s.engine_proactive_quiet_start, s.engine_proactive_quiet_end) == (0, 7)
+    assert s.llm_mock_stream_delay_ms == 0
+    assert s.safety_resources_path == REPO_ROOT / "packages" / "prompts" / "safety" / "resources.ja.yaml"
+    assert s.price_table["deepseek/deepseek-chat"] == {"input": 40.0, "cached_input": 11.0, "output": 165.0}
+
+
+def test_purpose_models_fall_back_to_llm_model() -> None:
+    s = make_settings(llm_model="base")
+    assert s.llm_model_for("chat") == "base"
+    assert s.llm_model_for("affinity_eval") == "base"
+    assert s.purpose_models == {}
+    s = make_settings(llm_model="base", llm_model_analysis="cheap", llm_model_caption="caption")
+    assert s.llm_model_for("memory_analysis") == "cheap"
+    assert s.llm_model_for("memory_summary") == "cheap"
+    assert s.llm_model_for("affinity_eval") == "cheap"
+    assert s.llm_model_for("feed_caption") == "caption"
+    assert s.llm_model_for("proactive_message") == "base"
+    assert s.llm_model_for("chat") == "base"
+
+
+def test_price_table_json_is_validated() -> None:
+    s = make_settings(engine_price_table_json='{"m": {"input": 1, "output": 2}}')
+    assert s.price_table == {"m": {"input": 1.0, "cached_input": 1.0, "output": 2.0}}
+    for bad in ("not json", "[]", "{}", '{"m": {"input": 1}}', '{"m": {"input": -1, "output": 1}}'):
+        with pytest.raises(ValidationError, match="ENGINE_PRICE_TABLE_JSON"):
+            make_settings(engine_price_table_json=bad)
+
+
+def test_engine_ranges_are_validated() -> None:
+    with pytest.raises(ValidationError, match="ENGINE_JOB_BACKOFF_BASE_SECONDS"):
+        make_settings(engine_job_backoff_base_seconds=100, engine_job_backoff_max_seconds=10)
+    with pytest.raises(ValidationError):
+        make_settings(engine_affinity_daily_hour_jst=24)
+    with pytest.raises(ValidationError):
+        make_settings(llm_mock_stream_delay_ms=-1)
+    with pytest.raises(ValidationError, match="SAFETY_RESOURCES_PATH"):
+        make_settings(safety_resources_path=REPO_ROOT / "missing.yaml")
+
+
+def test_engine_flags_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE_MEMORY_ENABLED", "false")
+    monkeypatch.setenv("ENGINE_WORKER_ENABLED", "0")
+    monkeypatch.setenv("LLM_MODEL_ANALYSIS", "deepseek/deepseek-chat")
+    s = Settings(_env_file=None)
+    assert s.engine_memory_enabled is False
+    assert s.engine_worker_enabled is False
+    assert s.llm_model_analysis == "deepseek/deepseek-chat"

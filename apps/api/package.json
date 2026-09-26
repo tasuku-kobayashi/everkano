@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
     "lint": "uv run ruff check . && uv run ruff format --check .",
-    "typecheck": "uv run mypy app",
+    "typecheck": "uv run mypy app evals",
     "test": "uv run pytest",
     "openapi": "uv run python scripts/export_openapi.py",
     "openapi:check": "uv run python scripts/export_openapi.py --check",

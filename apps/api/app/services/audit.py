@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from app.core.logging import get_logger, request_id_var
 logger = get_logger("audit")
 
 AuditEventType = Literal[
+    # --- MVP
     "chat.request",
     "chat.response",
     "moderation.flag",
@@ -31,10 +33,46 @@ AuditEventType = Literal[
     "comment.create",
     "comment.generate",
     "auth.failure",
+    # --- キャラクターエンジン v1.0（E9: 3つの仕組みの状態変化はすべて記録する）
+    # 記憶（§4）
+    "memory.supersede",
+    "memory.tombstone_suppressed",
+    "memory.user_edited_skipped",
+    "memory.analysis",
+    "memory.injection_skipped",
+    "promise.create",
+    "promise.update",
+    "promise.status_change",
+    "character_memory.create",
+    # カレンダー（§5）
+    "calendar.generate",
+    "calendar.state_change",
+    "calendar.event_done",
+    "calendar.post_create",
+    "calendar.promise_event",
+    "calendar.conflict",
+    # 好感度（§6）
+    "affinity.update",
+    "affinity.stage_change",
+    "affinity.manipulation_detected",
+    "affinity.decay",
+    "affinity.skipped",
+    # 自発メッセージ（§7）
+    "proactive.send",
+    "proactive.skipped",
+    "proactive.dropped",
+    "proactive.settings_update",
+    # 安全対応（E6）・ジョブ基盤
+    "safety.trigger",
+    "engine.job_failed",
+    "engine.job_dead",
+    "engine.schedule_failed",
+    "engine.context_degraded",
 ]
 
 _INSERT_SQL: Final[str] = (
-    "insert into public.audit_logs (event_type, user_id, character_id, payload) values ($1, $2, $3, $4)"
+    "insert into public.audit_logs (event_type, user_id, character_id, payload, created_at)"
+    " values ($1, $2, $3, $4, coalesce($5, now()))"
 )
 
 
@@ -49,9 +87,17 @@ class AuditLogger:
         user_id: UUID | None = None,
         character_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
+        at: datetime | None = None,
     ) -> None:
+        """監査ログを1件書く。
+
+        `at` はアプリの時計（Clock）の時刻。キャラクターエンジンは必ず渡す（評価ハーネスの時間の早送りで、
+        ログの時刻もシミュレーション上の時刻になるようにする）。省略時は DB の now()。
+        """
         body: dict[str, Any] = dict(payload or {})
         body.setdefault("request_id", request_id_var.get())
+        if at is not None:
+            body.setdefault("at", at.isoformat())
         logger.info(
             event_type,
             extra={
@@ -66,7 +112,7 @@ class AuditLogger:
         )
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute(_INSERT_SQL, event_type, user_id, character_id, body)
+                await conn.execute(_INSERT_SQL, event_type, user_id, character_id, body, at)
         except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
             logger.error(
                 "failed to write audit log to database",

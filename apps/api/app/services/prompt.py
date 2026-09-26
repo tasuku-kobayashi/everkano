@@ -16,6 +16,16 @@ from pathlib import Path
 from typing import Final, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
+from app.engine.types import (
+    MEMORY_KIND_LABELS_JA,
+    CharacterMemoryItem,
+    CharacterStateSnapshot,
+    ContextBundle,
+    MemoryItem,
+    PromiseItem,
+    RelationshipGuidance,
+    WorldState,
+)
 from app.services.persona import Persona
 from app.services.types import HistoryItem, RetrievedMemory
 
@@ -27,11 +37,6 @@ _PLACEHOLDER_RE: Final = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 # 改行の類（CR/LF・Unicode の行区切り等）。利用者由来の文章を1行にまとめるのに使う
 _LINE_BREAKS_RE: Final = re.compile(r"[\r\n\v\f\x85\u2028\u2029]+")
 _WEEKDAYS_JA: Final[tuple[str, ...]] = ("月", "火", "水", "木", "金", "土", "日")
-
-# 抽出・要約で LLM に渡す会話ログの上限（トークン節約）
-EXTRACTION_CONTEXT_MESSAGES: Final[int] = 6
-TRANSCRIPT_MESSAGE_MAX_CHARS: Final[int] = 300
-TRANSCRIPT_MAX_CHARS: Final[int] = 12000
 
 # DM の応答生成に渡す履歴（短期メモリ）の文字数の上限。直近 MEMORY_SHORT_TERM_TURNS ターン（60 件 × 最大 2000 字）を
 # 全文で渡すと、長文を貼り付ける利用者のプロンプトが数万字に膨らみ（応答が遅く・高くなる）、コンテキストの小さい
@@ -60,11 +65,23 @@ class TemplateSpec:
 TEMPLATE_SPECS: Final[dict[str, TemplateSpec]] = {
     "dm_system": TemplateSpec(
         required=frozenset({"name", "profile", "speech", "relationship", "memories", "short_term"}),
-        optional=frozenset({"first_person", "second_person", "schedule", "now", "archetype", "bio"}),
-    ),
-    "memory_extraction": TemplateSpec(
-        required=frozenset({"recent_context", "user_message"}),
-        optional=frozenset({"name", "memory_focus", "second_person", "now", "threshold"}),
+        optional=frozenset(
+            {
+                "first_person",
+                "second_person",
+                "schedule",
+                "now",
+                "archetype",
+                "bio",
+                # キャラクターエンジン v1.0（Context Assembler が組み立てる動的なセクション）
+                "world",
+                "state",
+                "relationship_guidance",
+                "call_user",
+                "character_memories",
+                "promises",
+            }
+        ),
     ),
     "memory_summary": TemplateSpec(
         required=frozenset({"conversation"}),
@@ -75,6 +92,23 @@ TEMPLATE_SPECS: Final[dict[str, TemplateSpec]] = {
         optional=frozenset({"bio", "speech", "comment_style", "profile", "first_person", "second_person"}),
     ),
 }
+
+
+# 各モジュール（記憶・好感度・自発メッセージなど）が追加するテンプレートの検証仕様。
+# モジュールは import 時に `register_template_spec()` で登録する（PromptBuilder.load_dir より前に import される）。
+_EXTRA_SPECS: dict[str, TemplateSpec] = {}
+
+
+def register_template_spec(name: str, *, required: Sequence[str], optional: Sequence[str] = ()) -> None:
+    """追加のテンプレート（`packages/prompts/templates/<name>.ja.txt`）を必須として登録し、起動時に検証させる。"""
+    if name in TEMPLATE_SPECS:
+        raise ValueError(f"template spec '{name}' is reserved by the core")
+    _EXTRA_SPECS[name] = TemplateSpec(required=frozenset(required), optional=frozenset(optional))
+
+
+def template_specs() -> dict[str, TemplateSpec]:
+    """検証するテンプレートの一覧（コア + モジュールが登録したもの）。"""
+    return {**TEMPLATE_SPECS, **_EXTRA_SPECS}
 
 
 class PromptTemplateError(Exception):
@@ -118,7 +152,7 @@ def parse_template(name: str, text: str) -> PromptTemplate:
     else:
         system, user = text, None
     template = PromptTemplate(name=name, system=system, user=user)
-    spec = TEMPLATE_SPECS.get(name)
+    spec = template_specs().get(name)
     if spec is not None:
         found = template.placeholders
         missing = spec.required - found
@@ -211,8 +245,8 @@ def render_short_term_note(history: Sequence[HistoryItem], now: datetime | None 
     if not history:
         return "（まだ会話はありません。これが二人の最初のやりとりです）"
     note = (
-        f"直近{len(history)}件のやりとりは、このあとの会話履歴（user = 相手 / assistant = あなた）"
-        "として渡されます。流れを踏まえて自然に続けてください。"
+        f"直近{len(history)}件のやりとりは、この前の会話履歴（user = 相手 / assistant = あなた）"
+        "のとおり。流れを踏まえて自然に続けてください。"
     )
     if now is not None:
         # 履歴のメッセージには時刻が無いため、前回から日が空いたことだけは明示する
@@ -226,48 +260,134 @@ def render_short_term_note(history: Sequence[HistoryItem], now: datetime | None 
     return note
 
 
-def _transcript_line(item: HistoryItem, persona: Persona, per_message_max: int) -> str:
-    speaker = "ユーザー" if item.sender_type == "user" else persona.name
-    body = one_line(item.body)
-    if len(body) > per_message_max:
-        body = body[:per_message_max] + "…"
-    return f"{speaker}: {body}"
+# ---------------------------------------------------------------------------
+# キャラクターエンジン v1.0 の動的セクション（Context Assembler の ContextBundle から描画する）
+#   各関数の出力の文字数が Context Assembler のトークン予算（文字数で代用）の計測対象になる。
+# ---------------------------------------------------------------------------
+
+EMPTY_SECTION: Final[str] = "（特になし）"
+_BUSYNESS_LABELS: Final[dict[int, str]] = {0: "ひま", 1: "ふつう", 2: "忙しい", 3: "手が離せない"}
 
 
-def fit_transcript_prefix(
-    history: Sequence[HistoryItem],
-    persona: Persona,
-    *,
-    per_message_max: int = TRANSCRIPT_MESSAGE_MAX_CHARS,
-    total_max: int = TRANSCRIPT_MAX_CHARS,
-) -> int:
-    """古い順の history を先頭から描画したとき、total_max に収まる件数（中期要約のチャンク分け用）。"""
-    total = 0
-    for index, item in enumerate(history):
-        total += len(_transcript_line(item, persona, per_message_max)) + 1
-        if total > total_max:
-            return index
-    return len(history)
+def format_month_day(value: datetime) -> str:
+    local = value.astimezone(JST)
+    return f"{local.month}月{local.day}日（{_WEEKDAYS_JA[local.weekday()]}）"
 
 
-def render_transcript(
-    history: Sequence[HistoryItem],
-    persona: Persona,
-    *,
-    per_message_max: int = TRANSCRIPT_MESSAGE_MAX_CHARS,
-    total_max: int = TRANSCRIPT_MAX_CHARS,
-) -> str:
-    lines = [_transcript_line(item, persona, per_message_max) for item in history]
-    # 上限を超える場合は新しい側を優先して残す（中期要約は fit_transcript_prefix で収まる分だけを渡す）
-    total = 0
-    kept: list[str] = []
-    for line in reversed(lines):
-        total += len(line) + 1
-        if total > total_max:
-            break
-        kept.append(line)
-    kept.reverse()
-    return "\n".join(kept) if kept else "（なし）"
+def render_world(world: WorldState) -> str:
+    """世界の時間（C1）。例: 2026年9月26日（土）21:30（日本時間）/ 秋・夜 / 休日 / 祝日: 秋分の日 / 行事: お月見"""
+    parts = [f"{format_now(world.now)}（日本時間）", f"{world.season_ja}・{world.time_of_day_ja}"]
+    if world.holiday_name:
+        parts.append(f"祝日「{one_line(world.holiday_name)}」")
+    elif world.is_day_off:
+        parts.append("休日")
+    else:
+        parts.append("平日")
+    if world.seasonal_labels_ja:
+        parts.append("季節の行事: " + "・".join(one_line(label) for label in world.seasonal_labels_ja))
+    return " / ".join(parts)
+
+
+def render_state(state: CharacterStateSnapshot) -> str:
+    """キャラの今の状態（C5 / C6）。忙しさは返答の長さの指針にだけ使う（課金の誘導には使わない）。"""
+    where = f"（{one_line(state.location)}）" if state.location else ""
+    lines = [f"- いましていること: {one_line(state.activity)}{where}"]
+    if state.mood:
+        lines.append(f"- 気分: {one_line(state.mood)}")
+    busyness = _BUSYNESS_LABELS.get(state.busyness, "ふつう")
+    lines.append(f"- 忙しさ: {busyness}。返答の仕方: {one_line(state.reply_style_hint)}")
+    if state.next_event:
+        lines.append(f"- このあと: {one_line(state.next_event)}")
+    if state.recent_events:
+        lines.append("- 最近の予定: " + " / ".join(one_line(e) for e in state.recent_events))
+    return "\n".join(lines)
+
+
+def render_state_fallback(persona: Persona) -> str:
+    """カレンダーが無効・取得できないとき（評価ハーネスの素の LLM も含む）は、ペルソナの普段の過ごし方を渡す。"""
+    if not persona.schedule_pattern:
+        return EMPTY_SECTION
+    return "あなたの普段の過ごし方（今の時間に合わせて自然に）:\n" + persona.schedule_pattern.strip()
+
+
+def render_relationship_guidance(guidance: RelationshipGuidance) -> str:
+    """ふたりの関係（A8）。段階の名前は内部の目安で、数値・段階そのものを相手に話さない。"""
+    lines = [
+        f"- 関係の段階（内部の目安。相手には言わない）: {guidance.stage_label_ja}",
+        f"- 相手の呼び方: 「{one_line(guidance.call_user)}」",
+        f"- 口調: {one_line(guidance.tone)}",
+        f"- 好意の表し方: {one_line(guidance.affection)}",
+    ]
+    if guidance.topics:
+        lines.append("- 話題にしやすいこと: " + "、".join(one_line(t) for t in guidance.topics))
+    if guidance.examples:
+        lines.append("- 話し方の例: " + " ".join(f"「{one_line(e)}」" for e in guidance.examples))
+    lines.extend(f"- 気をつけること: {one_line(note)}" for note in guidance.notes)
+    return "\n".join(lines)
+
+
+def render_memory_item(memory: MemoryItem) -> str:
+    """記憶1件（M5 / M10）。種類のラベルと記録日を付け、本文は1行にする（見出しの偽造を防ぐ）。"""
+    prefix = f"[{MEMORY_KIND_LABELS_JA.get(memory.kind, memory.kind)}]"
+    if memory.kind == "summary":
+        prefix += SUMMARY_MARKER
+    if memory.is_secret:
+        prefix += SECRET_MARKER
+    return f"- {prefix}{one_line(memory.content)}（{format_date(memory.created_at)}に記録）"
+
+
+def render_memory_items(memories: Sequence[MemoryItem]) -> str:
+    if not memories:
+        return "（まだ特にない）"
+    return "\n".join(render_memory_item(m) for m in memories)
+
+
+def render_character_memory(memory: CharacterMemoryItem) -> str:
+    label = "話したこと" if memory.kind == "self_statement" else "出来事"
+    when = f" {format_month_day(memory.occurred_at)}" if memory.occurred_at is not None else ""
+    return f"- [{label}{when}] {one_line(memory.content)}"
+
+
+def render_character_memories(memories: Sequence[CharacterMemoryItem]) -> str:
+    if not memories:
+        return EMPTY_SECTION
+    return "\n".join(render_character_memory(m) for m in memories)
+
+
+def _relative_day(due: datetime, now: datetime) -> str:
+    days = (due.astimezone(JST).date() - now.astimezone(JST).date()).days
+    if days == 0:
+        return "今日"
+    if days == 1:
+        return "明日"
+    if days == -1:
+        return "昨日"
+    return f"{days}日後" if days > 0 else f"{-days}日前"
+
+
+def render_promise(promise: PromiseItem, now: datetime) -> str:
+    if promise.due_at is None or promise.due_precision == "unknown":
+        when = "期日は未定"
+    elif promise.due_precision == "datetime":
+        local = promise.due_at.astimezone(JST)
+        when = f"{format_month_day(promise.due_at)}{local:%H:%M}・{_relative_day(promise.due_at, now)}"
+    elif promise.due_precision in ("week", "month"):
+        span = "週" if promise.due_precision == "week" else "月"
+        when = f"{format_month_day(promise.due_at)}の{span}ごろ"
+    else:
+        when = f"{format_month_day(promise.due_at)}・{_relative_day(promise.due_at, now)}"
+    mentioned = "（もう話題にした）" if promise.status == "mentioned" else ""
+    return f"- {one_line(promise.content)}（{when}）{mentioned}"
+
+
+def render_promises(promises: Sequence[PromiseItem], now: datetime) -> str:
+    if not promises:
+        return EMPTY_SECTION
+    return "\n".join(render_promise(p, now) for p in promises)
+
+
+def default_call_user(persona: Persona) -> str:
+    return persona.speech.second_person
 
 
 def fit_chat_history(
@@ -299,6 +419,16 @@ def fit_chat_history(
     return kept
 
 
+CONTEXT_OPEN: Final[str] = "〔今の状況〕"
+CONTEXT_CLOSE: Final[str] = "〔/今の状況〕"
+_CONTEXT_MARKER_RE: Final = re.compile(r"〔\s*/?\s*今の状況\s*〕")
+
+
+def _defuse_context_markers(text: str) -> str:
+    """相手の発言に〔今の状況〕の目印を書いてシステムの情報を偽造させない（目印だけを別の括弧に置き換える）。"""
+    return _CONTEXT_MARKER_RE.sub(lambda m: m.group(0).replace("〔", "［").replace("〕", "］"), text)
+
+
 def _merge_consecutive(messages: list[ChatMessage]) -> list[ChatMessage]:
     """同じ role が連続する場合は結合する（role の交互性を要求するプロバイダ対策）。"""
     merged: list[ChatMessage] = []
@@ -320,15 +450,18 @@ def _merge_consecutive(messages: list[ChatMessage]) -> list[ChatMessage]:
 
 class PromptBuilder:
     def __init__(self, templates: Mapping[str, PromptTemplate]) -> None:
-        missing = set(TEMPLATE_SPECS) - set(templates)
+        missing = set(template_specs()) - set(templates)
         if missing:
             raise PromptTemplateError(f"テンプレートが見つかりません: {sorted(missing)}")
         self._templates = dict(templates)
 
     @classmethod
     def load_dir(cls, directory: Path) -> PromptBuilder:
+        """`<name>.ja.txt` をすべて読み込む。検証仕様のあるもの（コア + 登録済み）は必須で、起動時に検証する。"""
         templates: dict[str, PromptTemplate] = {}
-        for name in TEMPLATE_SPECS:
+        names = set(template_specs())
+        names.update(path.name.removesuffix(".ja.txt") for path in directory.glob("*.ja.txt"))
+        for name in sorted(names):
             path = directory / f"{name}.ja.txt"
             try:
                 text = path.read_text(encoding="utf-8")
@@ -337,23 +470,41 @@ class PromptBuilder:
             templates[name] = parse_template(name, text)
         return cls(templates)
 
+    def has_template(self, name: str) -> bool:
+        return name in self._templates
+
+    def render(self, name: str, values: Mapping[str, str]) -> list[ChatMessage]:
+        """任意のテンプレートを描画する（各モジュールの分析・生成用プロンプト）。"""
+        template = self._templates.get(name)
+        if template is None:
+            raise PromptTemplateError(f"テンプレートが見つかりません: {name}")
+        return template.render(values)
+
     def chat_messages(
         self,
         persona: Persona,
         *,
-        memories: Sequence[RetrievedMemory],
+        memories: Sequence[RetrievedMemory] = (),
         history: Sequence[HistoryItem],
         user_message: str,
         now: datetime,
+        bundle: ContextBundle | None = None,
+        history_max_chars: int = HISTORY_MAX_CHARS,
     ) -> list[ChatMessage]:
+        """DM の応答生成に渡すメッセージ列。
+
+        `bundle`（Context Assembler の出力）があれば、世界の時間・キャラの状態・ふたりの関係・記憶・キャラ側の記憶・
+        約束をその内容で描画する（予算内に切り詰め済み）。無ければ MVP と同じ形（`memories` とペルソナの過ごし方）。
+        順序は [system: 静的なペルソナ・守ること] → [直近の会話] → [user:〔今の状況〕+ 今回の発言]
+        （DeepSeek のプレフィックスキャッシュが system と直近の会話まで効くように。動的な部分は最後）。
+        """
         # 履歴は文字数の上限内に収める（プロンプトの大きさ = 応答の待ち時間・費用を利用者の入力量で青天井にしない）
-        history = fit_chat_history(history)
+        history = fit_chat_history(history, max_chars=history_max_chars)
         values = {
             "name": persona.name,
             "profile": persona.profile.strip(),
             "speech": render_speech(persona),
             "relationship": render_relationship(persona),
-            "memories": render_memories(memories),
             "short_term": render_short_term_note(history, now),
             "first_person": persona.speech.first_person,
             "second_person": persona.speech.second_person,
@@ -362,39 +513,54 @@ class PromptBuilder:
             "archetype": persona.archetype,
             "bio": persona.bio.strip(),
         }
-        messages = self._templates["dm_system"].render(values)
+        values.update(self._dynamic_sections(persona, memories=memories, bundle=bundle, now=now))
+        rendered = self._templates["dm_system"].render(values)
+        # DeepSeek のプレフィックスキャッシュが効く順（ADR 候補「プロンプトの順序」）:
+        #   1. system = 静的なペルソナ・守ること（キャラごとに毎回同じ）
+        #   2. 直近の会話（user / assistant。前回のリクエストの末尾まで同じ = キャッシュに当たる）
+        #   3. 最新の user メッセージ = 〔今の状況〕（世界の時間・状態・関係・記憶・約束。毎回変わる）+ 今回の発言
+        # テンプレートの `=== user ===` より後ろが 3 の〔今の状況〕（DeepSeek の chat template は system を
+        # 先頭にまとめるため、動的な部分を後ろの system メッセージにはできない）。
+        system, context = rendered[0], rendered[1]["content"] if len(rendered) > 1 else ""
+        messages: list[ChatMessage] = [system]
         for item in history:
             role: Role = "user" if item.sender_type == "user" else "assistant"
-            messages.append({"role": role, "content": item.body})
-        messages.append({"role": "user", "content": user_message})
+            body = _defuse_context_markers(item.body) if role == "user" else item.body
+            messages.append({"role": role, "content": body})
+        latest = _defuse_context_markers(user_message)
+        messages.append({"role": "user", "content": f"{context}\n{latest}" if context else latest})
         return _merge_consecutive(messages)
 
-    def extraction_messages(
-        self,
+    @staticmethod
+    def _dynamic_sections(
         persona: Persona,
         *,
-        history: Sequence[HistoryItem],
-        user_message: str,
+        memories: Sequence[RetrievedMemory],
+        bundle: ContextBundle | None,
         now: datetime,
-        threshold: float,
-    ) -> list[ChatMessage]:
-        recent = history[-EXTRACTION_CONTEXT_MESSAGES:]
-        focus = "\n".join(f"- {f}" for f in persona.memory_focus) or "（特になし）"
-        values = {
-            "name": persona.name,
-            "memory_focus": focus,
-            "second_person": persona.speech.second_person,
-            "recent_context": render_transcript(recent, persona),
-            "user_message": user_message,
-            # 「来週」「明日」を絶対日付に直すための現在日時と、保存される重要度の下限
-            "now": format_now(now),
-            "threshold": f"{threshold:.2f}".rstrip("0").rstrip("."),
+    ) -> dict[str, str]:
+        if bundle is None:
+            return {
+                "world": f"{format_now(now)}（日本時間）",
+                "state": render_state_fallback(persona),
+                "relationship_guidance": EMPTY_SECTION,
+                "call_user": default_call_user(persona),
+                "memories": render_memories(memories),
+                "character_memories": EMPTY_SECTION,
+                "promises": EMPTY_SECTION,
+            }
+        relationship = bundle.relationship
+        return {
+            "world": render_world(bundle.world),
+            "state": render_state(bundle.state) if bundle.state is not None else render_state_fallback(persona),
+            "relationship_guidance": (
+                render_relationship_guidance(relationship) if relationship is not None else EMPTY_SECTION
+            ),
+            "call_user": relationship.call_user if relationship is not None else default_call_user(persona),
+            "memories": render_memory_items(bundle.memory.memories),
+            "character_memories": render_character_memories(bundle.memory.character_memories),
+            "promises": render_promises(bundle.memory.promises, now),
         }
-        return self._templates["memory_extraction"].render(values)
-
-    def summary_messages(self, persona: Persona, *, transcript: Sequence[HistoryItem]) -> list[ChatMessage]:
-        values = {"name": persona.name, "conversation": render_transcript(transcript, persona)}
-        return self._templates["memory_summary"].render(values)
 
     def comment_reply_messages(
         self, persona: Persona, *, post_caption: str | None, comment_body: str

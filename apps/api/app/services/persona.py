@@ -75,6 +75,7 @@ SeasonalKey = Literal[
     "year_end",
 ]
 ProactiveTriggerName = Literal["calendar_event", "promise_due", "seasonal", "inactivity", "feed_post"]
+StageName = Literal["acquaintance", "friend", "close", "lover"]
 
 
 class _Frozen(BaseModel):
@@ -97,6 +98,9 @@ class AffinityProfile(_Frozen):
     stage_pace: float = Field(default=1.0, ge=0.3, le=3)  # 段階の上がりやすさ（大きいほど早く上がる）
     expression_delay: float = Field(default=0.0, ge=0, le=1)  # 好意を表に出す遅さ（ツンデレ: 高い）
     notes: NonEmptyStr  # 性格による動き方（評価プロンプトに渡す説明）
+    # 関係の段階の上限（A7）。省略 = 上限なし（lover まで）。例: 人妻（楓）は close まで（恋人段階に進まない）。
+    # 好感度エンジンはこれより上に昇格させず、既に上にいるペア（YAML を後から変えた場合）はこの段階に戻す
+    max_stage: StageName | None = None
 
 
 class StageStyle(_Frozen):
@@ -188,7 +192,12 @@ class LifeProfile(_Frozen):
 
 
 class SeasonalReaction(_Frozen):
-    """季節・行事への反応（C4）。attends なら行事の予定をカレンダーに入れる。"""
+    """季節・行事への反応（C4）。attends なら行事の予定をカレンダーに入れる。
+
+    busyness / mood / status_label は行事の予定の状態（C5）。省略時はカレンダーの既定（busyness 2・
+    行事ごとの気分と表示）。繁忙期の仕事（パティシエのバレンタイン・クリスマス、ネイリストの予約）のように
+    「楽しい行事」ではない予定は、ここで忙しさ・気分・表示を書く。
+    """
 
     key: SeasonalKey
     reaction: NonEmptyStr  # 行事への気持ち・過ごし方（プロンプト・自発メッセージの文脈）
@@ -197,6 +206,9 @@ class SeasonalReaction(_Frozen):
     location: NonEmptyStr | None = None
     start: HHMM | None = None
     end: HHMM | None = None
+    busyness: int | None = Field(default=None, ge=0, le=3)  # attends のとき: 予定の忙しさ（省略 = 2）
+    mood: NonEmptyStr | None = None  # attends のとき: 予定中の気分（省略 = 行事ごとの既定）
+    status_label: ShortLabel | None = None  # attends のとき: UI 用の状態（省略 = 行事ごとの既定）
     post_tags: list[TagStr] = Field(default_factory=list)
     post_probability: float = Field(default=0.0, ge=0, le=1)
 

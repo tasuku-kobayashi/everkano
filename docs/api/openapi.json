@@ -75,6 +75,16 @@
             "title": "Reply",
             "type": "string"
           },
+          "safety": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SafetyInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "user_message": {
             "$ref": "#/components/schemas/MessageDTO"
           }
@@ -86,7 +96,8 @@
           "memories_created",
           "user_message",
           "character_message",
-          "moderated"
+          "moderated",
+          "safety"
         ],
         "title": "ChatResponse",
         "type": "object"
@@ -332,6 +343,26 @@
             ],
             "title": "Importance"
           },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fact",
+                  "preference",
+                  "episode",
+                  "promise",
+                  "emotion",
+                  "relationship",
+                  "summary"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
           "tags": {
             "anyOf": [
               {
@@ -503,6 +534,22 @@
         "title": "ListMemoriesResponse",
         "type": "object"
       },
+      "ListPromisesResponse": {
+        "properties": {
+          "promises": {
+            "items": {
+              "$ref": "#/components/schemas/PromiseDTO"
+            },
+            "title": "Promises",
+            "type": "array"
+          }
+        },
+        "required": [
+          "promises"
+        ],
+        "title": "ListPromisesResponse",
+        "type": "object"
+      },
       "MemoryDTO": {
         "properties": {
           "character_id": {
@@ -532,6 +579,35 @@
             "title": "Is User Edited",
             "type": "boolean"
           },
+          "kind": {
+            "enum": [
+              "fact",
+              "preference",
+              "episode",
+              "promise",
+              "emotion",
+              "relationship",
+              "summary"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_referenced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Referenced At"
+          },
+          "reference_count": {
+            "title": "Reference Count",
+            "type": "integer"
+          },
           "source_message_id": {
             "anyOf": [
               {
@@ -543,6 +619,38 @@
               }
             ],
             "title": "Source Message Id"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "superseded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded At"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
           },
           "tags": {
             "items": {
@@ -566,7 +674,13 @@
           "is_user_edited",
           "source_message_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "kind",
+          "status",
+          "superseded_by",
+          "superseded_at",
+          "last_referenced_at",
+          "reference_count"
         ],
         "title": "MemoryDTO",
         "type": "object"
@@ -592,6 +706,14 @@
             "title": "Id",
             "type": "string"
           },
+          "is_proactive": {
+            "title": "Is Proactive",
+            "type": "boolean"
+          },
+          "safety_triggered": {
+            "title": "Safety Triggered",
+            "type": "boolean"
+          },
           "sender_type": {
             "enum": [
               "user",
@@ -606,9 +728,240 @@
           "conversation_id",
           "sender_type",
           "body",
-          "created_at"
+          "created_at",
+          "is_proactive",
+          "safety_triggered"
         ],
         "title": "MessageDTO",
+        "type": "object"
+      },
+      "ProactiveCharacterSetting": {
+        "properties": {
+          "character_id": {
+            "format": "uuid",
+            "title": "Character Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "character_id",
+          "enabled"
+        ],
+        "title": "ProactiveCharacterSetting",
+        "type": "object"
+      },
+      "ProactiveGlobalSettings": {
+        "properties": {
+          "enabled": {
+            "description": "false ならすべてのキャラから自発メッセージを受け取らない",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "quiet_end": {
+            "description": "送らない時間帯の終了（JST の時, 0〜23。この時刻から送ってよい）",
+            "title": "Quiet End",
+            "type": "integer"
+          },
+          "quiet_start": {
+            "description": "送らない時間帯の開始（JST の時, 0〜23）。start == end なら制限なし",
+            "title": "Quiet Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "quiet_start",
+          "quiet_end"
+        ],
+        "title": "ProactiveGlobalSettings",
+        "type": "object"
+      },
+      "ProactiveSettingsResponse": {
+        "description": "GET /proactive/settings（PUT の応答も同じ形 = 更新後の設定全体）。",
+        "properties": {
+          "characters": {
+            "description": "キャラ別の設定（行が無いキャラは enabled = true 扱い）",
+            "items": {
+              "$ref": "#/components/schemas/ProactiveCharacterSetting"
+            },
+            "title": "Characters",
+            "type": "array"
+          },
+          "global": {
+            "$ref": "#/components/schemas/ProactiveGlobalSettings"
+          }
+        },
+        "required": [
+          "global",
+          "characters"
+        ],
+        "title": "ProactiveSettingsResponse",
+        "type": "object"
+      },
+      "PromiseDTO": {
+        "properties": {
+          "character_id": {
+            "format": "uuid",
+            "title": "Character Id",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "due_precision": {
+            "enum": [
+              "datetime",
+              "day",
+              "week",
+              "month",
+              "unknown"
+            ],
+            "title": "Due Precision",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "mentioned",
+              "done",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "character_id",
+          "content",
+          "due_at",
+          "due_precision",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PromiseDTO",
+        "type": "object"
+      },
+      "SafetyInfo": {
+        "description": "E6: 自傷・希死念慮のシグナルを検知し、安全対応（相談窓口の案内）を優先した場合の情報。",
+        "properties": {
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/SafetyResource"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "triggered": {
+            "title": "Triggered",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "triggered",
+          "resources"
+        ],
+        "title": "SafetyInfo",
+        "type": "object"
+      },
+      "SafetyResource": {
+        "description": "E6: 相談窓口。",
+        "properties": {
+          "hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "name",
+          "phone",
+          "hours",
+          "url"
+        ],
+        "title": "SafetyResource",
+        "type": "object"
+      },
+      "SafetyResourcesResponse": {
+        "description": "GET /safety/resources — E6 の相談窓口の一覧（messages.safety_triggered の返答の下に出すカード用）。",
+        "properties": {
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/SafetyResource"
+            },
+            "title": "Resources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "title": "SafetyResourcesResponse",
         "type": "object"
       },
       "UpdateMemoryRequest": {
@@ -639,6 +992,26 @@
             ],
             "title": "Importance"
           },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fact",
+                  "preference",
+                  "episode",
+                  "promise",
+                  "emotion",
+                  "relationship",
+                  "summary"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
           "tags": {
             "anyOf": [
               {
@@ -656,6 +1029,82 @@
         },
         "title": "UpdateMemoryRequest",
         "type": "object"
+      },
+      "UpdateProactiveCharacterSettingRequest": {
+        "description": "PUT /proactive/settings/{character_id}",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "UpdateProactiveCharacterSettingRequest",
+        "type": "object"
+      },
+      "UpdateProactiveGlobalSettingsRequest": {
+        "description": "PUT /proactive/settings — 全体設定の更新（省略した項目は変更しない。null も「変更しない」）。",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "quiet_end": {
+            "anyOf": [
+              {
+                "maximum": 23.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet End"
+          },
+          "quiet_start": {
+            "anyOf": [
+              {
+                "maximum": 23.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet Start"
+          }
+        },
+        "title": "UpdateProactiveGlobalSettingsRequest",
+        "type": "object"
+      },
+      "UpdatePromiseRequest": {
+        "description": "ユーザーによる完了・取り消し。",
+        "properties": {
+          "status": {
+            "enum": [
+              "done",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "UpdatePromiseRequest",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -667,7 +1116,7 @@
     }
   },
   "info": {
-    "description": "Project P MVP の Python API。DM のキャラ返答生成（メモリエンジン・Gate #1 モデレーション・監査ログ）、コメント投稿とキャラの返信生成、メモリパネル用の記憶 CRUD を提供する。\n\n認証: `Authorization: Bearer <Supabase access token>`（`GET /health` を除く）。エラーは `{\"error\": {\"code\", \"message\", \"request_id\"}}`（message は日本語）。",
+    "description": "Project P の Python API。DM のキャラ返答生成（キャラクターエンジン v1.0: 記憶 × カレンダー × 好感度・ストリーミング・E6 の安全対応・Gate #1 モデレーション・監査ログ）、コメント投稿とキャラの返信生成、メモリパネル用の記憶・約束の API、自発メッセージの設定を提供する。\n\n認証: `Authorization: Bearer <Supabase access token>`（`GET /health` を除く）。エラーは `{\"error\": {\"code\", \"message\", \"request_id\"}}`（message は日本語）。",
     "title": "everkano API",
     "version": "0.1.0"
   },
@@ -675,7 +1124,7 @@
   "paths": {
     "/chat": {
       "post": {
-        "description": "ユーザー発言を Gate #1 で検証し、短期・長期メモリとペルソナからプロンプトを組み立てて返答を生成する。ユーザー発言とキャラ返答を保存し、重要な記憶を抽出して保存する。",
+        "description": "E6（自傷・希死念慮）の安全対応を最初に判定し、ユーザー発言を Gate #1 で検証したうえで、Context Assembler（短期履歴・記憶・キャラの状態・ふたりの関係・約束）からプロンプトを組み立てて返答を生成する。返答は送る前に Gate #1・キャラの NG ワード・E2（購入と関係を結びつける発言の禁止）・E3（実在の人間だという主張の禁止）で検査する。ユーザー発言とキャラ返答を保存し、記憶の抽出・約束の予定化・好感度の評価は返答の後に非同期で行う（memories_created は常に空。新しい記憶は Realtime で届く）。",
         "operationId": "chat_chat_post",
         "requestBody": {
           "content": {
@@ -785,6 +1234,123 @@
           }
         ],
         "summary": "DM のキャラ返答を生成",
+        "tags": [
+          "dm"
+        ]
+      }
+    },
+    "/chat/stream": {
+      "post": {
+        "description": "E6（自傷・希死念慮）の安全対応を最初に判定し、ユーザー発言を Gate #1 で検証したうえで、Context Assembler（短期履歴・記憶・キャラの状態・ふたりの関係・約束）からプロンプトを組み立てて返答を生成する。返答は送る前に Gate #1・キャラの NG ワード・E2（購入と関係を結びつける発言の禁止）・E3（実在の人間だという主張の禁止）で検査する。ユーザー発言とキャラ返答を保存し、記憶の抽出・約束の予定化・好感度の評価は返答の後に非同期で行う（memories_created は常に空。新しい記憶は Realtime で届く）。\n\nレスポンスは `text/event-stream`。イベントは `delta`（{text}: 検査を通過した続きの本文）/ `replace`（{text, reason: moderated | safety}: 表示中の本文を置き換える）/ `done`（ChatResponse: 保存済みの結果）/ `error`（{code, message, request_id}: 何も保存していない）。イベントの間は `: keep-alive` コメントが届く。認証・所有者・レート制限・入力のエラーはストリームを始める前に通常の JSON エラーで返る。クライアントが接続を切っても返答は生成・保存される。",
+        "operationId": "chat_stream_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Server-Sent Events（ChatStreamEvent）"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "DM のキャラ返答をストリーミングで生成（Server-Sent Events）",
         "tags": [
           "dm"
         ]
@@ -1164,6 +1730,7 @@
     },
     "/memories": {
       "get": {
+        "description": "既定は有効な記憶だけ。include_superseded=true で、新しい情報に置き換えられた古い記憶（履歴, M4）も返す。",
         "operationId": "list_memories_memories_get",
         "parameters": [
           {
@@ -1176,6 +1743,18 @@
               "format": "uuid",
               "title": "Character Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "置き換えられた古い記憶（履歴）も含める",
+            "in": "query",
+            "name": "include_superseded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "置き換えられた古い記憶（履歴）も含める",
+              "title": "Include Superseded",
+              "type": "boolean"
             }
           }
         ],
@@ -1272,7 +1851,7 @@
         ]
       },
       "post": {
-        "description": "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。`summary` タグ（自動要約専用）は指定できない。POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。",
+        "description": "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。`summary` タグ・種類（自動要約専用）は指定できない。kind の省略時は fact。POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。",
         "operationId": "create_memory_memories_post",
         "requestBody": {
           "content": {
@@ -1389,6 +1968,7 @@
     },
     "/memories/{memory_id}": {
       "delete": {
+        "description": "記憶の行を削除し、本文を持たない墓標（本文のハッシュと埋め込み）を残す。自動抽出は同じ・よく似た記憶を作り直さない（E5）。この記憶から作られた未達の約束は取り消す。",
         "operationId": "delete_memory_memories__memory_id__delete",
         "parameters": [
           {
@@ -1498,7 +2078,7 @@
         ]
       },
       "patch": {
-        "description": "`summary` タグは、もともと要約の記憶にだけ残せる（新たに付けることはできない）。",
+        "description": "`summary` タグは、もともと要約の記憶にだけ残せる（新たに付けることはできない）。種類に summary は指定できず、要約の記憶の種類は変えられない。以後、自動処理はこの記憶を上書き・置き換えしない（E5）。",
         "operationId": "update_memory_memories__memory_id__patch",
         "parameters": [
           {
@@ -1619,9 +2199,689 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "記憶の内容・重要度・タグを更新（is_user_edited = true）",
+        "summary": "記憶の内容・重要度・タグ・種類を更新（is_user_edited = true）",
         "tags": [
           "memories"
+        ]
+      }
+    },
+    "/proactive/settings": {
+      "get": {
+        "description": "行が無い場合は既定（有効・送らない時間帯はサーバーの既定 ENGINE_PROACTIVE_QUIET_START〜END。既定 0〜7 時）。キャラ別の設定が無いキャラは有効。",
+        "operationId": "get_proactive_settings_proactive_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProactiveSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "自発メッセージの設定（全体 + キャラ別）",
+        "tags": [
+          "proactive"
+        ]
+      },
+      "put": {
+        "description": "省略した項目（または null）は変更しない。quiet_start / quiet_end は JST の時（0〜23）で、quiet_start == quiet_end なら送らない時間帯の制限なし。片方だけを指定した場合も、もう片方を今の値で埋めて両方を保存する（以後サーバーの既定が変わっても変わらない）。応答は更新後の設定全体。",
+        "operationId": "update_proactive_settings_proactive_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProactiveGlobalSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProactiveSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "自発メッセージの全体設定を更新",
+        "tags": [
+          "proactive"
+        ]
+      }
+    },
+    "/proactive/settings/{character_id}": {
+      "put": {
+        "description": "有効なキャラだけ（それ以外は 404）。応答は更新後の設定全体。",
+        "operationId": "update_proactive_character_setting_proactive_settings__character_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Character Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProactiveCharacterSettingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProactiveSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "キャラ別の自発メッセージのオン・オフ",
+        "tags": [
+          "proactive"
+        ]
+      }
+    },
+    "/promises": {
+      "get": {
+        "description": "既定は未達（pending / mentioned）だけを期日の近い順に返す。include_closed=true で完了・取り消し済みも返す。",
+        "operationId": "list_promises_promises_get",
+        "parameters": [
+          {
+            "description": "キャラクターID",
+            "in": "query",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "description": "キャラクターID",
+              "format": "uuid",
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "完了・取り消し済みの約束も含める",
+            "in": "query",
+            "name": "include_closed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "完了・取り消し済みの約束も含める",
+              "title": "Include Closed",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPromisesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "キャラとの約束・予定の一覧（自分の約束）",
+        "tags": [
+          "promises"
+        ]
+      }
+    },
+    "/promises/{promise_id}": {
+      "patch": {
+        "description": "status は done（完了）/ cancelled（取り消し）。同じ状態への変更は何もせずに現在の約束を返す。取り消した約束のカレンダーの予定も取り消す。状態の変化は監査ログ promise.status_change に残す。",
+        "operationId": "update_promise_promises__promise_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "promise_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Promise Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePromiseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromiseDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "not_found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "約束を完了・取り消しにする",
+        "tags": [
+          "promises"
+        ]
+      }
+    },
+    "/safety/resources": {
+      "get": {
+        "description": "自傷・希死念慮のシグナルに安全対応をした返答（messages.safety_triggered = true）の下に出す相談窓口。ChatResponse.safety.resources と同じ内容・順序。ログインしている利用者だけが取得できる。",
+        "operationId": "get_safety_resources_safety_resources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SafetyResourcesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "unauthorized（JWT 無効・期限切れ）"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "forbidden / account_deleted（退会済み）"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error（リクエスト本文が MAX_REQUEST_BODY_BYTES を超えた）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "validation_error / moderation_blocked"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "rate_limited（Retry-After ヘッダ付き）"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "internal_error（認証サーバー（JWKS）に一時的に接続できない。ログアウトせず再試行する）"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "相談窓口の一覧（E6）",
+        "tags": [
+          "safety"
         ]
       }
     }

@@ -29,7 +29,9 @@ import httpx
 import jwt
 import pytest
 
+from app.container import EngineOverrides, Services
 from app.core.config import Settings
+from app.engine.types import Clock
 from app.main import create_app
 from app.services.embedding import EmbeddingClient
 from app.services.llm import LLMClient
@@ -63,6 +65,10 @@ def make_settings(**overrides: Any) -> Settings:
         "rate_limit_comments_per_minute": 1000,
         "comment_auto_reply_probability": 1.0,
         "audit_log_prompts": True,
+        # テストではジョブのワーカー・スケジューラをプロセス内で常駐させない（同じ DB を他のテストが同時に使うため）。
+        # 必要なテストは services.engine.worker.run_until_idle(now=...) / scheduler.run_due(now=...) で決定的に動かす
+        "engine_worker_enabled": False,
+        "engine_scheduler_enabled": False,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -242,6 +248,15 @@ class World:
             self.user_ids,
             self.character_ids,
         )
+        # 返答の後の非同期ジョブ（post_turn など）はユーザー・キャラへの外部キーを持たないので payload で消す
+        await conn.execute(
+            """
+            delete from public.engine_jobs
+             where payload->>'user_id' = any($1::text[]) or payload->>'character_id' = any($2::text[])
+            """,
+            [str(u) for u in self.user_ids],
+            [str(c) for c in self.character_ids],
+        )
 
 
 @pytest.fixture
@@ -277,8 +292,12 @@ async def app_factory() -> AsyncIterator[AppFactory]:
             *,
             llm: LLMClient | None = None,
             embedder: EmbeddingClient | None = None,
+            clock: Clock | None = None,
+            engine_overrides: EngineOverrides | None = None,
         ) -> httpx.AsyncClient:
-            app = create_app(settings or make_settings(), llm=llm, embedder=embedder)
+            app = create_app(
+                settings or make_settings(), llm=llm, embedder=embedder, clock=clock, engine_overrides=engine_overrides
+            )
             await stack.enter_async_context(app.router.lifespan_context(app))
             client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
             await stack.enter_async_context(client)
@@ -291,3 +310,9 @@ async def app_factory() -> AsyncIterator[AppFactory]:
 @pytest.fixture
 async def client(app_factory: AppFactory) -> httpx.AsyncClient:
     return await app_factory()
+
+
+def services_of(client: httpx.AsyncClient) -> Services:
+    """app_factory で作ったクライアントのアプリのサービス群（ワーカー・スケジューラ・時計を直接動かす）。"""
+    services: Services = client.app.state.services  # type: ignore[attr-defined]
+    return services

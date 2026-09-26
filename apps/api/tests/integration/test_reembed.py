@@ -8,7 +8,7 @@ import pytest
 
 from app.core.db import create_pool, vector_literal
 from app.services.embedding import HashEmbedding
-from app.services.reembed import ReembedStats, reembed_memories
+from app.services.reembed import ReembedStats, reembed_character_memories, reembed_memories
 from tests.conftest import World, make_settings
 
 pytestmark = pytest.mark.integration
@@ -80,5 +80,37 @@ async def test_reembed_memories_is_scoped_batched_and_idempotent(world: World) -
         again = await reembed_memories(pool, HashEmbedding(), batch_size=10, user_id=user.id)
         assert (again.scanned, again.updated) == (5, 5)
         assert await _similarities(world, user.id) == pytest.approx(after)
+    finally:
+        await pool.close()
+
+
+async def test_reembed_does_not_touch_updated_at_and_covers_character_memories(world: World) -> None:
+    user = await world.create_user()
+    [memory_id, *_] = await _insert_stale_memories(world, user.id)
+    before = await world.conn.fetchval("select updated_at from public.memories where id = $1", memory_id)
+    stale = vector_literal(HashEmbedding().embed_one("まったく別の文章"))
+    statement_id = await world.conn.fetchval(
+        """
+        insert into public.character_memories (character_id, user_id, content, embedding)
+        values ($1, $2, '昨日カフェに行った', $3::text::extensions.vector) returning id
+        """,
+        world.character_id,
+        user.id,
+        stale,
+    )
+    pool = await create_pool(make_settings())
+    try:
+        await reembed_memories(pool, HashEmbedding(), user_id=user.id)
+        # 埋め込みだけの更新は「内容の更新」ではない（メモリパネルの更新日時を変えない）
+        assert await world.conn.fetchval("select updated_at from public.memories where id = $1", memory_id) == before
+        stats = await reembed_character_memories(pool, HashEmbedding(), user_id=user.id)
+        assert (stats.scanned, stats.updated) == (1, 1)
+        similarity = await world.conn.fetchval(
+            "select 1 - (embedding operator(extensions.<=>) $2::text::extensions.vector)"
+            " from public.character_memories where id = $1",
+            statement_id,
+            vector_literal(HashEmbedding().embed_one("昨日カフェに行った")),
+        )
+        assert similarity > 0.999
     finally:
         await pool.close()

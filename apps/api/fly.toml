@@ -20,6 +20,14 @@
 #   → 下の [[files]] のコメントを外してデプロイ。証明書を用意するまでは sslmode=require（暗号化のみ）でもよい。
 #
 # 本番に切り替える場合は APP_ENV を production にする（LLM_MODE=mock は起動時に拒否される）。
+#
+# プロセスグループ（同じイメージ）:
+#   app    : API（uvicorn）。返答のレイテンシ（E8）を守るため、ジョブのワーカー・スケジューラは動かさない
+#   worker : キャラクターエンジンの非同期ジョブ（記憶の抽出・好感度の評価など）と定期実行（予定の生成・状態・
+#            自発メッセージ）。`python -m app.worker` は環境変数に関係なくワーカーとスケジューラを起動する。
+#            複数台にしても定期実行は pg_try_advisory_lock で 1 台だけが行い、ジョブは FOR UPDATE SKIP LOCKED で分け合う
+#   worker は HTTP を受けないので http_service の対象外（processes = ["app"]）。
+#   スケールの例: fly scale count app=1 worker=1 --config apps/api/fly.toml
 # =============================================================================
 app = "everkano-api"
 primary_region = "nrt"
@@ -31,6 +39,10 @@ kill_timeout = "30s"
   [build.args]
     PYTHON_IMAGE = "python:3.12.14-slim-trixie@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
     UV_IMAGE = "ghcr.io/astral-sh/uv:0.8.17@sha256:e4644cb5bd56fdc2c5ea3ee0525d9d21eed1603bccd6a21f887a938be7e85be1"
+
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --no-access-log --timeout-graceful-shutdown 20"
+  worker = "python -m app.worker"
 
 [env]
   APP_ENV = "staging"
@@ -51,6 +63,12 @@ kill_timeout = "30s"
   # Fly のエッジ（プロキシ）経由の X-Forwarded-Proto を信頼する。クライアントIPは偽装できない Fly-Client-IP を記録する
   FORWARDED_ALLOW_IPS = "*"
   CLIENT_IP_HEADER = "Fly-Client-IP"
+  # キャラクターエンジン: API（app）ではジョブ・定期実行を動かさない（worker プロセスグループが動かす。
+  # [env] は全プロセスグループ共通だが、python -m app.worker はこの値に関係なく両方を起動する）
+  ENGINE_WORKER_ENABLED = "false"
+  ENGINE_SCHEDULER_ENABLED = "false"
+  # 分析系（記憶・好感度）のモデルを分ける場合（空 = LLM_MODEL）
+  # LLM_MODEL_ANALYSIS = "deepseek/deepseek-chat"
 
 # verify-full 用の Supabase ルート証明書（上のコメント参照。シークレット SUPABASE_DB_CA_CERT は base64）
 # [[files]]
@@ -58,6 +76,7 @@ kill_timeout = "30s"
 #   secret_name = "SUPABASE_DB_CA_CERT"
 
 [http_service]
+  processes = ["app"]
   internal_port = 8000
   force_https = true
   # DM の応答待ちでコールドスタートさせないため常時 1 台は起動しておく
@@ -65,8 +84,10 @@ kill_timeout = "30s"
   auto_start_machines = true
   min_machines_running = 1
 
-  # 1 マシンに届く同時リクエスト数。/chat は 1 件で LLM 接続を 2 本（応答生成 + 記憶抽出）使うため、
-  # hard_limit × 2 は app/core/http.py の HTTP_MAX_CONNECTIONS（200）以下にすること（tests/test_http_limits.py で検査）。
+  # 1 マシンに届く同時リクエスト数。/chat・/chat/stream は 1 件で LLM 接続を 1 本（応答生成）と埋め込みを 1 本使う
+  # （記憶の抽出はリクエストの後に worker で行う）。余裕を見て hard_limit × 2 は app/core/http.py の
+  # HTTP_MAX_CONNECTIONS（200）以下にすること（tests/test_http_limits.py で検査）。
+  # SSE（/chat/stream）も 1 リクエストとして数える（生成が終われば閉じる）。
   [http_service.concurrency]
     type = "requests"
     soft_limit = 40
@@ -80,6 +101,13 @@ kill_timeout = "30s"
     timeout = "5s"
 
 [[vm]]
+  processes = ["app"]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[vm]]
+  processes = ["worker"]
   memory = "512mb"
   cpu_kind = "shared"
   cpus = 1

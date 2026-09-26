@@ -16,9 +16,10 @@ from app.services.types import CharacterRecord
 
 CHARACTER_COLUMNS: Final[str] = "id, handle, name, avatar_url, bio, persona_key, system_prompt, is_active"
 CONVERSATION_COLUMNS: Final[str] = "id, user_id, character_id, last_message_at, user_last_read_at, created_at"
-MESSAGE_COLUMNS: Final[str] = "id, conversation_id, sender_type, body, created_at"
+MESSAGE_COLUMNS: Final[str] = "id, conversation_id, sender_type, body, created_at, is_proactive, safety_triggered"
 MEMORY_COLUMNS: Final[str] = (
-    "id, character_id, content, importance, tags, is_user_edited, source_message_id, created_at, updated_at"
+    "id, character_id, content, importance, tags, is_user_edited, source_message_id, created_at, updated_at,"
+    " kind, status, superseded_by, superseded_at, last_referenced_at, reference_count"
 )
 COMMENT_COLUMNS: Final[str] = (
     "id, post_id, parent_comment_id, author_type, author_user_id, author_character_id, body, created_at"
@@ -69,21 +70,21 @@ def message_dto(row: asyncpg.Record) -> MessageDTO:
         sender_type=row["sender_type"],
         body=row["body"],
         created_at=row["created_at"],
+        is_proactive=row["is_proactive"],
+        safety_triggered=row["safety_triggered"],
     )
 
 
 def memory_dto(row: asyncpg.Record) -> MemoryDTO:
-    return MemoryDTO(
-        id=row["id"],
-        character_id=row["character_id"],
-        content=row["content"],
-        importance=float(row["importance"]),
-        tags=list(row["tags"] or []),
-        is_user_edited=row["is_user_edited"],
-        source_message_id=row["source_message_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-    )
+    """memories の行（MEMORY_COLUMNS）を MemoryDTO にする。
+
+    エンジン v1.0 の列（kind / status / superseded_* / last_referenced_at / reference_count）は、行にあれば渡す
+    （MemoryDTO 側に無い項目は無視される。models/memories.py の拡張と独立に動くように model_validate を使う）。
+    """
+    values: dict[str, object] = dict(row.items())
+    values["importance"] = float(row["importance"])
+    values["tags"] = list(row["tags"] or [])
+    return MemoryDTO.model_validate(values)
 
 
 def comment_dto(row: asyncpg.Record) -> CommentDTO:
