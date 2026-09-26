@@ -1,6 +1,6 @@
 # ADR-0029: Web の通信失敗の扱い（タイムアウト・再試行・オフライン・「ログイン切れ」の判定・エラー文言）
 
-- ステータス: 採用
+- ステータス: 採用（DM の送信のストリーミングのタイムアウトとフォールバックを [ADR-0047](0047-web-engine-ui.md) で追補）
 - 日付: 2026-09-26
 - 関連: 仕様書 §14 D-3（圏外・通信エラー）・§15 / [ADR-0002](0002-data-access-split.md)・[ADR-0019](0019-chat-deadline.md)・[ADR-0025](0025-db-tls-and-api-entry-failures.md) /
   実装: `apps/web/lib/supabase/fetch-timeout.ts`, `apps/web/lib/supabase/client.ts`, `apps/web/lib/query-client.ts`, `apps/web/lib/query-retry.ts`,

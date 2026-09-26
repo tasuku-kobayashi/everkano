@@ -1,11 +1,11 @@
 # 受け入れ基準（§13）E2E 検証結果
 
-- 実施日: 2026-09-26（JST 00:38 実行、所要 4 分 8 秒。納品前の再検査の指摘（共有リンクからのログイン後の遷移先・遷移先のデータの先読み）を修正し、テストを追加して全体を再実行した。前回は 2026-09-25 JST 23:55 の統合検証、その前は同日 16:37 の初回検証）
-- 対象: 作業ツリー（`main` ブランチ + 未コミットの修正を含む）、Web は **本番ビルド**（`next build` → `next start`）
+- 実施日: 2026-09-26（JST 19:21 実行、所要 4 分 42 秒。キャラクターエンジン v1.0 の実装・Web の補修（確認画面の履歴・スクロール位置・ハイドレーション #418）の後に、`supabase db reset` した DB で全体を再実行した。前回は同日 JST 00:38 の納品前の再検査、その前は 2026-09-25 の統合検証・初回検証）
+- 対象: 作業ツリー（`claude/peaceful-planck-i0xauv` ブランチ）、Web は **本番ビルド**（`next build` → `next start`）
 - テストコード: [`apps/web/e2e/`](../../apps/web/e2e/)（手順は [`apps/web/e2e/README.md`](../../apps/web/e2e/README.md)）
-- 結果: **143 passed / 0 failed / 1 skipped**（14 spec・72 テスト × iphone / android。skip はスクリーンショット撮影の android 分。撮影は iphone のみ）
+- 結果: **170 passed / 0 failed / 2 skipped**（16 spec・86 テスト × iphone / android。skip は android のスクリーンショット撮影とハイドレーションの確認。どちらも iphone のみで実行）。キャラクターエンジンの画面は `engine.spec.ts`、ハイドレーションは `hydration.spec.ts`
 - 生の出力: [`raw/`](raw/)（Playwright の出力・テスト一覧 JSON・会話ログ・audit_logs のサンプル・その他のゲート）
-- スクリーンショット: [`screenshots/`](screenshots/)（22 画面 × ライト / ダーク、iPhone 相当 1170×2532、合計 約 12.5 MB）
+- スクリーンショット: [`screenshots/`](screenshots/)（26 画面 × ライト / ダーク、iPhone 相当 1170×2532、合計 約 16 MB。23〜26 はキャラクターエンジン v1.0 の画面）
 - 納品前の検査の指摘と対応: [`inspection-report.md`](inspection-report.md)（検査で見つかった不具合の回帰テストの多くは、この E2E に追加した）
 
 ## 環境
@@ -27,6 +27,7 @@
 cd apps/api
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres SUPABASE_URL=http://127.0.0.1:54321 \
 LLM_MODE=mock EMBEDDING_MODE=hash CORS_ALLOW_ORIGINS=http://localhost:3000 APP_ENV=local \
+ENGINE_POST_TURN_DELAY_SECONDS=1 ENGINE_SCHEDULER_ENABLED=false \
   uv run uvicorn app.main:app --port 8000
 
 # Web（本番ビルド）
@@ -35,7 +36,7 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000 NEXT_PUBLIC_API_BASE_URL=http://local
 NEXT_PUBLIC_SITE_URL=http://localhost:3000 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 pnpm start -p 3000
 
 # E2E（全テスト）
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1194/chrome-linux/chrome pnpm --filter @everkano/web e2e
+pnpm --filter @everkano/web e2e
 
 # スクリーンショットを docs に保存（iphone のみ）
 cd apps/web
@@ -135,11 +136,11 @@ pnpm --filter @everkano/web lint typecheck test
 - **LLM はモック**: A8〜A10 の返答内容の検証はモック LLM（ペルソナの口調例と検索された記憶から決定的に組み立てる）が前提。
   本物の LLM（`LLM_MODE=live`）の文脈理解・口調は staging で確認すること。
 - **Service Worker**: PWA のテスト以外では Service Worker をブロックして実行している（キャッシュがテストの前提を変えないため）。
-- **本番ビルドでまれに React のハイドレーションエラー #418（未解決・動作への影響なし）**: 動的ルート（`/dm/[characterId]`・`/c/[handle]`）を
-  フルロードしたとき、CPU 負荷が高い状況（E2E の並列実行など）で数十〜百回に 1 回程度 `Minified React error #418` がコンソールに出る。
-  React がクライアントで描画し直すため表示は正常で、テストも成功する。静的ルート（`/`・`/dm`）では発生しない。
-  追加調査で、`loading.tsx` をすべて外しても `htmlLimitedBots` を外しても再現することを確認した（どちらも原因ではない）。
-  ストリーミング SSR とハイドレーションのタイミングに依存しており、原因は未特定（Next.js / React の更新時に再確認する）。
+- **本番ビルドでまれに出ていた React のハイドレーションエラー #418（2026-09-26 に解決）**: 当初は「動的ルート（`/dm/[characterId]`・`/c/[handle]`）で、
+  CPU 負荷が高いときに数十〜百回に 1 回・原因不明」としていたが、原因は Next.js 15.5.26 に同梱の React 19.2 canary が、ハイドレーション中に中断した素のホスト要素
+  （`MainShell` の `<main>` の直下に置いた RSC の `children`）を再開するときにハイドレーションの位置を戻さないことだった。**静的なルート（`/dm` が最も多い）でも起きていた**。
+  `apps/web/components/ui/main-shell.tsx` の `RouteContent` で `children` を包んで解消し、回帰テスト `e2e/hydration.spec.ts`（CPU を 8 倍遅くして主要な画面を繰り返し
+  フルロード）を追加した（[ADR-0048](../adr/0048-web-confirm-history-hydration-fixes.md)）。
 - **テストデータ**: テストユーザーはテストごとに作成・削除する（`audit_logs` の行は監査ログとして残る）。
   ログイン画面の検証以外は、Supabase Auth のメール送信レート制限を避けるため、管理 API の `generate_link` のトークンを
   アプリの `/auth/confirm` に渡してログインしている（メールのリンクと同じルート）。

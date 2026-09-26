@@ -1,21 +1,35 @@
 # 02. データフロー
 
 主要な操作ごとに、どのコンポーネントがどの順番で何を読み書きするかを示す。構成要素と認証情報は [01-architecture.md](01-architecture.md)、
-テーブルの詳細は [03-data-model.md](03-data-model.md)、API の仕様は [04-api.md](04-api.md)。
+テーブルの詳細は [03-data-model.md](03-data-model.md)、API の仕様は [04-api.md](04-api.md)。キャラクターエンジンの処理（6〜11）は
+返答の経路（API）・返答の後のジョブ（worker）・定期実行（worker のスケジューラ）に分かれる（[ADR-0035](../adr/0035-character-engine-architecture.md)・
+[ADR-0036](../adr/0036-engine-job-queue-and-scheduler.md)）。
 
 ## 誰がどこに書くか（まとめ）
 
-| テーブル              | クライアント（`authenticated`）                                 | Python API（`postgres`）                                   | DB トリガー / その他                          |
+「API・worker」は Python API（`app` プロセス）と worker プロセス（返答の後のジョブ・定期実行）。どちらも `postgres` ロールで RLS をバイパスし、クエリを user_id でスコープする。
+
+| テーブル              | クライアント（`authenticated`）                                 | API・worker（`postgres`）                                  | DB トリガー / その他                          |
 | --------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------- |
 | `profiles`            | 本人の行を参照、`display_name` / `deleted_at`（退会）を更新      | 退会済みかの確認（参照のみ）                               | `auth.users` 作成時に自動作成                 |
 | `characters`          | 公開列だけ参照                                                  | ペルソナ・`system_prompt` を参照                           | シード / 運用者の SQL                         |
-| `posts`               | 公開済みを参照                                                  | コメント時に公開済みかを確認                               | シード / 運用者の SQL。`like_count` / `comment_count` はトリガー |
+| `posts`               | 公開済みを参照                                                  | コメント時に公開済みかを確認。**予定からの投稿を作成**（`calendar.tick`、`source_event_id`） | シード / 運用者の SQL。`like_count` / `comment_count` はトリガー |
 | `post_private_assets` | 不可                                                            | —（参照するコードは無い）                                  | シード / 運用者の SQL                         |
 | `likes`               | 本人の行を参照・作成・削除                                      | —                                                          | —                                             |
 | `comments`            | 参照、自分のコメントを削除                                      | ユーザーのコメント作成、キャラの返信作成                    | 削除を `audit_logs` に記録                    |
-| `conversations`       | 本人の会話を参照、既読（RPC）                                    | 作成、`summary_cursor` の更新                              | `last_message_at` はトリガー                  |
-| `messages`            | 本人の会話のものを参照（Realtime で購読）                        | ユーザー発言とキャラ返答を 1 トランザクションで保存、初回挨拶 | —                                           |
-| `memories`            | 本人の記憶を参照（`embedding` 以外。UI は API の一覧を使う）      | 抽出・重複排除・要約・メモリパネルの CRUD                  | `updated_at` はトリガー                       |
+| `conversations`       | 本人の会話を参照、既読（RPC）                                    | 作成、`summary_cursor`・`analyzed_until` の更新            | `last_message_at` はトリガー                  |
+| `messages`            | 本人の会話のものを参照（Realtime で購読）                        | ユーザー発言とキャラ返答を 1 トランザクションで保存（`safety_triggered`）、初回挨拶、**自発メッセージ**（`is_proactive`） | —                    |
+| `memories`            | 本人の記憶を参照（`embedding` 以外。Realtime で INSERT を購読。UI の一覧は API） | 返答の後の分析・統合・置き換え・要約・メモリパネルの CRUD・参照の記録 | `updated_at` はトリガー（内容が変わったときだけ） |
+| `memory_tombstones`   | 不可                                                            | メモリパネルの削除で作成、自動抽出で照合                    | —                                             |
+| `promises`            | 本人の約束を参照                                                | 返答の後の分析で作成・状態の変更、ユーザーの完了・取り消し、自発メッセージで `mentioned` | `updated_at` はトリガー             |
+| `character_memories`  | 不可                                                            | 返答の後の分析（キャラの発言）、`calendar.tick`（終わった予定） | —                                         |
+| `character_events`    | 不可                                                            | `calendar.ensure_schedules`（生成）・`calendar.tick`（完了）・約束の予定化 | 重なりは排他制約で拒否                 |
+| `character_states`    | 有効キャラの `status_label` / `busyness` / `updated_at` を参照    | `calendar.tick` で更新                                     | —                                             |
+| `affinity_states` / `affinity_history` | 不可（A11）                                    | 返答の後の評価・日次の減衰・会話のたびの `last_interaction_at` | —                                          |
+| `proactive_messages`  | 不可                                                            | `proactive.scan` で送信の記録、ユーザーの発言で `replied_at` | —                                           |
+| `proactive_settings`  | 本人の設定を参照                                                | `PUT /proactive/settings` で作成・更新                      | `updated_at` はトリガー                       |
+| `engine_jobs` / `engine_schedules` | 不可                                               | ジョブの登録（API）・実行（worker）/ 定期実行の記録         | —                                             |
+| `post_image_pool`     | 不可                                                            | 投稿の画像を選ぶ（参照のみ）                               | シード（`seed_engine.sql`）/ 運用者の SQL     |
 | `audit_logs`          | 不可                                                            | すべてのイベント（チャットとは別接続）                     | `comment.delete`                              |
 
 ## 1. ログイン
@@ -183,65 +197,112 @@ sequenceDiagram
   Note over B,R: 上へスクロールで 30 件ずつ過去へ
 ```
 
+- DM ヘッダーの 2 行目（キャラの今の状況）は `character_states` の `status_label` / `busyness` を PostgREST で直接読む（有効なキャラだけ。DM の先読みで一緒に取り、
+  画面を開いている間は 2 分ごと・画面への復帰時に取り直す。[ADR-0047](../adr/0047-web-engine-ui.md)）。キャラからの自発メッセージも通常のメッセージとして履歴に入る。
 - DM 一覧（`/dm`）は RPC `list_dm_threads()`（最新メッセージ・未読数）と、**自分の会話に絞った** `messages` の INSERT の購読
   （`conversation_id=in.(...)`、最大 100 件）、30 秒ごとのポーリングで更新する。
 
-## 6. DM を送る（`POST /chat`、13 ステップ）
+## 6. DM を送る（`POST /chat/stream`・`POST /chat`）
 
-[ADR-0009](../adr/0009-memory-engine.md)（メモリ）、[ADR-0010](../adr/0010-gate1-moderation.md)（Gate #1）、[ADR-0019](../adr/0019-chat-deadline.md)（締め切り）。
-番号は `apps/api/app/services/chat.py` の冒頭コメントと同じ。
+[ADR-0037](../adr/0037-chat-streaming-sse.md)（ストリーミング）、[ADR-0043](../adr/0043-safety-e6-and-output-guard.md)（E6・出力の検査）、[ADR-0035](../adr/0035-character-engine-architecture.md)（文脈）、
+[ADR-0019](../adr/0019-chat-deadline.md)（締め切り）、[ADR-0010](../adr/0010-gate1-moderation.md)（Gate #1）。番号は `apps/api/app/engine/pipeline.py` の冒頭コメントと同じ。
+`/chat` は同じパイプラインを最後まで読み、`done` の内容を JSON で返す。
 
 ```mermaid
 sequenceDiagram
   participant B as ブラウザ（DM 画面）
-  participant API as Python API
+  participant API as Python API（app）
   participant DB as Postgres
   participant E as Embedding
   participant L as LLM
   B->>B: 自分の吹き出しを「送信中」で表示、0.4 秒後に「入力中…」
-  B->>API: POST /chat {character_id, conversation_id, message}
-  Note over API: (1) JWT 検証 → user_id、退会なら 403、レート制限（chat 20 / 分）
-  API->>DB: (2) 会話がこのユーザー・このキャラのもので、キャラが有効か（違えば 404）
-  API->>DB: (3) audit chat.request
-  API->>API: (4) Gate ＃1（入力）
-  alt 入力がヒット
+  B->>API: POST /chat/stream {character_id, conversation_id, message}（fetch で SSE を読む）
+  Note over API: (1) JWT 検証・退会なら 403・レート制限（chat 20 / 分）。会話・キャラの確認（違えば 404）。ここまでのエラーは通常の JSON
+  API-->>B: 200 text/event-stream（`: ok`。以後イベントが無い間は 10 秒ごとに `: keep-alive`）
+  API->>DB: (2) audit chat.request
+  API->>API: (3) E6 の検出（Gate #1 より前）
+  alt 自傷・希死念慮のシグナル
+    API-->>B: replace {reason: safety, キャラの声の気づかい + 相談窓口}（LLM なし）
+    API->>DB: 発言と返答を保存（返答に safety_triggered = true）、audit safety.trigger
+  else Gate #1（入力）がヒット
     API->>DB: audit moderation.flag（stage = input）
-    API->>DB: ユーザー発言と定型文（moderation_reply）を 1 トランザクションで保存
-    API->>DB: audit chat.response（moderated = true、LLM・記憶なし）
-    API-->>B: 200 ChatResponse（moderated = true）
+    API-->>B: replace {reason: moderated, キャラの断り文}
+    API->>DB: 発言と断り文を保存
   else 通過（ここから締め切り CHAT_DEADLINE_SECONDS）
-    API->>DB: (5) 短期: 直近 60 件（30 ターン）
-    API->>E: (6) 発言を埋め込み（EMBEDDING_TIMEOUT_SECONDS。失敗・時間切れなら検索を省略し audit llm.error = embedding_query）
-    API->>DB: (6) このペアの記憶を厳密検索 → 上位 5 件を重要度で再ランク + 最新の要約 2 件（検索を省略した場合は要約だけ）
-    API->>API: (7) ペルソナ YAML + dm_system テンプレート + 記憶（1 件 1 行）+ 履歴（合計 16,000 字まで）でプロンプト組立
-    par (8) 返答生成
-      API->>L: chat（temperature 0.8）
-    and (8) 記憶抽出
-      API->>L: memory_extraction（temperature 0、JSON）
+    par (5) Context Assembler（締め切り ENGINE_CONTEXT_TIMEOUT_SECONDS。間に合わない要素は省いて audit engine.context_degraded）
+      API->>DB: 短期の履歴（Gate #1 の発言は置き換え）
+    and
+      API->>E: 発言の埋め込み（EMBEDDING_TIMEOUT_SECONDS。失敗なら検索を省略）
+      API->>DB: 記憶の厳密検索とランキング・期日の近い約束・キャラ側の記憶
+    and
+      API->>DB: 世界の時間・キャラの今の状態（予定）
+    and
+      API->>DB: ふたりの関係の指針（好感度の段階。値は見せない）
     end
-    API->>API: (9) Gate ＃1（出力。ヒットなら定型文に差し替え、audit moderation.flag）
-    API->>DB: (10) ユーザー発言 → キャラ返答を 1 トランザクションで INSERT（last_message_at はトリガー）
-    API->>E: (11) 重要度 0.6 以上の候補を埋め込み（失敗しても返答は 200。audit llm.error = memory_save）
-    API->>DB: (11) 重複排除（cos 0.92 以上: ユーザー編集済みはスキップ / それ以外は更新）→ 新規は INSERT（上限 500 件なら重要度の低い自動記憶と入れ替え）、audit memory.create / update
-    API->>DB: (13) audit chat.response（返答・モデル・レイテンシ・使用量・使った / 作った記憶・プロンプト全文）
-    API-->>B: 200 ChatResponse（reply, memories_used, memories_created, user_message, character_message）
-    Note over API,DB: (12) 応答後の BackgroundTask: 未要約が 100 件を超えたら古い順に 12,000 字ずつ（最大 3 チャンク）要約して summary 記憶を作り、要約した分だけ summary_cursor を進める（audit memory.summary。失敗は会話ごとにバックオフ）
+    API->>L: (6) chat（stream: true）。system（静的）→ 直近の会話 → 〔今の状況〕+ 今回の発言
+    loop 文の区切りごと
+      API->>API: それまでの全文を Gate #1 + NG ワード + OutputGuard（E2 / E3）で検査
+      API-->>B: delta {text}
+    end
+    alt 最終判定でヒット
+      API->>DB: audit moderation.flag（stage = output）
+      API-->>B: replace {reason: moderated, キャラの断り文}
+    end
+    API->>DB: (7) ユーザー発言 → キャラ返答を 1 トランザクションで INSERT（時刻は時計から。返答 = 発言 + 1ms）
   end
-  B->>B: 「入力中…」を最低 1.1 秒見せてから返答を表示。記憶が作られたら「〇〇があなたのことを覚えました」
+  API->>DB: (8) proactive_messages.replied_at（未返信の自発メッセージ）・affinity_states.last_interaction_at
+  API->>DB: (9) engine_jobs に post_turn と memory.summarize を登録（会話ごとに 1 件。既にあれば実行時刻を後ろへ）
+  API->>DB: (10) audit chat.response（ttft_ms・文脈の予算・使った記憶・状態・段階・usage・プロンプト全文）
+  API-->>B: done（ChatResponse: 保存済みの 2 件。memories_created は常に空。E6 なら safety.resources）
+  Note over API,DB: (11) 返答の後: 使った記憶の last_referenced_at / reference_count（バックグラウンド）
+  B->>B: 最初の文字は送信から 1 秒後以降に表示。done で保存済みのメッセージに置き換え。E6 なら返答の下に相談窓口のカード
   B->>DB: RPC mark_conversation_read（1 往復につき 1 回）
-  Note over B,DB: 他のタブ・端末には Realtime（messages INSERT）で届く
+  Note over B,DB: 他のタブ・端末には Realtime（messages INSERT）で届く。記憶は 7 の後に Realtime（memories INSERT）で「覚えました」
 ```
 
-- **LLM の失敗（リトライ後）または締め切り超過**: audit `llm.error` を記録して **503 `llm_unavailable`**。メッセージは何も保存しない。
-  画面では自分の吹き出しが「送信失敗」になり、タップで再送できる。
-- 記憶の抽出が締め切りに間に合わない / 失敗した場合はチャットを成功させ、`llm.error`（`purpose = memory_extraction`）を記録する。
-- 端末がオフラインなら `/chat` はすぐに失敗し、自分の吹き出しが「送信できませんでした・タップで再送」になって通信エラーのトーストが出る
-  （「入力中…」のまま止まらない。[ADR-0029](../adr/0029-web-network-failure-policy.md)）。
-- 返答待ちのまま画面を離れて戻っても、送った発言と「入力中…」は残り、同じタブからは二重に送れない（別のタブ・端末からの同時送信は防いでいない）。
+- **LLM の失敗（リトライ後）または締め切り超過**: `delta` を送った後でも `error`（503 `llm_unavailable`）を送り、**メッセージは何も保存しない**（`llm.error`）。
+  画面では受信中の吹き出しを消し、自分の吹き出しが「送信できませんでした・タップで再送」になる。`/chat` は 503 を返す。
+- クライアントが接続を切っても、生成・保存・ジョブの登録は最後まで行う（次に画面を開いたとき・Realtime で届く）。
+- ストリーミングを使えない環境・`/chat/stream` の無い API では、Web は `POST /chat` にフォールバックする（[ADR-0047](../adr/0047-web-engine-ui.md)）。
+- 端末がオフラインなら送信はすぐに失敗し、通信エラーのトーストが出る（[ADR-0029](../adr/0029-web-network-failure-policy.md)）。
+- 返答待ちのまま画面を離れて戻っても、送った発言と受信中の返答は残り、同じタブからは二重に送れない（別のタブ・端末からの同時送信は防いでいない）。
 
-## 7. メモリパネルでの編集
+## 7. 返答の後のジョブ（`post_turn`・`memory.summarize`）
 
-DM 画面ヘッダーの「i」で開く。すべて Python API 経由（Gate #1 + 監査ログ）。
+worker のワーカーが処理する（[ADR-0036](../adr/0036-engine-job-queue-and-scheduler.md)・[ADR-0038](../adr/0038-memory-engine-v2.md)・[ADR-0041](../adr/0041-affinity-engine.md)）。
+`post_turn` は返答から `ENGINE_POST_TURN_DELAY_SECONDS`（既定 180 秒）後に実行でき、続けて話すあいだは後ろにずれる（最大 18 分）。
+**「覚えました」の通知と約束の登録は、ユーザーが話すのをやめてから約 3 分後（話し続ければ最大 18 分後）** になる。
+通知はそのキャラの DM の画面を開いている間だけ出る（Realtime の購読は DM の画面。閉じた後に作られた記憶は、次にメモリパネルを開いたときに見える）。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as worker（ワーカー）
+  participant DB as Postgres
+  participant E as Embedding
+  participant L as LLM
+  W->>DB: engine_jobs から実行時刻の来たジョブを 1 件取る（FOR UPDATE SKIP LOCKED）
+  W->>DB: conversations.analyzed_until より新しいターン（最大 ENGINE_POST_TURN_MAX_TURNS）
+  Note over W: Gate #1・E6 のターンは記憶・好感度から外す。操作の発言は置き換え（記憶経由の注入の防止）。相づちだけなら LLM を呼ばない
+  W->>E: ユーザーの文と候補の本文を埋め込み
+  W->>DB: 似ている既存の記憶・未達の約束
+  W->>L: memory_analysis（JSON。add / update / supersede / noop・約束・約束の更新・キャラの発言）
+  W->>DB: 1 トランザクション（ペアのロック）: 墓標・重複・ユーザー編集の保護・件数の上限を確かめて memories / promises / character_memories に書く
+  W->>DB: audit memory.* / promise.* / character_memory.create / memory.analysis
+  W->>DB: 新しい約束を character_events（visibility = user, kind = promise）に（calendar.promise_event）
+  W->>W: 好感度: 操作の検知（ルール）→ 残りを affinity_eval で採点
+  W->>L: affinity_eval（JSON。ターンごと・軸ごとに -2〜+2）
+  W->>DB: 行ロックの中で上限・段階を計算して affinity_states / affinity_history を更新、audit affinity.*
+  W->>DB: analyzed_until を進める → ジョブを done（残りがあれば続けて登録）
+  Note over DB: memories の INSERT は Realtime で本人のブラウザへ →「〇〇があなたのことを覚えました」
+```
+
+- 途中で失敗した場合は、終えた手順を記録して再試行する（指数バックオフ。上限 `ENGINE_JOB_MAX_ATTEMPTS` で `dead`、audit `engine.job_dead`）。最後の試行でも失敗した手順は飛ばす。
+- `memory.summarize`: 未要約のメッセージが 100 件（`MEMORY_SUMMARY_TRIGGER_TURNS` × 2）を超えたら、古い順にチャンクで要約して `kind = summary` の記憶を作る（[ADR-0028](../adr/0028-llm-input-budgets-and-summary-retries.md)）。
+
+## 8. メモリパネルでの編集と約束
+
+DM 画面ヘッダーの「i」で開く。変更はすべて Python API 経由（Gate #1 + 監査ログ）（[ADR-0038](../adr/0038-memory-engine-v2.md)・[ADR-0039](../adr/0039-user-edited-memory-protection.md)）。
 
 ```mermaid
 sequenceDiagram
@@ -250,30 +311,85 @@ sequenceDiagram
   participant API as Python API
   participant E as Embedding
   participant DB as Postgres
-  B->>API: GET /memories?character_id=...
-  API->>DB: 本人 × キャラの記憶（重要度 desc, created_at desc、最大 500 件）
-  API-->>B: memories
-  B->>API: POST /memories {character_id, content, importance, tags(secret)}
-  API->>API: レート制限（30 / 分、PATCH と共有）。summary タグの指定は 422
+  B->>API: GET /memories?character_id=...&include_superseded=true
+  API->>DB: 本人 × キャラの記憶（有効 + 置き換えられた履歴）
+  API-->>B: memories（kind・status・superseded_by など）
+  B->>API: GET /promises?character_id=...
+  API-->>B: 未達の約束（期日の近い順）
+  B->>API: POST /memories {character_id, content, importance, tags, kind}
+  API->>API: レート制限（30 / 分、PATCH と共有）。summary のタグ・種類の指定は 422
   API->>DB: ペアの記憶の件数（500 件に達していたら 422）
   API->>API: Gate ＃1（入力。ヒットなら 422 moderation_blocked）
   API->>E: 埋め込み（10 秒で打ち切り。失敗なら 503 と audit llm.error = user_memory）
   API->>DB: ペア単位のロックを取って件数を数え直し、INSERT memories（is_user_edited = true）、audit memory.create（source = user）
   API-->>B: 201 MemoryDTO
-  B->>API: PATCH /memories/{id} {importance / tags / content}
-  API->>DB: 本人の記憶か（違えば 404）
-  API->>API: 本文が変わるときだけ Gate ＃1 と再埋め込み
+  B->>API: PATCH /memories/{id} {importance / tags / content / kind}
+  API->>DB: 本人の記憶か（違えば 404）。本文が変わるときだけ Gate ＃1 と再埋め込み
   API->>DB: UPDATE（is_user_edited = true）、audit memory.update（before / after）
   B->>API: DELETE /memories/{id}（確認ダイアログの後）
-  API->>DB: DELETE（本人の記憶のみ）、audit memory.delete
+  API->>DB: この記憶から作られた未達の約束を取り消し（カレンダーの予定も取り消し。audit promise.status_change）
+  API->>DB: 墓標（本文のハッシュと埋め込み）を memory_tombstones に → 記憶の行を削除、audit memory.delete
   API-->>B: 204
+  B->>API: PATCH /promises/{id} {status: done | cancelled}
+  API->>DB: 状態を変更（取り消しなら予定を取り消し、元の記憶を履歴に）、audit promise.status_change
   Note over B,DB: UI は楽観的更新 → 失敗時ロールバック（追加・編集の入力内容は消さずに戻す）→ 最後に再取得
 ```
 
-- 削除した記憶は次の `/chat` の検索対象から外れる（`memories_used` に出ない）。ユーザーが追加・編集した記憶は自動抽出の重複排除で上書きされない。
+- 削除した記憶は次の返答の検索対象から外れ、**自動抽出でも作り直されない**（墓標。ユーザーが追加し直すのは可）。ユーザーが追加・編集した記憶は自動処理で上書き・置き換えされない（E5）。
 - `secret` タグ（「二人だけの秘密」）の記憶は、プロンプトで `（二人だけの秘密）` を付けて渡る。
 
-## 8. 退会
+## 9. キャラの予定と状態（`calendar.ensure_schedules`・`calendar.tick`）
+
+worker のスケジューラ（リーダーの 1 台）が動かす（[ADR-0040](../adr/0040-character-calendar.md)）。LLM を使うのはフィードのキャプションだけ。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as worker（スケジューラ）
+  participant DB as Postgres
+  participant L as LLM
+  Note over S: 1 時間ごと: calendar.ensure_schedules
+  S->>DB: 有効なキャラごとにアドバイザリーロック → 昨日〜7 日先の未生成の日を、ペルソナのテンプレートから決定的に生成
+  S->>DB: 既存の予定と重なる分は切り取り、INSERT character_events（排他制約で重なりを拒否したものは audit calendar.conflict）、audit calendar.generate
+  Note over S: 5 分ごと: calendar.tick
+  S->>DB: 今の予定から状態を計算 → character_states を更新（予定が変わったら audit calendar.state_change）
+  S->>DB: 終わった予定を done（calendar.event_done）→ 目立つ出来事を character_memories（全ユーザー共通）に（character_memory.create）
+  S->>L: 投稿すると決まった予定のキャプション（feed_caption。1 キャラ 1 日 2 件まで）
+  S->>S: Gate #1・NG ワード・リンク・OutputGuard（E2 / E3）
+  S->>DB: post_image_pool から画像を選び INSERT posts（published_at = 終わりの 10〜60 分後、source_event_id）、audit calendar.post_create
+  Note over DB: ブラウザは character_states（status_label）を DM ヘッダーに出す。posts は公開時刻を過ぎるとフィードに出る
+```
+
+## 10. 自発メッセージ（`proactive.scan`）
+
+10 分ごと（[ADR-0042](../adr/0042-proactive-messenger.md)）。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant S as worker（スケジューラ）
+  participant DB as Postgres
+  participant L as LLM
+  participant B as ブラウザ
+  S->>DB: 会話のあるペア（停止していない・30 日以内に話した）と、今日の送信数・最後の送信
+  S->>S: ユーザー単位の制限（送らない時間帯・1 日 3 通・未返信の自発メッセージ・間隔）→ ペア単位の上限（段階 × ペルソナの頻度）
+  S->>DB: きっかけ（約束の期日・終わった予定・行事・しばらく話していない・最近の投稿）
+  S->>S: スコア → ユーザーごとに 1 件
+  S->>L: proactive_message（ペルソナの口調・段階・状態・記憶）
+  S->>S: Gate #1・OutputGuard・責める言い方の検査（ヒットなら送らず audit proactive.dropped）
+  S->>DB: 1 トランザクション: 会話をロックして上限を数え直し → INSERT messages（is_proactive = true）+ proactive_messages、audit proactive.send
+  S->>DB: 約束なら promises.status = mentioned
+  DB-->>B: Realtime（messages INSERT）→ DM 一覧で未読・通常の吹き出し
+```
+
+## 11. 日次の処理（`affinity.daily`・`jobs.cleanup`）
+
+| タスク | 時刻（JST） | 内容 |
+| --- | --- | --- |
+| `affinity.daily` | 毎日 4 時（`ENGINE_AFFINITY_DAILY_HOUR_JST`） | 気まずさ・不満・独占欲の減衰（audit `affinity.decay`）、日数の経過による段階の遷移（`affinity.stage_change`）。好意の軸は減らさない |
+| `jobs.cleanup` | 毎日 3 時 | `running` のまま止まったジョブを戻す（上限なら `dead`）、完了から `ENGINE_JOB_RETENTION_DAYS` たったジョブを削除 |
+
+## 12. 退会
 
 ```mermaid
 sequenceDiagram

@@ -1,6 +1,6 @@
 # ADR-0020: コンテンツ管理（ペルソナ YAML → seed.sql の生成・予約投稿・成人のみの検証）
 
-- ステータス: 採用
+- ステータス: 採用（ペルソナ YAML の `engine:` セクションと検証を [ADR-0035](0035-character-engine-architecture.md)、エンジン用のシード（`seed_engine.sql` の画像プール）を [ADR-0040](0040-character-calendar.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §8.1・§11・§12「管理画面は作らない」・§18 / [ADR-0004](0004-schema-changes-from-spec.md) / 実装: `packages/personas/`（`*.yaml`, `seed/feed.yaml`, `scripts/generate_seed.py`, `scripts/validate_personas.py`）, `infra/supabase/seed.sql`, `apps/api/app/services/persona.py`
 

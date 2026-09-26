@@ -15,7 +15,6 @@ Generating route types...
 exit 0
 
 $ pnpm --filter @everkano/web test
-
 > @everkano/web@0.1.0 test /home/user/everkano/apps/web
 > vitest run
 
@@ -23,10 +22,10 @@ $ pnpm --filter @everkano/web test
  RUN  v4.1.11 /home/user/everkano/apps/web
 
 
- Test Files  35 passed (35)
-      Tests  351 passed (351)
-   Start at  15:43:27
-   Duration  4.46s (transform 1.80s, setup 0ms, import 5.32s, tests 1.30s, environment 4ms)
+ Test Files  43 passed (43)
+      Tests  432 passed (432)
+   Start at  10:41:40
+   Duration  6.02s (transform 2.41s, setup 0ms, import 7.42s, tests 1.67s, environment 5ms)
 
 exit 0
 

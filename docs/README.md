@@ -5,22 +5,24 @@ everkano（Project P MVP）のドキュメント一覧。環境構築・テス�
 | ディレクトリ / ファイル                         | 内容                                                                                                   | 更新のタイミング                                    |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
 | [handover/](handover/README.md)                 | 引き継ぎ資料（読む順番・前提・引き継ぎ直後のチェックリスト）                                           | 構成・運用・手順が変わったとき                      |
-| [handover/01-architecture.md](handover/01-architecture.md) | 構成図、コンポーネント間の通信と認証、技術スタック、環境                                   |                                                     |
-| [handover/02-data-flow.md](handover/02-data-flow.md) | シーケンス図（ログイン・フィード・いいね・コメントと自動返信・DM・メモリ編集・退会）              |                                                     |
+| [handover/01-architecture.md](handover/01-architecture.md) | 構成図、コンポーネント間の通信と認証、キャラクターエンジンの構成、技術スタック、環境        |                                                     |
+| [handover/02-data-flow.md](handover/02-data-flow.md) | シーケンス図（ログイン・フィード・いいね・コメントと自動返信・DM のストリーミング・返答の後のジョブ・メモリパネル・予定・自発メッセージ・退会） |                         |
 | [handover/03-data-model.md](handover/03-data-model.md) | テーブル・権限マトリクス・トリガー・RPC・Realtime                                               | マイグレーションを足したとき                        |
 | [handover/04-api.md](handover/04-api.md)        | Python API のエンドポイント・エラーコード・制限                                                        | エンドポイントを変えたとき                          |
-| [handover/05-memory-and-moderation.md](handover/05-memory-and-moderation.md) | メモリエンジンと Gate #1                                                  |                                                     |
+| [handover/05-memory-and-moderation.md](handover/05-memory-and-moderation.md) | 記憶エンジン v2・Gate #1・E6 の安全対応・OutputGuard                        |                                                     |
 | [handover/06-operations.md](handover/06-operations.md) | ランブック（デプロイ・監視・監査ログの SQL・障害対応・定常作業・既知の制約）                   |                                                     |
-| [handover/07-security.md](handover/07-security.md) | 脅威モデル・H4 / H7・RLS のテスト                                                                    |                                                     |
+| [handover/07-security.md](handover/07-security.md) | 脅威モデル・H4 / H7・エンジンの E1〜E9・RLS のテスト                                                 |                                                     |
 | [handover/08-dev-guide.md](handover/08-dev-guide.md) | 開発の約束・エンドポイント追加・DB 変更・テスト・コミット / PR・ブランチ保護                       |                                                     |
 | [handover/supabase-auth.md](handover/supabase-auth.md) | ホスト版 Supabase の Auth 設定チェックリスト                                                   | `infra/supabase/config.toml` の Auth 設定を変えたとき |
-| [adr/](adr/README.md)                           | 設計判断の記録（ADR-0001〜0034）。コードのコメントから番号で参照される                                  | 設計判断をしたとき（新しい番号で追加）              |
+| [adr/](adr/README.md)                           | 設計判断の記録（ADR-0001〜0049。0035 以降がキャラクターエンジン v1.0）。コードのコメントから番号で参照される | 設計判断をしたとき（新しい番号で追加）              |
+| [character-engine-report.md](character-engine-report.md) | キャラクターエンジン v1.0 の最終報告（全指標の結果・コスト・レイテンシ・提出物・残っている確認事項） | エンジンの評価をやり直したとき |
+| [eval/](eval/README.md)                         | キャラクターエンジンの評価ハーネスの使い方・指標・判定のプロンプト（`eval/prompts/`）・結果（`eval/results/`）・推移（`eval/history.md`） | プロンプト・パラメータを変えたとき（再実行して記録） |
 | [api/openapi.json](api/openapi.json)            | Python API の OpenAPI（生成物。`pnpm --filter @everkano/api openapi`）                                   | API のモデルを変えたとき（CI が差分を検出）         |
 | [acceptance/report.md](acceptance/report.md)    | 受け入れ基準 A1〜A16 の検証結果、実機・第三者の確認手順、提出物（§16）の状況                            | 受け入れ確認をしたとき                              |
 | [acceptance/e2e-results.md](acceptance/e2e-results.md) | E2E（Playwright）の実行結果の詳細                                                               | E2E を実行したとき                                  |
 | [acceptance/inspection-report.md](acceptance/inspection-report.md) | 納品前の検査の報告（観点別・重大度別の件数、修正前後の計測値、修正した項目、未対応の項目と推奨する対応） | 検査・再検査をしたとき                              |
 | [acceptance/raw/](acceptance/raw/)              | 各テストの生の出力（Playwright・pgTAP・pytest・監査ログのサンプル・会話ログ）                           |                                                     |
-| [acceptance/screenshots/](acceptance/screenshots/) | 全 22 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー）                 | `apps/web/e2e/screenshots.spec.ts` で再生成          |
+| [acceptance/screenshots/](acceptance/screenshots/) | 全 26 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー。23〜26 はエンジン v1.0 の画面） | `apps/web/e2e/screenshots.spec.ts` で再生成          |
 
 各パッケージの README: [apps/web](../apps/web/README.md) / [apps/web/e2e](../apps/web/e2e/README.md) / [apps/api](../apps/api/README.md) /
 [packages/personas](../packages/personas/README.md) / [packages/prompts](../packages/prompts/README.md) /

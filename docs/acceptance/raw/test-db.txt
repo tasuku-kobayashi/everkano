@@ -1,4 +1,4 @@
-ok    infra/supabase/tests/database/00_privileges.test.sql (14 tests)
+ok    infra/supabase/tests/database/00_privileges.test.sql (16 tests)
 ok    infra/supabase/tests/database/01_profiles.test.sql (23 tests)
 ok    infra/supabase/tests/database/02_characters_posts.test.sql (20 tests)
 ok    infra/supabase/tests/database/03_likes.test.sql (15 tests)
@@ -8,5 +8,9 @@ ok    infra/supabase/tests/database/06_anon_and_private_tables.test.sql (29 test
 ok    infra/supabase/tests/database/07_triggers.test.sql (19 tests)
 ok    infra/supabase/tests/database/08_auth_password_hardening.test.sql (18 tests)
 ok    infra/supabase/tests/database/09_foreign_key_indexes.test.sql (7 tests)
+ok    infra/supabase/tests/database/10_engine_memory.test.sql (30 tests)
+ok    infra/supabase/tests/database/11_engine_calendar_affinity.test.sql (24 tests)
+ok    infra/supabase/tests/database/12_engine_proactive_jobs.test.sql (22 tests)
+ok    infra/supabase/tests/database/13_safety_flag_quiet_pair.test.sql (13 tests)
 
-すべて成功: 10 ファイル / 195 tests
+すべて成功: 14 ファイル / 286 tests

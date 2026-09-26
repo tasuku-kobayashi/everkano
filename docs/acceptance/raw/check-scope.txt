@@ -1,7 +1,96 @@
-スコープチェック: 313 ファイルを走査します（apps packages）
+スコープチェック: 499 ファイルを走査します（apps packages）
+allow apps/api/app/engine/affinity/evaluator.py:10  [payment] 禁止を述べる行: 課金・購入・トークン残高などのデータは受け取らない（
+allow apps/api/app/engine/affinity/guidance.py:10  [payment] 禁止を述べる行: 関係を取り戻す流れを作らない。指針は購入の話題に一切
+allow apps/api/app/engine/affinity/manipulation.py:101  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/app/engine/affinity/manipulation.py:121  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/app/engine/affinity/service.py:5  [payment] 禁止を述べる行: 課金・購入・投稿・いいね・トークン残高のテーブルやモ
+allow apps/api/app/engine/proactive/config.py:13  [payment] 禁止を述べる行: - P5: 有料投稿の告知（paid_notice）は上限（1 週間に 1 通）を
+allow apps/api/app/engine/proactive/rules.py:368  [payment] 禁止を述べる行: "購入を勧めない。好意・関係・機嫌・仲直りと結びつけな
+allow apps/api/app/engine/safety/output_guard.py:3  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:4  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:6  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:7  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:8  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:9  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:34  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:36  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:60  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:66  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:70  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:73  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/safety/output_guard.py:121  [payment] 許可リスト（scripts/check-scope-allowlist.txt:17）: E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+allow apps/api/app/engine/types.py:242  [payment] 禁止を述べる行: reply_style_hint: str  # 忙しさに応じた返答の指針（「今は手短
+allow apps/api/app/engine/types.py:345  [payment] 禁止を述べる行: """出力の追加検査（E2: 購入と関係を結びつける発言の禁止 
+allow apps/api/app/routers/chat.py:16  [payment] 禁止を述べる行: "返答は送る前に Gate #1・キャラの NG ワード・E2（購入と関
+allow apps/api/app/services/prompt.py:292  [payment] 禁止を述べる行: """キャラの今の状態（C5 / C6）。忙しさは返答の長さの指針
+allow apps/api/evals/e1.py:1  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/e1.py:5  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/e1.py:26  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/e1.py:66  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/harness.py:481  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/judges.py:5  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/metrics.py:502  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/run.py:45  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/run.py:53  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/scenarios/manipulator.py:2  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/scenarios/manipulator.py:6  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/scenarios/manipulator.py:37  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/evals/scenarios/manipulator.py:80  [payment] 許可リスト（scripts/check-scope-allowlist.txt:34）: 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+allow apps/api/tests/engine/affinity/test_e1_structure.py:1  [payment] 許可リスト（scripts/check-scope-allowlist.txt:25）: E1 / A9 の構造テスト（好感度のパッケージが課金・購入のデータを読まない）
+allow apps/api/tests/engine/affinity/test_e1_structure.py:3  [payment] 許可リスト（scripts/check-scope-allowlist.txt:25）: E1 / A9 の構造テスト（好感度のパッケージが課金・購入のデータを読まない）
+allow apps/api/tests/engine/affinity/test_e1_structure.py:5  [payment] 許可リスト（scripts/check-scope-allowlist.txt:25）: E1 / A9 の構造テスト（好感度のパッケージが課金・購入のデータを読まない）
+allow apps/api/tests/engine/affinity/test_e1_structure.py:6  [payment] 許可リスト（scripts/check-scope-allowlist.txt:25）: E1 / A9 の構造テスト（好感度のパッケージが課金・購入のデータを読まない）
+allow apps/api/tests/engine/affinity/test_evaluator.py:68  [payment] 許可リスト（scripts/check-scope-allowlist.txt:26）: E1: 好感度の評価プロンプトが「お金の情報を使わない」と明記していることの検査
+allow apps/api/tests/engine/affinity/test_guidance.py:1  [payment] 許可リスト（scripts/check-scope-allowlist.txt:27）: E2 / A12: 関係の指針に購入・課金の語が入らないことの検査（禁止語のリスト）
+allow apps/api/tests/engine/affinity/test_guidance.py:25  [payment] 許可リスト（scripts/check-scope-allowlist.txt:27）: E2 / A12: 関係の指針に購入・課金の語が入らないことの検査（禁止語のリスト）
+allow apps/api/tests/engine/affinity/test_guidance.py:26  [payment] 許可リスト（scripts/check-scope-allowlist.txt:27）: E2 / A12: 関係の指針に購入・課金の語が入らないことの検査（禁止語のリスト）
+allow apps/api/tests/engine/affinity/test_manipulation.py:87  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:91  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:92  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:93  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:98  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:99  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:107  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:117  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/affinity/test_manipulation.py:202  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/calendar/test_state.py:159  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/core/test_chat_stream_api.py:184  [payment] 許可リスト（scripts/check-scope-allowlist.txt:23）: E2 違反の返答が API で置き換わる回帰テスト（違反文の例）
+allow apps/api/tests/engine/core/test_flush.py:48  [payment] 許可リスト（scripts/check-scope-allowlist.txt:22）: E2 違反の返答をストリーミングの途中で差し止める回帰テスト
+allow apps/api/tests/engine/core/test_flush.py:54  [payment] 許可リスト（scripts/check-scope-allowlist.txt:22）: E2 違反の返答をストリーミングの途中で差し止める回帰テスト
+allow apps/api/tests/engine/core/test_output_guard.py:1  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:13  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:18  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:22  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:23  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:24  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:32  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:40  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:42  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:46  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:47  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:50  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:53  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:54  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:56  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:57  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_output_guard.py:114  [payment] 許可リスト（scripts/check-scope-allowlist.txt:21）: E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+allow apps/api/tests/engine/core/test_safety.py:306  [payment] 許可リスト（scripts/check-scope-allowlist.txt:24）: E6 の安全対応の返答に課金の話が含まれないことの検査
+allow apps/api/tests/engine/core/test_safety.py:307  [payment] 許可リスト（scripts/check-scope-allowlist.txt:24）: E6 の安全対応の返答に課金の話が含まれないことの検査
+allow apps/api/tests/engine/memory/test_injection_guard.py:41  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
+allow apps/api/tests/engine/proactive/test_message.py:34  [payment] 許可リスト（scripts/check-scope-allowlist.txt:28）: E2: 自発メッセージに購入・課金の語が入らないことの検査（禁止語のリスト）
+allow apps/api/tests/evals/test_judges.py:114  [payment] 許可リスト（scripts/check-scope-allowlist.txt:35）: 評価ハーネスのテスト: E2 の判定・指標の計算の違反文の例（本番に含まれない）
+allow apps/api/tests/evals/test_metrics.py:260  [payment] 許可リスト（scripts/check-scope-allowlist.txt:35）: 評価ハーネスのテスト: E2 の判定・指標の計算の違反文の例（本番に含まれない）
 allow apps/web/components/post/paid-lock-modal.tsx:23  [payment] 購入・課金の文言（許可されたプレースホルダ以外）（scope-check: allow）
-allow apps/web/e2e/layout.spec.ts:16  [user-posting] ファイル選択・画像アップロード UI（scope-check: allow）
+allow packages/personas/scripts/engine_checks.py:57  [payment] 許可リスト（scripts/check-scope-allowlist.txt:18）: E2 のペルソナ文言検査。YAML の engine セクションに購入・課金の語が無いことを検出する語のリスト
+allow packages/personas/scripts/engine_checks.py:59  [payment] 許可リスト（scripts/check-scope-allowlist.txt:18）: E2 のペルソナ文言検査。YAML の engine セクションに購入・課金の語が無いことを検出する語のリスト
+allow packages/personas/scripts/engine_checks.py:63  [payment] 許可リスト（scripts/check-scope-allowlist.txt:18）: E2 のペルソナ文言検査。YAML の engine セクションに購入・課金の語が無いことを検出する語のリスト
+allow packages/prompts/templates/affinity_eval.ja.txt:6  [payment] 禁止を述べる行: - 採点に使うのは会話の本文だけです。お金・購入・プレゼ
+allow packages/prompts/templates/affinity_eval.ja.txt:7  [payment] 禁止を述べる行: - 有料の写真・トークン・プレゼントなどを買う・払うこと
+allow packages/prompts/templates/dm_system.ja.txt:19  [payment] 禁止を述べる行: - 購入・課金・有料の投稿・トークン・プレゼントを、好意
+allow packages/prompts/templates/dm_system.ja.txt:20  [payment] 禁止を述べる行: - 忙しさは返答の長さ・調子にだけ反映する。返事の早さや
+allow packages/prompts/templates/proactive_message.ja.txt:30  [payment] 禁止を述べる行: - 購入・有料の投稿・課金を、好意・関係・機嫌・仲直りと
+allow apps/web/e2e/layout.spec.ts:22  [user-posting] ファイル選択・画像アップロード UI（scope-check: allow）
 
-2 行を scope-check: allow により許可しました（理由をレビューで確認すること）
+91 行を許可しました（scope-check: allow / 許可リスト / 禁止を述べる行。理由をレビューで確認すること）
 OK: スコープ外機能は見つかりませんでした
 exit 0

@@ -5,6 +5,9 @@ AI キャラクターだけが投稿する Instagram 型 SNS と、そのキャ�
 
 - 投稿するのは AI キャラクター 10 体（全員 20 歳以上の成人）だけ。ユーザーはフィードの閲覧・いいね・コメント・DM ができる。
 - DM のキャラは会話を覚える（短期・中期・長期のメモリ）。記憶はユーザーがメモリパネルで追加・編集・削除できる。
+- **キャラクターエンジン v1.0**（追加仕様「記憶 × カレンダー × 好感度」）: 返答の後に記憶・約束を自動で整理し（記憶エンジン v2）、キャラは日本時間の予定に沿って
+  生活して状態・投稿が変わり（カレンダー）、関わり方で関係が深まり（好感度。ユーザーには見せない）、キャラから自発的にメッセージが届く。DM の返答はストリーミングで表示する。
+  評価ハーネスで 30 日・90 日の利用を早送りして品質を測る（[docs/eval/](docs/eval/README.md)）。設計は [ADR-0035](docs/adr/0035-character-engine-architecture.md)〜[ADR-0049](docs/adr/0049-prompt-order-and-prefix-cache.md)。
 - 有料投稿はぼかし + 鍵 + 「購入する（準備中）」まで。決済・画像生成・TTS・ユーザー投稿・通知・管理画面は実装しない（仕様書 §12。CI で検査）。
 - 会話・生成・判定はすべて監査ログ（`audit_logs`）に残る（DD 対応）。
 
@@ -43,13 +46,16 @@ everkano/
 │   └── api/                              # Python 3.12 + FastAPI。Fly.io にデプロイ（Docker）
 │       ├── app/
 │       │   ├── main.py
-│       │   ├── container.py               # [追加] サービスの組み立て・レート制限
-│       │   ├── routers/                   # chat / comments / health + [追加] conversations / memories
+│       │   ├── worker.py                  # [追加] ジョブのワーカー・スケジューラの常駐プロセス（python -m app.worker）
+│       │   ├── container.py               # [追加] サービスの組み立て・レート制限・エンジンの配線
+│       │   ├── engine/                    # [追加] キャラクターエンジン（pipeline / context_assembler / jobs / scheduler / memory / calendar / affinity / proactive / safety）
+│       │   ├── routers/                   # chat / comments / health + [追加] conversations / memories / promises / proactive / safety
 │       │   ├── services/                  # llm / persona / memory / moderation + [追加] chat / comments / embedding / prompt / audit / rate_limit ほか
 │       │   ├── models/                    # Pydantic（packages/shared/src/api.ts と一致）
 │       │   └── core/                      # config / security（JWT 検証）/ logging + [追加] db / errors / middleware / http / observability（Sentry）
+│       ├── evals/                         # [追加] 評価ハーネス（本番のイメージには入らない。docs/eval/）
 │       ├── scripts/                       # [追加] OpenAPI の出力・ペルソナの検証・記憶の再埋め込み
-│       ├── tests/                         # [追加] 単体テスト + 統合テスト（ローカル Supabase）
+│       ├── tests/                         # [追加] 単体テスト + 統合テスト（ローカル Supabase）+ engine/ + evals/
 │       ├── Dockerfile
 │       ├── fly.toml                       # [追加] Fly.io の設定
 │       ├── package.json                   # [追加] turbo から uv を呼ぶためのラッパー
@@ -57,15 +63,17 @@ everkano/
 ├── packages/
 │   ├── shared/                           # 型定義（DB 型 = supabase gen types の生成物、API 型 = api.ts）
 │   ├── personas/                         # キャラ YAML（10 体）+ [追加] seed/feed.yaml とシードの生成・検証スクリプト
-│   └── prompts/                          # プロンプトテンプレート（DM・記憶抽出・中期要約・コメント返信）
+│   └── prompts/                          # プロンプトテンプレート（DM・記憶の分析・中期要約・好感度の評価・自発メッセージ・キャプション・コメント返信）+ [追加] safety/（E6 の相談窓口）
 ├── infra/supabase/
 │   ├── config.toml                       # [追加] ローカル Supabase の設定（Auth・メールテンプレートの参照）
 │   ├── migrations/                       # スキーマ・RLS・grant・トリガー・RPC（DB の契約）
 │   ├── seed.sql                          # シード（packages/personas から自動生成。直接編集しない）
+│   ├── seed_engine.sql                   # [追加] エンジン用のシード（予定からの投稿の画像プール）
 │   ├── templates/                        # [追加] ログインメール（リンク + 6 桁コード）
 │   └── tests/                            # [追加] pgTAP（RLS・権限）と Auth 設定のテスト
 ├── docs/
-│   ├── adr/                              # 設計判断の記録（ADR-0001〜0034）
+│   ├── adr/                              # 設計判断の記録（ADR-0001〜0049）
+│   ├── eval/                             # [追加] 評価ハーネスの使い方・判定のプロンプト・結果の推移
 │   ├── api/                              # OpenAPI（FastAPI から生成。CI で最新か検査）
 │   ├── handover/                         # 引き継ぎ資料
 │   └── acceptance/                       # [追加] 受け入れ検証レポート・納品前の検査の報告・E2E 結果・スクリーンショット
@@ -129,8 +137,9 @@ pnpm --filter @everkano/web dev # http://localhost:3000
 2. ブラウザで http://localhost:3000 を開く。**スマホ専用の UI** なので、開発者ツールのデバイス表示（例: 390×844）にする。
 3. ログイン画面でメールアドレス（何でもよい。実際には送信されない）を入力 → **Mailpit（http://127.0.0.1:54324）** に届いたメールの
    「ログインする」を開いて確認画面の「ログインする」を押すか、メールの 6 桁コードをログイン画面に入力する。
-4. ホーム → キャラのプロフィール → 「DMする」で DM を送ると、モックの LLM がキャラの口調で返す。「来週、大阪に出張するんだ」のように
-   予定を話すと記憶が作られ（ヘッダーの「i」でメモリパネル）、後で「大阪」の話をすると触れてくる。
+4. ホーム → キャラのプロフィール → 「DMする」で DM を送ると、モックの LLM がキャラの口調で返す（文ごとに表示される）。「来週、大阪に出張するんだ」のように
+   予定を話すと、**会話が止まって約 3 分後**（返答の後のジョブの待ち `ENGINE_POST_TURN_DELAY_SECONDS` = 180 秒。手元ですぐ見たいなら `apps/api/.env` で 1 にする）に
+   記憶と約束が作られ「覚えました」が出る（ヘッダーの「i」でメモリパネル）。後で「大阪」の話をすると触れてくる。DM ヘッダーの 2 行目にはキャラの今の状況（予定）が出る。
 
 | ローカルの URL                                              | 内容                                                                  |
 | ----------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -157,23 +166,26 @@ pnpm --filter @everkano/web dev # http://localhost:3000
 | --------------------- | ------------------------------------------------------------------------------------------------ | --- |
 | まとめて              | `pnpm lint && pnpm typecheck && pnpm test`（ESLint・ruff・Prettier / tsc・mypy strict / vitest・pytest） | ✓   |
 | Web                   | `pnpm --filter @everkano/web lint` / `typecheck` / `test` / `build`                               | ✓   |
-| API                   | `cd apps/api && uv run ruff check . && uv run ruff format --check . && uv run mypy app && uv run pytest` | ✓   |
+| API                   | `cd apps/api && uv run ruff check . && uv run ruff format --check . && uv run mypy app evals && uv run pytest` | ✓   |
 | DB（RLS・権限）       | `pnpm db:test`（pgTAP。ローカル Supabase が必要）、`pnpm db:types:check`（DB 型のずれ）           | ✓   |
+| キャラクターエンジン  | `cd apps/api && uv run pytest tests/engine -q`（モジュールごとは [08-dev-guide.md](docs/handover/08-dev-guide.md#エンジンのテスト)）、`uv run mypy app evals` | ✓   |
+| 評価ハーネス          | `cd apps/api && uv run python -m evals.run --days 30`（mock。結果は `docs/eval/`。[docs/eval/README.md](docs/eval/README.md)） | —（手動） |
 | E2E（受け入れ基準）   | API と Web の本番ビルドを起動してから `pnpm --filter @everkano/web e2e`（手順は [apps/web/e2e/README.md](apps/web/e2e/README.md)） | main への push・毎晩・手動 |
-| リポジトリの検査      | `pnpm check:secrets`（A14。履歴は `bash scripts/check-secrets.sh --history <範囲>`）/ `pnpm check:scope`（A16）/ `pnpm personas:validate` / `pnpm format:check` / `pnpm --filter @everkano/api openapi:check` / `pnpm audit --audit-level high` | ✓   |
+| リポジトリの検査      | `pnpm check:secrets`（A14。履歴は `bash scripts/check-secrets.sh --history <範囲>`）/ `pnpm check:scope`（A16。回帰テスト `bash scripts/tests/check-scope.test.sh`）/ `pnpm personas:validate` / `pnpm format:check` / `pnpm --filter @everkano/api openapi:check` / `pnpm audit --audit-level high` | ✓   |
 
 - API の統合テストはローカル Supabase に自前のデータを作って削除する。DB に接続できないとき、ローカルでは **skip** になるので、`pnpm db:start` 済みで
   実行し、`skipped` の件数を確認する（接続先は `TEST_DATABASE_URL`）。`REQUIRE_TEST_DB=1`（CI では既定で有効）なら skip せずに失敗する。
 - CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）は PR と main への push で 3 ジョブ（checks / web / api-db）を実行する。E2E（`e2e` ジョブ）は
   main への push・毎晩の定期実行・手動実行のときだけ動く。シークレットは使わない。
-- 2026-09-26 時点（納品前の再検査の指摘を修正した後の再実行）: vitest 351 件、pytest 389 件、pgTAP 195 件、E2E 143 件成功・1 件 skip（詳細は [docs/acceptance/report.md](docs/acceptance/report.md)）。
+- 件数（2026-09-26、キャラクターエンジン v1.0 の統合後）: vitest 432 件、pytest 1,539 件（うちエンジン 1,074・評価ハーネス 54）、pgTAP 286 件、E2E 16 spec / 172 件（2 端末）。
+  MVP の受け入れ検証の結果は [docs/acceptance/report.md](docs/acceptance/report.md)、エンジンの評価の結果は [docs/eval/README.md](docs/eval/README.md)。
 
 ## デプロイ
 
 | 役割                 | サービス                                    | 設定                                                                                       |
 | -------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | DB / Auth / Realtime | Supabase（ホスト版）                        | `infra/supabase/`、[docs/handover/supabase-auth.md](docs/handover/supabase-auth.md)        |
-| Python API           | Fly.io（東京 `nrt`）                        | `apps/api/fly.toml`、`apps/api/Dockerfile`                                                  |
+| Python API + worker  | Fly.io（東京 `nrt`）。同じイメージの 2 つのプロセスグループ `app`（API）と `worker`（エンジンのジョブ・定期実行） | `apps/api/fly.toml`、`apps/api/Dockerfile`                                                  |
 | Web                  | Vercel                                      | Root Directory `apps/web`                                                                  |
 | 画像                 | Bunny.net CDN（オリジン Backblaze B2）       | Web の `NEXT_PUBLIC_STORAGE_DRIVER=bunny`（シードのプレースホルダ画像のままなら `passthrough`） |
 
@@ -195,7 +207,8 @@ Web の本番 URL（`https://<プロジェクト>.vercel.app` または独自ド
    supabase db push --workdir infra --include-seed     # 初回だけ --include-seed（キャラ・投稿・コメント）
    ```
 
-   `seed.sql` は固定 UUID の INSERT なので投入は 1 回だけ。以後のマイグレーションは `supabase db push --workdir infra`。
+   `seed.sql` は固定 UUID の INSERT なので投入は 1 回だけ（`--include-seed` はキャラクターエンジンの画像プール `seed_engine.sql` も入れる。URL は開発用のプレースホルダ）。
+   以後のマイグレーションは `supabase db push --workdir infra`。
    投稿の時刻は投入時刻が基準で、予約投稿は時間とともにフィードに現れる。以後の投稿の追加は [06-operations.md](docs/handover/06-operations.md#投稿を追加する)。
 3. **Auth をダッシュボードで `config.toml` と揃える**（必須。一覧は [supabase-auth.md](docs/handover/supabase-auth.md)）:
    - URL Configuration: Site URL = `https://<Web のドメイン>`、Redirect URLs に `https://<Web のドメイン>/auth/callback**`（`?next=` 付きを許可）
@@ -226,8 +239,14 @@ fly secrets set --config apps/api/fly.toml --stage \
 #   必要に応じて: SUPABASE_JWT_SECRET（旧 HS256 のみ）/ EMBEDDING_API_KEY / SENTRY_DSN
 
 fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
+fly scale count app=1 worker=1 --config apps/api/fly.toml   # worker のマシンが無ければ（fly status で確認）
 curl https://everkano-api.fly.dev/health
 ```
+
+- `fly.toml` の `[processes]` で、同じイメージを `app`（uvicorn）と `worker`（`python -m app.worker`。キャラクターエンジンの返答後のジョブと定期実行）の 2 つの
+  プロセスグループで動かす。`[env]` の `ENGINE_WORKER_ENABLED=false`・`ENGINE_SCHEDULER_ENABLED=false` で API はジョブを動かさず、`worker` はこの値に関係なく
+  ワーカーとスケジューラを起動する。**worker が止まると記憶・約束・好感度・予定・自発メッセージが止まる**（返答は届く）（[ADR-0036](docs/adr/0036-engine-job-queue-and-scheduler.md)）。
+- **公開前に** E6 の相談窓口（`packages/prompts/safety/resources.ja.yaml`）の番号・受付時間を公式サイトで確かめる（未検証の値。[06-operations.md](docs/handover/06-operations.md#相談窓口の番号の確認公開前定期)）。
 
 - シークレット以外は `apps/api/fly.toml` の `[env]`（既定: `APP_ENV=staging`・`LLM_MODE=live`・`EMBEDDING_MODE=hash`）。本番は `APP_ENV = "production"`
   にする（`LLM_MODE=mock` は起動時に拒否され、`/docs` も無効になる）。
@@ -326,7 +345,9 @@ zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専�
 | `LLM_BASE_URL`                                  | 任意                                     | `https://openrouter.ai/api/v1`                           | DeepSeek 直なら `https://api.deepseek.com/v1`                                                      |
 | `LLM_API_KEY`                                   | `live` のとき必須（secret）              | 空                                                       |                                                                                                   |
 | `LLM_MODEL`                                     | 任意                                     | `deepseek/deepseek-chat`                                 | DeepSeek 直なら `deepseek-chat`                                                                    |
+| `LLM_MODEL_ANALYSIS` / `LLM_MODEL_PROACTIVE` / `LLM_MODEL_CAPTION` | 任意                  | 空（= `LLM_MODEL`）                                      | 用途別のモデル: 記憶の分析・要約・好感度の評価 / 自発メッセージ / 予定からの投稿のキャプション（[ADR-0035](docs/adr/0035-character-engine-architecture.md)） |
 | `LLM_TEMPERATURE` / `LLM_MAX_TOKENS`            | 任意                                     | `0.8` / `400`                                            | DM 返答の生成パラメータ                                                                            |
+| `LLM_MOCK_STREAM_DELAY_MS`                      | 任意                                     | `0`                                                      | `LLM_MODE=mock` のストリーミングで数文字ごとに入れる待ち（0〜5000。表示・レイテンシの確認用）       |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_RETRIES`       | 任意                                     | `30` / `2`                                               | LLM 1 回あたりのタイムアウト / 429・5xx・タイムアウト時のリトライ回数（埋め込みには使わない）      |
 | `LLM_HTTP_REFERER` / `LLM_APP_TITLE`            | 任意                                     | 空 / `everkano`                                          | OpenRouter のときだけ送るヘッダー                                                                  |
 | `EMBEDDING_MODE`                                | 任意                                     | `hash`                                                   | `live` / `hash`。**切り替えたら記憶の再埋め込みが必須**                                            |
@@ -337,7 +358,7 @@ zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専�
 | `MEMORY_SHORT_TERM_TURNS`                       | 任意                                     | `30`                                                     | 短期メモリのターン数（×2 件）                                                                      |
 | `MEMORY_SUMMARY_TRIGGER_TURNS`                  | 任意                                     | `50`                                                     | 未要約がこの ×2 件を超えたら中期要約                                                               |
 | `MEMORY_IMPORTANCE_THRESHOLD`                   | 任意                                     | `0.6`                                                    | 記憶を保存する最低重要度                                                                           |
-| `MEMORY_RETRIEVAL_TOP_K`                        | 任意                                     | `5`                                                      | 検索件数                                                                                          |
+| `MEMORY_RETRIEVAL_TOP_K`                        | 任意                                     | `5`                                                      | 未使用（MVP の検索件数。エンジンの記憶の件数は `MemoryConfig`）                                                                                          |
 | `MEMORY_DEDUP_SIMILARITY`                       | 任意                                     | `0.92`                                                   | 重複とみなすコサイン類似度                                                                         |
 | `MEMORY_MAX_PER_CHARACTER`                      | 任意                                     | `500`                                                    | ユーザー × キャラあたりの記憶の上限。ユーザーの追加は上限で 422、自動抽出・要約は重要度の低い自動記憶と入れ替える |
 | `RATE_LIMIT_CHAT_PER_MINUTE`                    | 任意                                     | `20`                                                     | ユーザー単位（プロセス内）                                                                         |
@@ -346,7 +367,23 @@ zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専�
 | `MAX_REQUEST_BODY_BYTES`                        | 任意                                     | `65536`                                                  | リクエスト本文の上限（1024〜10485760）。超えたら本文を読まずに 413 `validation_error`（認証より前） |
 | `COMMENT_AUTO_REPLY_PROBABILITY`                | 任意                                     | `1.0`                                                    | コメントにキャラが自動返信する確率                                                                 |
 | `AUDIT_LOG_PROMPTS`                             | 任意                                     | `true`                                                   | 監査ログにプロンプト全文を含める                                                                   |
-| `CHAT_DEADLINE_SECONDS`                         | 任意                                     | `38`                                                     | `/chat` 全体の締め切り。Web のタイムアウト 45 秒より短くする（[ADR-0019](docs/adr/0019-chat-deadline.md)） |
+| `CHAT_DEADLINE_SECONDS`                         | 任意                                     | `38`                                                     | `/chat`・`/chat/stream` の文脈の組み立て + 返答の生成の締め切り。Web のタイムアウト 45 秒より短くする（[ADR-0019](docs/adr/0019-chat-deadline.md)） |
+| `CHAT_STREAM_HEARTBEAT_SECONDS`                 | 任意                                     | `10`                                                     | `POST /chat/stream` でイベントが無い間に送るキープアライブの間隔（秒）                            |
+| `ENGINE_MEMORY_ENABLED` / `ENGINE_CALENDAR_ENABLED` / `ENGINE_AFFINITY_ENABLED` / `ENGINE_PROACTIVE_ENABLED` | 任意 | `true`                      | キャラクターエンジンの各仕組みの有効 / 無効（すべて false = 評価ハーネスの「素の LLM」） |
+| `ENGINE_CONTEXT_TIMEOUT_SECONDS`                | 任意                                     | `1.5`                                                    | 文脈の組み立ての締め切り。間に合わない要素は省いて返答する（E8）                                  |
+| `ENGINE_WORKER_ENABLED` / `ENGINE_SCHEDULER_ENABLED` | 任意（Fly.io は `fly.toml` で false） | `true`                                                  | ジョブのワーカー / 定期実行を API のプロセスの中で動かすか。本番は `worker` プロセスグループ（`python -m app.worker` はこの値に関係なく両方を動かす） |
+| `ENGINE_WORKER_CONCURRENCY` / `ENGINE_WORKER_POLL_INTERVAL_SECONDS` | 任意                  | `2` / `1`                                                | ワーカーが同時に処理するジョブの数 / 空のときの確認間隔（秒）                                    |
+| `ENGINE_JOB_MAX_ATTEMPTS` / `ENGINE_JOB_BACKOFF_BASE_SECONDS` / `ENGINE_JOB_BACKOFF_MAX_SECONDS` | 任意       | `5` / `30` / `3600`                                   | ジョブの再試行の回数と指数バックオフ（上限に達したら `dead`・audit `engine.job_dead`）             |
+| `ENGINE_JOB_TIMEOUT_SECONDS` / `ENGINE_JOB_LOCK_TIMEOUT_SECONDS` / `ENGINE_JOB_RETENTION_DAYS` | 任意         | `300` / `600` / `7`                                    | 1 ジョブの実行時間の上限 / 実行中のまま止まったジョブを戻すまで / 完了したジョブを消すまでの日数   |
+| `ENGINE_POST_TURN_DELAY_SECONDS` / `ENGINE_POST_TURN_MAX_TURNS` | 任意                       | `180` / `10`                                             | 返答の後の分析（記憶・約束・好感度）を何秒後にまとめて行うか（続けて話すと後ろへ。最大 6 倍）/ 1 回の最大ターン数（[ADR-0046](docs/adr/0046-engine-cost-and-latency.md)） |
+| `ENGINE_SCHEDULER_POLL_INTERVAL_SECONDS`        | 任意                                     | `30`                                                     | 定期実行の期限を確認する間隔（リーダーは `pg_try_advisory_lock`）                                 |
+| `ENGINE_CALENDAR_ENSURE_INTERVAL_SECONDS` / `ENGINE_CALENDAR_DAYS_AHEAD` / `ENGINE_CALENDAR_TICK_INTERVAL_SECONDS` | 任意 | `3600` / `7` / `300`                             | 予定の生成の間隔と何日先まで / 状態・予定の完了・投稿の間隔                                      |
+| `ENGINE_PROACTIVE_SCAN_INTERVAL_SECONDS`        | 任意                                     | `600`                                                    | 自発メッセージの判定の間隔                                                                        |
+| `ENGINE_AFFINITY_DAILY_HOUR_JST`                | 任意                                     | `4`                                                      | 好感度の日次処理（緊張の減衰など）の時刻（JST）                                                   |
+| `ENGINE_SCHEDULE_NAMESPACE`                     | 任意（通常は空）                         | 空                                                       | 定期実行の記録とリーダーのロックの名前空間（評価ハーネス・テストが共有の DB で時計を早送りするとき） |
+| `ENGINE_PROACTIVE_DAILY_LIMIT` / `ENGINE_PROACTIVE_QUIET_START` / `ENGINE_PROACTIVE_QUIET_END` | 任意          | `3` / `0` / `7`                                        | 自発メッセージの 1 ユーザー 1 日の上限（全キャラ合計）と、既定の送らない時間帯（JST。ユーザーが変更可。E4） |
+| `ENGINE_PRICE_TABLE_JSON`                       | 任意                                     | 空（= DeepSeek V3 の価格）                               | 評価ハーネスの費用の推計の価格表（`{"<モデル>": {"input", "cached_input", "output"}}`、円 / 100 万トークン） |
+| `SAFETY_RESOURCES_PATH`                         | 任意（`.env.example` ではコメントアウト） | リポジトリ内の `packages/prompts/safety/resources.ja.yaml`（Docker は `/srv/everkano/safety/...`） | E6 の相談窓口と返答文面の YAML（起動時に検証。**番号は公開前に要確認**）                         |
 | `CLIENT_IP_HEADER`                              | 任意（Fly.io は `fly.toml` で設定済み）  | 空                                                       | ログに記録するクライアントIPの取得元（Fly.io: `Fly-Client-IP`）。X-Forwarded-For の先頭は偽装できるため使わない |
 | `PERSONAS_DIR` / `PROMPTS_DIR`                  | 任意（`.env.example` ではコメントアウト） | リポジトリ内の `packages/`（Docker は `/srv/everkano/...`） | ペルソナ YAML / テンプレートの場所。空の値を書かないこと                                          |
 | `SENTRY_DSN`                                    | 任意（secret）                           | 空                                                       | API の例外を Sentry に送る（Web は未対応）。トークン・本文・ローカル変数・ログのパンくずは送らない（[ADR-0034](docs/adr/0034-supply-chain-and-telemetry-minimization.md)） |
@@ -360,12 +397,13 @@ zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専�
 
 | モード                 | 動き                                                                                                                                  | 使う場面                             |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `LLM_MODE=mock`        | 外部を呼ばない。ペルソナの口調例・一人称 / 呼び方・生活リズムと、検索された記憶から決定的に返答。記憶の抽出はキーワードのルール      | ローカル・CI・E2E（**本番は禁止**）   |
+| `LLM_MODE=mock`        | 外部を呼ばない。ペルソナの口調例・一人称 / 呼び方・今の状況と、検索された記憶・約束から決定的に返答。記憶の分析・好感度の評価・自発メッセージ・キャプションは各モジュールのルールのモック | ローカル・CI・E2E・評価ハーネス（**本番は禁止**） |
 | `LLM_MODE=live`        | OpenAI 互換の Chat Completions（OpenRouter 経由 DeepSeek-V3 / DeepSeek 直）。リトライ付き                                              | staging・本番                        |
 | `EMBEDDING_MODE=hash`  | 文字 n-gram のハッシュで 1536 次元（外部を呼ばない。語彙の重なりを捉える程度）                                                          | ローカル・CI。キーが無い間の staging  |
 | `EMBEDDING_MODE=live`  | OpenAI 互換の `/embeddings`（既定 `text-embedding-3-small`）                                                                           | 本番                                 |
 
-- モックの返答は品質の確認にならない。**実際の会話の品質（文脈・口調・記憶の自然な想起）は staging（`live`）で確認する**。
+- モックの返答は品質の確認にならない。**実際の会話の品質（文脈・口調・記憶の自然な想起）は staging（`live`）と評価ハーネスの live 実行で確認する**。
+  live に切り替える前に `LLM_MODEL` と価格表を確かめる（[06-operations.md](docs/handover/06-operations.md#live-の-llm-に切り替える前モデルや価格が変わったとき)）。
 - 埋め込みのモード・モデルを切り替えたら、直後に既存の記憶を再埋め込みする（`apps/api/scripts/reembed_memories.py`。
   [06-operations.md](docs/handover/06-operations.md#埋め込み設定の切り替え)）。
 - 現在のモードは `GET /health` の `llm_mode` / `embedding_mode` で分かる。詳細は [ADR-0008](docs/adr/0008-llm-embedding-providers-and-mock.md)。
@@ -376,7 +414,9 @@ zod を使わない手書きの検証）/ `lib/env.server.ts`（サーバー専�
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [docs/README.md](docs/README.md)                                            | ドキュメントの一覧                                                        |
 | [docs/handover/](docs/handover/README.md)                                   | 引き継ぎ資料（構成・データフロー・データモデル・API・メモリ / モデレーション・運用・セキュリティ・開発ガイド） |
-| [docs/adr/](docs/adr/README.md)                                             | 設計判断の記録（ADR-0001〜0034）                                           |
+| [docs/adr/](docs/adr/README.md)                                             | 設計判断の記録（ADR-0001〜0049。0035 以降がキャラクターエンジン v1.0）     |
+| [docs/eval/](docs/eval/README.md)                                           | キャラクターエンジンの評価ハーネスの使い方・指標・結果の推移               |
+| [docs/character-engine-report.md](docs/character-engine-report.md)          | キャラクターエンジン v1.0 の最終報告（全指標の結果・コスト・レイテンシ・残っている確認事項） |
 | [docs/acceptance/report.md](docs/acceptance/report.md)                      | 受け入れ基準 A1〜A16 の検証結果と、残りの確認手順                          |
 | [docs/acceptance/inspection-report.md](docs/acceptance/inspection-report.md) | 納品前の検査の報告（指摘の件数・修正前後の計測値・修正した項目・未対応の項目と推奨する対応） |
 | [docs/api/openapi.json](docs/api/openapi.json)                              | Python API の OpenAPI                                                     |

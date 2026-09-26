@@ -142,7 +142,7 @@ staging（HTTPS）で行う。Service Worker とホーム画面への追加に�
 
 | 項目                        | 内容                                                                                                                                                                                  |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ハイドレーションエラー #418 | 本番ビルドで動的ルート（`/dm/[characterId]`・`/c/[handle]`）を直接開いたとき、CPU 負荷が高い状況（E2E の並列実行など）で数十〜百回に 1 回程度。React がクライアントで描画し直すので表示と動作に影響は無い。静的ルート（`/`・`/dm`）では発生しない。検証済み: `loading.tsx` をすべて外しても、`htmlLimitedBots` を外しても再現するため、これらは原因ではない。ストリーミング SSR とハイドレーションのタイミングに依存する（負荷をかけないと再現しない）。原因は未特定 |
+| ハイドレーションエラー #418 | **解決済み**（2026-09-26）。原因は React 19.2 canary（Next.js 15.5.26 に同梱）が、ハイドレーション中に中断した `<main>` の直下の RSC の `children` を再開するときの不具合で、静的なルート（`/dm`）でも起きていた。`components/ui/main-shell.tsx` の `RouteContent` で解消（[ADR-0048](../adr/0048-web-confirm-history-hydration-fixes.md)。回帰テスト `e2e/hydration.spec.ts`。[e2e-results.md](e2e-results.md#既知の制約未解決)） |
 | E2E は CI で PR ごとには動かない | `.github/workflows/ci.yml` の `e2e` ジョブは main への push・毎晩・手動実行（Actions → CI → Run workflow）で動く。GitHub 上ではまだ一度も実行していない |
 | 納品前の検査で未対応の項目 | CAPTCHA（ログインのボット対策）の導入、API → DB の証明書の検証（`verify-full`）の本番での設定、`LICENSE` の権利者の確定など。一覧と推奨する対応は [inspection-report.md](inspection-report.md#5-未対応の項目と推奨する対応) |
 | エミュレーションの限界      | WebKit（iOS Safari）ではなく Chromium のエミュレーション。safe-area は 0 で描画される                                                                                                 |

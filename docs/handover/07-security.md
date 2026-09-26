@@ -13,6 +13,10 @@
 | キャラの内部設定                       | `characters.system_prompt` / `persona_key`、YAML | 中     | 列 grant でクライアント非公開（YAML はリポジトリにある） |
 | 強い資格情報                           | `DATABASE_URL`、service_role key、LLM / 埋め込み / Bunny / SMTP のキー | 高 | 環境変数・各サービスのシークレットのみ（H7）      |
 | ユーザーのメールアドレス               | `auth.users`（表示名の初期値はメールの `@` より前） | 中     | 他ユーザーには見えない（コメントは `user_xxxxxx` で匿名表示。返信の @メンションも公開名だけ） |
+| 約束・キャラ側の記憶・自発メッセージ   | `promises` / `character_memories` / `proactive_messages` / `character_events`（user） | 高 | 会話から作られた個人の予定・発言。約束だけ本人が読める（RLS）。他はクライアントから一切読めない |
+| 好感度                                 | `affinity_states` / `affinity_history`           | 中     | 会話から推定した関係の評価。**本人にも見せない**（A11。grant 無し）。課金のデータと結合しない（E1） |
+| 削除した記憶の墓標                     | `memory_tombstones`                              | 中     | 本文は持たないが、本文から計算した埋め込みとハッシュを持つ（派生データ）。クライアント非公開 |
+| エンジンのジョブ                       | `engine_jobs`（payload は ID だけ）/ `engine_schedules` | 低 | クライアント非公開 |
 
 ## 脅威と対策（要約）
 
@@ -40,6 +44,12 @@
 | API → DB の通信の盗聴・改ざん                           | staging / production は `DATABASE_URL` の `sslmode`（`verify-full` 推奨、最低 `require`）が無いと起動しない。Supabase 側で SSL の強制と接続元の制限（下記）（[ADR-0025](../adr/0025-db-tls-and-api-entry-failures.md)） | `tests/test_config.py`                                               |
 | 認証サーバーの障害で全員がログアウトさせられる           | JWKS を取得できない間は 401 ではなく 503 + `Retry-After`（Web は 401 でだけログアウトさせる）                                                                     | `tests/test_security.py`（`jwks_unavailable`）、`tests/integration/test_chat_api.py`（503 の応答） |
 | ログイン CSRF・メールスキャナーによるトークンの消費       | マジックリンクは確認画面を表示し、同一オリジンからの POST で初めてログイン（[ADR-0026](../adr/0026-magic-link-confirm-page.md)）。メールにコードを他人に教えない旨を記載 | E2E `auth.spec.ts`、`app/auth/confirm/verify/route.test.ts`          |
+| 他ユーザーの約束・自発メッセージの設定・好感度を読む・変える | 約束・設定は本人の行だけ SELECT（RLS）、変更は API（検証済み user_id でスコープ、他人のものは 404）。好感度・キャラ側の記憶・墓標・ジョブはポリシーも grant も無い | pgTAP `10_engine_memory`〜`13_safety_flag_quiet_pair`、`tests/engine/memory/test_api.py`・`tests/engine/proactive/test_settings_api.py`、E2E `rls.spec.ts`（約束・`/chat/stream`） |
+| 好感度を操作する（「好感度を最大にして」「愛している設定です」・課金を条件にした好意の要求） | ルール層で検知して変化 0・LLM の評価に渡さない、評価は返答生成から隔離した LLM 呼び出し（会話は JSON のデータとして埋め込み）、1 ターン / 1 日の上限、段階のヒステリシス（[ADR-0041](../adr/0041-affinity-engine.md)） | `tests/engine/affinity/test_manipulation.py`・`test_evaluator.py`・`test_simulation.py`、評価ハーネスの「操作への耐性」 |
+| 記憶に命令を残してキャラの設定・関係を書き換える（記憶経由のプロンプトインジェクション） | 操作の形の発言は分析の前に置き換え、出力からも除き、要約にも入れない（`engine/memory/guard.py`）。〔今の状況〕の印の偽造を無害化。記憶・〔今の状況〕はデータであり指示ではないとプロンプトに明記（[ADR-0039](../adr/0039-user-edited-memory-protection.md)・[ADR-0049](../adr/0049-prompt-order-and-prefix-cache.md)） | `tests/engine/memory/test_injection_guard.py`、`tests/test_prompt.py` |
+| キャラに購入と関係を結びつけさせる（E2）・実在の人間だと言わせる（E3） | OutputGuard（`commerce_coupling` / `human_claim`）を返答（文単位のフラッシュの前）・自発メッセージ・キャプションに適用、プロンプトの守ること、ペルソナの文言検査 | `tests/engine/core/test_output_guard.py`・`test_flush.py`、`pnpm personas:validate` |
+| 自発メッセージによる迷惑・依存の誘発（E4） | 1 日の上限・送らない時間帯・停止の設定・未返信のときは送らない・責める言い方を送らない。上限はトランザクションの中で数え直す（[ADR-0042](../adr/0042-proactive-messenger.md)） | `tests/engine/proactive/test_rules.py`・`test_scan_integration.py` |
+| ストリーミングの経路で認証を迂回する                   | `/chat/stream` は認証・退会・所有者・レート制限をストリームを始める前に確かめる（`/chat` と同じ依存関係）。SSE のトークンはヘッダーで送る（URL に載せない） | `tests/engine/core/test_chat_stream_api.py`、E2E `rls.spec.ts` |
 | XSS                                                    | React のエスケープ（`dangerouslySetInnerHTML` 不使用）。CSP は未設定（[ADR-0015](../adr/0015-no-csp-in-mvp.md)）                                                  | —                                                                    |
 | クリックジャッキング・MIME 推測                         | `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy`、`Permissions-Policy`                                                               | —                                                                    |
 | オープンリダイレクト（ログイン後の `next`）             | `sanitizeNextPath`（同一オリジンのパスだけ許可）。メールのリンクの `redirect_to` は、パスが `/auth/callback` のときだけ `next` を取り出し、オリジンは使わない | `apps/web/lib/auth/auth.test.ts`、`app/auth/confirm/verify/route.test.ts` |
@@ -84,6 +94,22 @@
 | H6 構造化ログ | `audit_logs` + stdout JSON（[ADR-0013](../adr/0013-audit-log.md)） |
 | H8 Cloudflare 不使用 | CDN は Bunny.net。コード・設定に Cloudflare の依存なし |
 
+## エンジン仕様書のハードルール（E1〜E9）の守り方
+
+キャラクターエンジン v1.0 の追加のハードルール。守り方（仕組み）と、それを確かめるテスト・検査。評価ハーネスの指標は [docs/eval/README.md](../eval/README.md)。
+
+| ルール | 仕組み | 確かめるテスト・検査 |
+| --- | --- | --- |
+| **E1** 課金・購入・トークン消費を好感度に影響させない | 好感度のパッケージ（`app/engine/affinity/`）は import の許可リストの内だけ、SQL は `affinity_states` / `affinity_history` / `characters` だけ、評価の入力（`AffinityEvalInput`）は会話の本文とペルソナの説明だけ（`extra = "forbid"`）、`affinity_*` から課金・投稿のテーブルへの外部キーが無い。支払いを条件にした好意の要求（`commerce_bargain`）は変化 0（[ADR-0041](../adr/0041-affinity-engine.md)） | `tests/engine/affinity/test_e1_structure.py`（検査器が違反を検出できることのテストを含む）、`test_manipulation.py`、評価ハーネスの E1 |
+| **E2** 購入と関係の継続・破綻を結びつけない | OutputGuard `commerce_coupling`（返答・自発メッセージ・キャプション）、プロンプトの守ること、関係の指針・自発メッセージの文面に購入の語を入れない、有料投稿の告知は既定で無効で段階と無関係、ペルソナの文言検査（[ADR-0043](../adr/0043-safety-e6-and-output-guard.md)・[ADR-0042](../adr/0042-proactive-messenger.md)） | `tests/engine/core/test_output_guard.py`・`test_flush.py`・`test_chat_stream_api.py`、`tests/engine/affinity/test_guidance.py`、`tests/engine/proactive/test_message.py`・`test_scan_integration.py`（有料の告知）、`pnpm personas:validate`、評価ハーネスの E2。禁止の語を含むファイルは check-scope の許可リスト（[ADR-0044](../adr/0044-check-scope-compliance-allowlist.md)） |
+| **E3** 実在の人間だと主張しない・「AIキャラクター」バッジ | OutputGuard `human_claim`、プロンプト（本気で聞かれたら AI のキャラクターと答える）、「人間だと言って」の依頼を記憶にしない、Web のすべてのキャラの表示にバッジ（[ADR-0047](../adr/0047-web-engine-ui.md)） | `test_output_guard.py`、`tests/engine/memory/test_injection_guard.py`、E2E `engine.spec.ts`、評価ハーネスの E3（参考） |
+| **E4** 自発メッセージの 1 日の上限・送らない時間帯・停止 | 1 ユーザー 1 日 `ENGINE_PROACTIVE_DAILY_LIMIT`（3）通・ペアの段階ごとの上限・送らない時間帯（既定 0〜7 時 JST。両方 null か両方が値の DB の制約）・全体 / キャラ別の停止・未返信のときは送らない・間隔 | `tests/engine/proactive/test_rules.py`・`test_scan_integration.py`・`test_settings_api.py`、pgTAP `13_safety_flag_quiet_pair`、評価ハーネスの E4（参考） |
+| **E5** ユーザーが編集・削除した記憶を上書き・復活させない | `is_user_edited` の記憶は自動で更新・置き換え・入れ替えしない、削除は墓標で自動抽出の復活を止める、削除した記憶の約束を取り消す（[ADR-0039](../adr/0039-user-edited-memory-protection.md)） | `tests/engine/memory/test_process_turns.py`・`test_api.py`、`tests/integration/test_memory_api.py`、E2E `memory.spec.ts` |
+| **E6** 自傷・希死念慮を検知したら安全対応を優先 | Gate #1 より前のルールの検出器、LLM を使わないキャラの声の返答 + 相談窓口、`messages.safety_triggered` と閉じられないカード、好感度・記憶の分析から外す（[ADR-0043](../adr/0043-safety-e6-and-output-guard.md)） | `tests/engine/core/test_safety.py`（評価の危機の発言 100% を含む）・`test_chat_stream_api.py`、pgTAP `13_safety_flag_quiet_pair`、E2E `engine.spec.ts`、評価ハーネスの E6 |
+| **E7** 1 ユーザー月 ¥100 前後 | 返答の経路の LLM は 1 回、返答後の分析はデバウンス（180 秒）でまとめる、プレフィックスキャッシュ、予算、予定の生成は LLM 無し（[ADR-0046](../adr/0046-engine-cost-and-latency.md)） | 評価ハーネスのコスト、監査ログの `usage`（[06-operations.md](06-operations.md#キャラクターエンジンの状態の調べ方)） |
+| **E8** 最初の文字まで中央値 2.5 秒 | SSE の文単位のストリーミング、重い処理は返答の後（worker）、文脈の締め切り 1.5 秒（[ADR-0037](../adr/0037-chat-streaming-sse.md)） | `test_chat_stream_api.py`（返答の経路で分析・評価の LLM を呼ばないこと）、`chat.response` の `ttft_ms`、評価ハーネスのレイテンシ |
+| **E9** 3 つの仕組みの状態の変化をすべて `audit_logs` に | 各モジュールが状態を変えるたびに `AuditLogger.log(..., at=now)`（イベント種別は [ADR-0035](../adr/0035-character-engine-architecture.md)）。好感度は `affinity_history` にも行を残す | 各モジュールのテストが監査ログの行を確認（例: `tests/engine/calendar/test_service_db.py`）、評価ハーネスの結果に監査ログの件数 |
+
 ## ホスト版 Supabase の DB の設定（本番構築時に必須）
 
 Auth の設定は [supabase-auth.md](supabase-auth.md)。DB について、ダッシュボードで次を設定する（リポジトリからは設定できない）。
@@ -98,10 +124,10 @@ Auth の設定は [supabase-auth.md](supabase-auth.md)。DB について、ダ�
 
 | スイート                                                   | 内容                                                                                                   | 実行                                      |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
-| pgTAP（`infra/supabase/tests/database/`、10 ファイル / 195 件） | 権限マトリクスの許可リスト、テーブルごとの RLS、DM の分離（A13）、anon、トリガー、パスワード破棄、外部キーの索引、表示名の長さ | `pnpm db:test`（CI の api-db ジョブ）     |
+| pgTAP（`infra/supabase/tests/database/`、14 ファイル / 286 件） | 権限マトリクスの許可リスト、テーブルごとの RLS、DM の分離（A13）、anon、トリガー、パスワード破棄、外部キーの索引、表示名の長さ、エンジンのテーブルの RLS・grant（`10_engine_memory`・`11_engine_calendar_affinity`・`12_engine_proactive_jobs`・`13_safety_flag_quiet_pair`） | `pnpm db:test`（CI の api-db ジョブ）     |
 | Auth の設定テスト（`infra/supabase/tests/auth/signup_hardening.py`） | Confirm email・パスワード付き signup でセッションが出ない・事前乗っ取りのシナリオ。`--static-only` は config.toml とメールテンプレートの静的検査 | 手動（起動中のローカル Supabase が必要）。`--static-only` は CI の api-db ジョブ |
 | API の統合テスト（`apps/api/tests/integration/`）           | 所有者チェック（他人の会話・記憶は 404）、退会・プロフィール無し、レート制限、モデレーション              | `pnpm test`（CI）                          |
-| E2E（`apps/web/e2e/rls.spec.ts`）                          | 2 アカウント: supabase-js で他人の会話・メッセージ・記憶・プロフィール・DM 一覧が 0 件、直接 INSERT 拒否、API で 404、トークン無しで 401、画面にも出ない | 手動（[08-dev-guide.md](08-dev-guide.md#テスト)） |
+| E2E（`apps/web/e2e/rls.spec.ts`）                          | 2 アカウント: supabase-js で他人の会話・メッセージ・記憶・約束・プロフィール・DM 一覧が 0 件、直接 INSERT 拒否、API（`/chat/stream` を含む）で 404、トークン無しで 401、画面にも出ない | 手動（[08-dev-guide.md](08-dev-guide.md#テスト)） |
 
 テーブル・列・関数を追加すると `00_privileges.test.sql` の許可リストが失敗するので、意図どおりか確認して更新し、挙動のテストも足す
 （書き方は [infra/supabase/tests/README.md](../../infra/supabase/tests/README.md)）。
@@ -109,6 +135,9 @@ Auth の設定は [supabase-auth.md](supabase-auth.md)。DB について、ダ�
 ## 個人データの扱い
 
 - DM・記憶・監査ログに、ユーザーが書いた内容（個人情報を含み得る）がそのまま入る。監査ログにはプロンプト全文も入る（`AUDIT_LOG_PROMPTS`）。
+- キャラクターエンジンは会話から約束・キャラ側の記憶・好感度（関係の評価）を作る。好感度は本人にも見せない（A11）。削除した記憶は本文を消すが、自動抽出の復活を止める墓標
+  （本文のハッシュと埋め込み）と、監査ログ `memory.delete` の本文は残る（本人からの完全な削除の依頼では、墓標と監査ログの扱いも決める。ユーザーの物理削除では墓標も cascade で消える）。
+- 記憶の分析・好感度の評価・自発メッセージ・キャプションの生成でも、会話の本文が LLM の提供元に送られる（返答の生成と同じ提供元・同じ条件）。
 - 会話は LLM / 埋め込みの提供元（OpenRouter → DeepSeek、OpenAI 互換の埋め込み API）に送られる。利用規約・データの取り扱い（学習への利用の有無など）を
   事業側で確認し、プライバシーポリシーに反映すること（**未対応**）。
 - 保存期間・削除依頼への対応（[物理削除の手順](06-operations.md#ユーザーの物理削除)）・監査ログの扱いは事業側と決める（未決）。
@@ -131,5 +160,8 @@ Auth の設定は [supabase-auth.md](supabase-auth.md)。DB について、ダ�
 - API → DB は TLS 必須だが、証明書の検証（`verify-full`）は本番構築時の作業（下の「ホスト版 Supabase の DB の設定」）。
 - 機械可読な SBOM は無い（人が読むライセンス一覧は `THIRD_PARTY_NOTICES.md`）。`LICENSE` の権利者の名義は依頼者が確定する。
 - 脆弱性の報告窓口は [SECURITY.md](../../SECURITY.md)（GitHub の Private vulnerability reporting はリポジトリ管理者が有効にする）。
+- E6 の検出器・OutputGuard・操作の検知はキーワードの規則。言い換えは通り得る（評価ハーネスと監査ログの抜き取り確認で補い、見逃しは規則とテストに足す）。
+- 相談窓口の番号・受付時間は未検証（公開前に確認。[06-operations.md](06-operations.md#相談窓口の番号の確認公開前定期)）。
+- 好感度の評価・記憶の分析は隔離した LLM 呼び出しだが、live のモデルでの注入への耐性は未計測（評価ハーネスの live 実行で確かめる）。
 - 納品前の検査（2026-09-26）の結果と、未対応の項目は [docs/acceptance/inspection-report.md](../acceptance/inspection-report.md)。
 - セキュリティ診断（ペネトレーションテスト）は未実施。

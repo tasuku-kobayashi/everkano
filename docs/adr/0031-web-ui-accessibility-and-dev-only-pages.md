@@ -1,6 +1,6 @@
 # ADR-0031: Web の UI の追補（読ませる文字の色・アクセシビリティの約束・端末の「戻る」・ホームの再読み込み・開発専用ページ）
 
-- ステータス: 採用
+- ステータス: 採用（端末の「戻る」の履歴の書き込みの保留・スケルトンの高さ・`<main>` の直下に RSC の `children` を置かないことを [ADR-0048](0048-web-confirm-history-hydration-fixes.md) で追補）
 - 日付: 2026-09-26
 - 関連: 仕様書 §4・§5.2・H1 / [ADR-0021](0021-web-ui-implementation.md)（本 ADR で追補。`/dev/ui` の扱いは本 ADR により置き換え） /
   実装: `apps/web/app/globals.css`, `apps/web/components/ui/`（`main-shell.tsx`, `app-header.tsx`, `bottom-sheet.tsx`, `modal.tsx`, `pull-to-refresh.tsx`, `tab-bar.tsx`）,

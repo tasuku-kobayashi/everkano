@@ -1,6 +1,6 @@
 # ADR-0013: 監査ログ設計（イベント種別と payload）
 
-- ステータス: 採用（`llm.error` の purpose と payload の追加項目を [ADR-0022](0022-embedding-failures-and-audit-additions.md)、`memory.delete` の `source=capacity_eviction` を [ADR-0024](0024-memory-capacity-per-pair.md)、`moderation.flag` の `link` カテゴリと `comment.generate` の `duplicate_of` を [ADR-0027](0027-comment-reply-generation-limits.md)、`llm.error`（`memory_summary`）の `skipped` を [ADR-0028](0028-llm-input-budgets-and-summary-retries.md) で追補）
+- ステータス: 採用（`llm.error` の purpose と payload の追加項目を [ADR-0022](0022-embedding-failures-and-audit-additions.md)、`memory.delete` の `source=capacity_eviction` を [ADR-0024](0024-memory-capacity-per-pair.md)、`moderation.flag` の `link` カテゴリと `comment.generate` の `duplicate_of` を [ADR-0027](0027-comment-reply-generation-limits.md)、`llm.error`（`memory_summary`）の `skipped` を [ADR-0028](0028-llm-input-budgets-and-summary-retries.md)、キャラクターエンジンのイベント種別（E9）を [ADR-0035](0035-character-engine-architecture.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 H6・§2「監視・ログ」・§7-10・A12 / 実装: `apps/api/app/services/audit.py`, `apps/api/app/core/logging.py`, マイグレーションの `audit_logs` と `audit_comment_delete()`
 

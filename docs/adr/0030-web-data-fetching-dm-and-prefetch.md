@@ -1,6 +1,6 @@
 # ADR-0030: Web のデータ取得（既存の DM 会話は API を経由せずに開く・差分での取りこぼし回収・遷移先の先読み・購読の絞り込み）
 
-- ステータス: 採用
+- ステータス: 採用（DM の先読みにキャラの状況（`character_states`）を加えることを [ADR-0047](0047-web-engine-ui.md) で追補）
 - 日付: 2026-09-26
 - 関連: 仕様書 §5.4・§5.5・§14 / [ADR-0002](0002-data-access-split.md)（本 ADR で追補）・[ADR-0016](0016-realtime-anon-primary-key-grant.md)・[ADR-0029](0029-web-network-failure-policy.md) /
   実装: `apps/web/lib/queries/dm.ts`（`resolveConversation` / `prefetchDmConversation` / `useDmThreadsRealtime` / `dmThreadsRealtimeFilter`）,
