@@ -6,6 +6,8 @@ pnpm-lock.yaml
 apps/api
 infra/supabase/.temp
 docs/api/openapi.json
+# 評価ハーネスが書き出す結果（機械の出力。python -m evals.run が生成する）
+docs/eval/results/**/*.json
 *.sql
 *.yaml
 *.yml
