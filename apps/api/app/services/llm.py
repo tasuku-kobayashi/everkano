@@ -4,11 +4,21 @@
   `https://api.deepseek.com/v1` にすれば DeepSeek 直契約でも動く。429 / 5xx / タイムアウトは
   指数バックオフでリトライ（`LLM_MAX_RETRIES`）。
 - `LLM_MODE=mock` : `MockLLM`。ネットワークを使わず、ペルソナ（口調例・一人称/二人称・予定）と
-  検索された記憶から決定的な応答を作る。記憶抽出はキーワードによるルールベース。
-  出力形式（抽出/要約の JSON）は live と同じなので、パース処理は共通で検証される。
+  検索された記憶から決定的な応答を作る（chat / comment_reply）。エンジンの用途（記憶の分析・要約、好感度の評価、
+  自発メッセージ、キャプション）は各モジュールが `register_mock_handler` で登録するルールベースの応答で、
+  出力形式（JSON）は live と同じなので、パース処理は共通で検証される。
 
 呼び出し側は描画済みのプロンプト（messages）と、モック用の構造化ヒント（hints）を渡す。
 live は hints を無視する。
+
+ストリーミング（E8: 最初の文字を早く表示する）: `stream(request)` は本文の断片を順に返す `LLMStream`
+（AsyncIterator[str]）。読み終わると `usage` / `model` / `first_chunk_ms` / `latency_ms` が入る。
+- live: `stream: true` の SSE を読む。`stream_options: {include_usage: true}` で最後に usage を受け取る
+  （対応していないプロバイダが 400 を返したら外して再試行）。リトライは最初の断片を受け取る前だけ。
+- mock: complete() と同じ本文を数文字ずつ返す（`LLM_MOCK_STREAM_DELAY_MS` で断片ごとに待つ）。
+
+用途ごとのモデル（LLM_MODEL_ANALYSIS / LLM_MODEL_PROACTIVE / LLM_MODEL_CAPTION）: `request.model` が無ければ
+`Settings.llm_model_for(purpose)` のモデルを使う（各モジュールはモデル名を知らなくてよい）。
 """
 
 from __future__ import annotations
@@ -19,7 +29,7 @@ import json
 import random
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal, Protocol
@@ -29,6 +39,13 @@ import httpx
 from app.core.config import Settings
 from app.core.http import upstream_timeout
 from app.core.logging import get_logger
+from app.engine.types import (
+    CharacterMemoryItem,
+    CharacterStateSnapshot,
+    ContextBundle,
+    MemoryItem,
+    PromiseItem,
+)
 from app.services.persona import Persona
 from app.services.prompt import JST, ChatMessage
 from app.services.types import HistoryItem, RetrievedMemory
@@ -36,8 +53,9 @@ from app.services.types import HistoryItem, RetrievedMemory
 logger = get_logger("llm")
 
 # 用途（監査ログ・コスト集計・モデルの使い分けのキー）。キャラクターエンジンの各モジュールが用途を追加する:
-#   chat / memory_extraction / memory_summary / comment_reply（MVP）
-#   memory_analysis / affinity_eval / proactive_message / feed_caption / sim_user / eval_judge（エンジン v1.0）
+#   chat / comment_reply（MVP）
+#   memory_analysis / memory_summary / affinity_eval / proactive_message / feed_caption / sim_user / eval_judge
+#   （エンジン v1.0。各モジュールが register_mock_handler で MockLLM の応答を登録する）
 Purpose = str
 
 
@@ -52,6 +70,8 @@ class MockHints:
     history: tuple[HistoryItem, ...] = ()
     post_caption: str | None = None
     comment_body: str | None = None
+    # [エンジン v1.0] Context Assembler の出力（世界の時間・キャラの状態・関係の指針・記憶・約束）
+    context: ContextBundle | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,11 +113,66 @@ class LLMError(Exception):
         super().__init__(message)
 
 
+class LLMStream:
+    """ストリーミング応答（本文の断片の AsyncIterator）。読み終わると usage などが入る。"""
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+        self.usage: dict[str, int] | None = None
+        self.first_chunk_ms: int | None = None
+        self.latency_ms: int | None = None
+        self._started = time.perf_counter()
+        self._source: AsyncGenerator[str, None] | None = None
+
+    def bind(self, source: AsyncGenerator[str, None]) -> LLMStream:
+        self._source = source
+        return self
+
+    def __aiter__(self) -> LLMStream:
+        return self
+
+    async def __anext__(self) -> str:
+        if self._source is None:
+            raise StopAsyncIteration
+        try:
+            chunk = await self._source.__anext__()
+        except StopAsyncIteration:
+            self.latency_ms = int((time.perf_counter() - self._started) * 1000)
+            raise
+        if self.first_chunk_ms is None:
+            self.first_chunk_ms = int((time.perf_counter() - self._started) * 1000)
+        return chunk
+
+    async def aclose(self) -> None:
+        if self._source is not None:
+            await self._source.aclose()
+
+
 class LLMClient(Protocol):
     @property
     def model_name(self) -> str: ...
 
     async def complete(self, request: LLMRequest) -> LLMResult: ...
+
+    def stream(self, request: LLMRequest) -> LLMStream: ...
+
+
+def stream_completion(llm: LLMClient, request: LLMRequest) -> LLMStream:
+    """llm.stream があれば使い、無ければ complete() の結果を1つの断片として返す（テスト用の簡易な LLM など）。"""
+    stream_method = getattr(llm, "stream", None)
+    if callable(stream_method):
+        result = stream_method(request)
+        if isinstance(result, LLMStream):
+            return result
+    stream = LLMStream(model=llm.model_name)
+
+    async def whole() -> AsyncGenerator[str, None]:
+        result = await llm.complete(request)
+        stream.model = result.model
+        stream.usage = result.usage
+        yield result.text
+
+    return stream.bind(whole())
 
 
 # ===========================================================================
@@ -120,6 +195,7 @@ class OpenAICompatibleLLM:
         self._url = f"{settings.llm_base_url}/chat/completions"
         self._api_key = settings.llm_api_key.get_secret_value()
         self._model = settings.llm_model
+        self._purpose_models = settings.purpose_models
         # 接続待ち（pool）は短く、応答の読み取りは LLM_TIMEOUT_SECONDS（app/core/http.py）
         self._timeout = upstream_timeout(settings.llm_timeout_seconds)
         self._max_retries = settings.llm_max_retries
@@ -137,9 +213,12 @@ class OpenAICompatibleLLM:
     def model_name(self) -> str:
         return self._model
 
+    def model_for(self, request: LLMRequest) -> str:
+        return request.model or self._purpose_models.get(request.purpose) or self._model
+
     async def complete(self, request: LLMRequest) -> LLMResult:
         body: dict[str, Any] = {
-            "model": request.model or self._model,
+            "model": self.model_for(request),
             "messages": request.messages,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
@@ -199,6 +278,115 @@ class OpenAICompatibleLLM:
             attempt += 1
             await asyncio.sleep(delay)
 
+    def stream(self, request: LLMRequest) -> LLMStream:
+        stream = LLMStream(model=self.model_for(request))
+        return stream.bind(self._stream_chunks(request, stream))
+
+    async def _stream_chunks(self, request: LLMRequest, stream: LLMStream) -> AsyncGenerator[str, None]:
+        body: dict[str, Any] = {
+            "model": stream.model,
+            "messages": request.messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if request.json_mode:
+            body["response_format"] = {"type": "json_object"}
+        started = time.perf_counter()
+        attempt = 0
+        while True:
+            retry_after: float | None = None
+            yielded = False
+            try:
+                async with self._http.stream(
+                    "POST", self._url, json=body, headers=self._headers, timeout=self._timeout
+                ) as response:
+                    if response.status_code == 200:
+                        async for chunk in self._read_sse(response, stream):
+                            yielded = True
+                            yield chunk
+                        return
+                    text = (await response.aread()).decode("utf-8", errors="replace")
+                    if response.status_code == 400 and ("stream_options" in body or "response_format" in body):
+                        # stream_options / JSON モードに対応していないプロバイダ → 外して再試行（回数に数えない）
+                        logger.warning(
+                            "LLM rejected stream options; retrying without them",
+                            extra={"fields": {"purpose": request.purpose, "body": text[:300]}},
+                        )
+                        if "stream_options" in body:
+                            body.pop("stream_options")
+                        else:
+                            body.pop("response_format")
+                        continue
+                    retryable = response.status_code == 429 or response.status_code >= 500
+                    error = LLMError(
+                        f"HTTP {response.status_code}: {text[:300]}",
+                        status_code=response.status_code,
+                        retryable=retryable,
+                    )
+                    retry_after = _parse_retry_after(response.headers.get("retry-after"))
+            except httpx.TimeoutException as exc:
+                error = LLMError(f"timeout: {exc!r}", retryable=not yielded)
+            except httpx.TransportError as exc:
+                error = LLMError(f"transport error: {exc!r}", retryable=not yielded)
+            error.attempts = attempt + 1
+            if yielded or not error.retryable or attempt >= self._max_retries:
+                logger.error(
+                    "LLM stream failed",
+                    extra={
+                        "fields": {
+                            "purpose": request.purpose,
+                            "error": str(error),
+                            "status_code": error.status_code,
+                            "attempts": error.attempts,
+                            "mid_stream": yielded,
+                            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                        }
+                    },
+                )
+                raise error
+            delay = self._backoff * (2**attempt) + random.uniform(0, self._backoff)
+            if retry_after is not None:
+                delay = min(max(delay, retry_after), MAX_RETRY_AFTER_SECONDS)
+            logger.warning(
+                "LLM stream failed; retrying",
+                extra={"fields": {"purpose": request.purpose, "error": str(error), "delay_s": round(delay, 2)}},
+            )
+            attempt += 1
+            await asyncio.sleep(delay)
+
+    @staticmethod
+    async def _read_sse(response: httpx.Response, stream: LLMStream) -> AsyncIterator[str]:
+        """OpenAI 互換の SSE（`data: {...}` / `data: [DONE]`）から本文の断片を取り出す。"""
+        async for line in response.aiter_lines():
+            if not line.startswith("data:"):
+                continue  # 空行・コメント（": OPENROUTER PROCESSING" など）
+            data = line[5:].strip()
+            if data == "[DONE]":
+                return
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError as exc:
+                raise LLMError(f"invalid stream chunk: {data[:200]!r}") from exc
+            if not isinstance(event, dict):
+                continue
+            if isinstance(event.get("error"), dict | str):
+                raise LLMError(f"stream error: {str(event['error'])[:300]}")
+            model = event.get("model")
+            if isinstance(model, str) and model:
+                stream.model = model
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                stream.usage = {k: int(v) for k, v in usage.items() if isinstance(v, int | float)}
+            choices = event.get("choices")
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                continue
+            delta = choices[0].get("delta")
+            content = delta.get("content") if isinstance(delta, dict) else None
+            if isinstance(content, str) and content:
+                yield content
+
     def _parse(self, response: httpx.Response, started: float) -> LLMResult:
         try:
             data = response.json()
@@ -234,111 +422,9 @@ def _parse_retry_after(value: str | None) -> float | None:
 # ===========================================================================
 
 MOCK_MODEL_NAME: Final[str] = "mock-persona-v1"
+# 用途別のハンドラもヒントも無い呼び出し（テストの差し替えなど）への決まった返事
+MOCK_REPLY_WITHOUT_HINTS: Final[str] = "うんうん、それで？"
 
-# --- 記憶抽出のキーワード（§9.2 の観点） -------------------------------------------
-EMOTION_WORDS: Final[tuple[str, ...]] = (
-    "悲し",
-    "かなし",
-    "辛い",
-    "つらい",
-    "嬉し",
-    "うれし",
-    "寂し",
-    "さみし",
-    "さびし",
-    "不安",
-    "疲れ",
-    "つかれ",
-    "しんどい",
-    "ありがとう",
-    "感謝",
-    "怒",
-    "泣",
-    "落ち込",
-    "悩",
-    "緊張",
-    "楽しみ",
-    "心配",
-    "怖",
-    "幸せ",
-    "最悪",
-    "喧嘩",
-    "けんか",
-    "イライラ",
-)
-PERSONAL_WORDS: Final[tuple[str, ...]] = (
-    "仕事",
-    "会社",
-    "職場",
-    "上司",
-    "同僚",
-    "出張",
-    "残業",
-    "転職",
-    "バイト",
-    "家族",
-    "母",
-    "父",
-    "姉",
-    "兄",
-    "妹",
-    "弟",
-    "実家",
-    "健康",
-    "病院",
-    "入院",
-    "風邪",
-    "体調",
-    "眠れ",
-    "寝不足",
-    "睡眠",
-    "頭痛",
-    "日課",
-    "毎日",
-    "毎朝",
-    "毎晩",
-    "好き",
-    "趣味",
-    "名前",
-    "住んで",
-    "住み",
-    "出身",
-    "誕生日",
-    "ペット",
-    "飼って",
-    "引っ越",
-)
-PROMISE_WORDS: Final[tuple[str, ...]] = (
-    "来週",
-    "明日",
-    "あした",
-    "今度",
-    "週末",
-    "来月",
-    "来年",
-    "絶対",
-    "一緒に",
-    "約束",
-    "予定",
-)
-RELATIONSHIP_WORDS: Final[tuple[str, ...]] = (
-    "呼んで",
-    "好き",
-    "大好き",
-    "愛して",
-    "付き合",
-    "会いたい",
-    "特別",
-)
-
-_CATEGORY_WEIGHTS: Final[dict[str, tuple[tuple[str, ...], float]]] = {
-    "personal": (PERSONAL_WORDS, 0.35),
-    "promise": (PROMISE_WORDS, 0.35),
-    "relationship": (RELATIONSHIP_WORDS, 0.35),
-    "emotion": (EMOTION_WORDS, 0.25),
-}
-_BASE_IMPORTANCE: Final[float] = 0.3
-_SENTENCE_SPLIT: Final = re.compile(r"(?<=[。！？!?\n])")
 _QUESTION_END: Final = re.compile(r"[？?]\s*$")
 # 文末から落とすもの（strip_trailing で繰り返し適用する）。語の一部になりうる文字は条件付きで落とす
 _TRAILING_RULES: Final[tuple[re.Pattern[str], ...]] = (
@@ -416,38 +502,6 @@ def strip_trailing(text: str) -> str:
         for rule in _TRAILING_RULES:
             value = rule.sub("", value)
     return value
-
-
-def split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
-
-
-def score_sentence(sentence: str) -> tuple[float, str | None]:
-    """キーワードの観点ごとに加点した重要度と、最初に該当した観点を返す。"""
-    score = _BASE_IMPORTANCE
-    first: str | None = None
-    for category, (words, weight) in _CATEGORY_WEIGHTS.items():
-        if any(w in sentence for w in words):
-            score += weight
-            first = first or category
-    return min(round(score, 2), 0.95), first
-
-
-def mock_extract(user_message: str) -> list[dict[str, Any]]:
-    """ルールベースの記憶抽出（質問文は除外）。"""
-    results: list[dict[str, Any]] = []
-    for sentence in split_sentences(user_message):
-        if _QUESTION_END.search(sentence):
-            continue
-        core = strip_trailing(sentence).strip()
-        if len(core) < 4:
-            continue
-        importance, category = score_sentence(core)
-        if category is None:
-            continue
-        core = core[:100]
-        results.append({"content": f"ユーザーは「{core}」と話していた", "importance": importance, "category": category})
-    return results
 
 
 def memory_core(content: str) -> str:
@@ -760,41 +814,369 @@ def _reaction(message: str, seed: int, persona: Persona, now: datetime) -> str:
     )
 
 
+def _as_retrieved(memory: MemoryItem) -> RetrievedMemory:
+    tags = memory.tags if memory.kind != "summary" or "summary" in memory.tags else (*memory.tags, "summary")
+    return RetrievedMemory(
+        id=memory.id,
+        content=memory.content,
+        importance=memory.importance,
+        tags=tuple(tags),
+        similarity=memory.score,
+        created_at=memory.created_at,
+    )
+
+
+def _call_user(hints: MockHints) -> str:
+    context = hints.context
+    if context is not None and context.relationship is not None and "{" not in context.relationship.call_user:
+        return context.relationship.call_user
+    return hints.persona.speech.second_person
+
+
+def _state_label(state: CharacterStateSnapshot) -> str:
+    return state.status_label or state.activity
+
+
+def _state_answer(state: CharacterStateSnapshot, first_person: str, seed: int) -> str:
+    """「いま何してる？」への答え（C6: 状態を返答に反映する）。"""
+    activity = state.activity.rstrip("。")
+    doing = activity if activity.endswith(("中", "ところ", "とこ")) else f"{activity}中"
+    where = f"{state.location}で、" if state.location else ""
+    options = (f"{first_person}？いまは{where}{doing}だよ。", f"えっとね、いま{where}{doing}なの。")
+    text = _pick(options, seed, 11)
+    if state.busyness >= 2:
+        text += "ちょっとバタバタしてるから、また落ち着いたらゆっくり話そ？"
+    elif state.next_event:
+        text += state.next_event if state.next_event.endswith("。") else f"{state.next_event}。"
+    return text
+
+
+def _busy_remark(state: CharacterStateSnapshot) -> str:
+    return f"いま{_state_label(state)}だから、短めでごめんね。"
+
+
+def _due_promise(context: ContextBundle, now: datetime) -> PromiseItem | None:
+    """今日・明日・昨日が期日の、まだ話題にしていない約束（M6）。"""
+    today = now.astimezone(JST).date()
+    for promise in context.memory.promises:
+        if promise.status != "pending" or promise.due_at is None:
+            continue
+        days = (promise.due_at.astimezone(JST).date() - today).days
+        if -1 <= days <= 1:
+            return promise
+    return None
+
+
+def _promise_reference(promise: PromiseItem, now: datetime, seed: int) -> str:
+    core = memory_core(promise.content) or promise.content
+    days = 0 if promise.due_at is None else (promise.due_at.astimezone(JST).date() - now.astimezone(JST).date()).days
+    if days < 0:
+        return f"そういえば、{core}ってどうだった？"
+    when = "今日" if days == 0 else "明日"
+    return _pick((f"そういえば、{core}って{when}だよね。", f"{when}だよね、{core}。応援してる！"), seed, 12)
+
+
+def _pick_character_memory(message: str, memories: Sequence[CharacterMemoryItem]) -> CharacterMemoryItem | None:
+    tokens = content_tokens(message)
+    if not tokens:
+        return None
+    best: tuple[int, float] | None = None
+    chosen: CharacterMemoryItem | None = None
+    for memory in memories:
+        overlap = sum(len(t) for t in tokens if t in memory.content)
+        if overlap < 2:
+            continue
+        key = (overlap, memory.occurred_at.timestamp() if memory.occurred_at else 0.0)
+        if best is None or key > best:
+            best, chosen = key, memory
+    return chosen
+
+
+def _character_memory_reference(memory: CharacterMemoryItem, seed: int) -> str:
+    core = strip_trailing(memory.content).strip()
+    return _pick((f"{core}のこと？うん、楽しかったよ。", f"あ、{core}ね。いい思い出になったよ。"), seed, 13)
+
+
+# ---------------------------------------------------------------------------
+# 「覚えてる？」系の質問への答え（記憶を読むモデルの模擬）
+#   live のモデルは「私の仕事なんだっけ？」に、文脈の「覚えていること」から仕事の記憶（「パン屋で働いてる」）を
+#   選んで答える。質問と記憶に共通の語が無くても（仕事 ↔ 働いてる）話題の種類で結び付けられる。mock でもそれを
+#   話題の種類（仕事・住まい・家族・ペット・呼び方・趣味・好み…）と記憶の種類・手がかりの語の対応で模擬する。
+#   話していないこと（犬を飼っていないのに「犬の名前」）は、覚えているふりをせず聞き返す（記憶の誤り率）。
+# ---------------------------------------------------------------------------
+
+_RECALL_QUESTION: Final = re.compile(
+    r"(覚えて|おぼえて|なんだっけ|何だっけ|だっけ|たっけ|言ったっけ|話したっけ|呼んでくれてた|呼んでた|知ってる[？?]|わかる[？?])"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _RecallTopic:
+    key: str
+    label: str  # 聞き返すときの話題の言い方
+    question: re.Pattern[str]  # 質問の手がかり
+    memory: re.Pattern[str]  # 記憶の本文の手がかり
+    kinds: tuple[str, ...]  # 優先する記憶の種類（前ほど優先）
+
+
+def _topic(key: str, label: str, question: str, memory: str, kinds: tuple[str, ...]) -> _RecallTopic:
+    return _RecallTopic(key, label, re.compile(question), re.compile(memory), kinds)
+
+
+# 質問の手がかりは上から順に照合する（「犬の名前」はペット、「呼び方」は名前より先）
+_RECALL_TOPICS: Final[tuple[_RecallTopic, ...]] = (
+    _topic(
+        "call",
+        "呼び方",
+        r"呼んで|呼び方|呼び名|あだ名|ニックネーム|なんて呼",
+        r"呼ばれたい|呼んで|呼び方|呼び名|あだ名",
+        ("relationship", "fact"),
+    ),
+    _topic(
+        "pet",
+        "ペット",
+        r"ペット|飼って|飼ってる|犬|猫|いぬ|ねこ|わんちゃん|うさぎ|ハムスター|インコ|金魚",
+        r"飼って|飼い|ペット|犬|猫|うさぎ|ハムスター|インコ|金魚",
+        ("fact", "preference"),
+    ),
+    _topic("birthday", "誕生日", r"誕生日", r"誕生日", ("fact",)),
+    _topic(
+        "name", "名前", r"名前", r"名前は|と申します|って言います|っていいます|という名前", ("fact", "relationship")
+    ),
+    _topic(
+        "job",
+        "仕事",
+        r"仕事|職業|働い|勤め|会社|バイト|職場|勤務",
+        r"働|勤め|勤務|職|仕事|会社|転職|就職|バイト|パート|エンジニア|看護|営業|店員|教師|先生|公務員|工場|事務|"
+        r"デザイナー|美容師|保育|介護|販売|接客|医",
+        ("fact",),
+    ),
+    _topic(
+        "school",
+        "学校",
+        r"大学|学校|学部|専攻|勉強|研究|学科|サークル|ゼミ",
+        r"大学|学校|学部|専攻|勉強|研究|学科|サークル|ゼミ|学生",
+        ("fact", "preference"),
+    ),
+    _topic(
+        "family",
+        "家族",
+        r"実家|出身|地元|家族|両親|母|父|姉|兄|弟|妹|親",
+        r"実家|出身|地元|家族|両親|母|父|姉|兄|弟|妹|親",
+        ("fact",),
+    ),
+    _topic(
+        "home",
+        "住んでるところ",
+        r"住んで|住まい|どこに住|家って|家は|引っ越|最寄り",
+        r"住ん|住み|引っ越|在住|暮らし|上京|最寄り",
+        ("fact",),
+    ),
+    _topic(
+        "food",
+        "好きな食べ物",
+        r"食べ物|好物|料理|ごはん|ご飯|飲み物|食べる",
+        r"食|飲|料理|好物|味|ラーメン|寿司|カレー|パスタ|パン|ケーキ|スイーツ|甘い|辛い|肉|魚|麺|うどん|そば|焼き|"
+        r"鍋|定食|コーヒー|紅茶|お茶|酒|ビール",
+        ("preference",),
+    ),
+    _topic(
+        "music",
+        "好きな音楽",
+        r"バンド|曲|歌|音楽|アーティスト|歌手|アイドル",
+        r"バンド|曲|歌|音楽|ライブ|聴|アーティスト|歌手",
+        ("preference",),
+    ),
+    _topic(
+        "hobby",
+        "趣味",
+        r"趣味|週末|休み|休日|ハマって|はまって|夢中|好きなこと",
+        r"趣味|週末|休み|休日|ハマって|はまって|夢中|好き|よく|毎週",
+        ("preference", "fact"),
+    ),
+    _topic("preference", "好きなもの", r"好き", r"好き|ハマって|はまって|推し", ("preference",)),
+)
+# 質問に出てくる具体的なもの（犬・弟・車…）。これを含む記憶が無ければ「覚えている」と言わない
+_RECALL_ENTITIES: Final[tuple[str, ...]] = (
+    "犬",
+    "猫",
+    "うさぎ",
+    "ハムスター",
+    "姉",
+    "兄",
+    "弟",
+    "妹",
+    "車",
+    "バイク",
+    "彼女",
+    "彼氏",
+    "子ども",
+    "子供",
+    "息子",
+    "娘",
+    "サークル",
+    "誕生日",
+)
+_RECALL_KINDS: Final[frozenset[str]] = frozenset({"fact", "preference", "relationship", "episode"})
+_RUN: Final = re.compile(r"[\u4e00-\u9fff\u3005]{2,}|[\u30a1-\u30fa\u30fc]{2,}|[A-Za-z0-9]{2,}")
+
+
+_RECALL_SUBJECT: Final = re.compile(r"^ユーザー(?:は|が|の)")
+
+
+@dataclass(frozen=True, slots=True)
+class _RecallCandidate:
+    content: str
+    kind: str | None  # MVP の検索結果（RetrievedMemory）には種類が無い
+    created_at: datetime
+    importance: float
+    secret: bool
+
+
+def is_recall_question(message: str) -> bool:
+    """「私の仕事、覚えてる？」「なんて呼んでくれてたっけ？」のように、覚えているかを尋ねる発言か。
+
+    「明日面接だから覚えててね」のような依頼・報告は含めない（疑問の形か「〜っけ」のときだけ）。
+    """
+    if _RECALL_QUESTION.search(message) is None:
+        return False
+    stripped = message.rstrip("。.！!…〜~ー笑w ")
+    return (
+        _QUESTION_END.search(message) is not None or "っけ" in message or stripped.endswith(("覚えてる", "覚えてます"))
+    )
+
+
+def _recall_topic(message: str) -> _RecallTopic | None:
+    return next((t for t in _RECALL_TOPICS if t.question.search(message)), None)
+
+
+def _recall_candidates(hints: MockHints) -> list[_RecallCandidate]:
+    context = hints.context
+    if context is not None and context.memory.memories:
+        return [
+            _RecallCandidate(m.content, m.kind, m.created_at, m.importance, m.is_secret)
+            for m in context.memory.memories
+            if m.kind in _RECALL_KINDS
+        ]
+    return [
+        _RecallCandidate(m.content, None, m.created_at, m.importance, m.is_secret)
+        for m in hints.memories
+        if not m.is_summary
+    ]
+
+
+def pick_recall_memory(message: str, candidates: Sequence[_RecallCandidate]) -> _RecallCandidate | None:
+    """質問の話題の種類に合う記憶を選ぶ（種類 → 手がかりの語 → 質問との語の重なり → 新しさ）。"""
+    topic = _recall_topic(message)
+    entities = [e for e in _RECALL_ENTITIES if e in message]
+    runs = set(_RUN.findall(message)) - {"覚え"}
+    best: tuple[float, float] | None = None
+    chosen: _RecallCandidate | None = None
+    for candidate in candidates:
+        text = _RECALL_SUBJECT.sub("", candidate.content)
+        if entities and not all(e in text for e in entities):
+            continue
+        cue = len(topic.memory.findall(text)) if topic is not None else 0
+        overlap = sum(len(r) for r in runs if r in text)
+        if cue == 0 and overlap == 0:
+            continue
+        kind_bonus = 0.0
+        if topic is not None and candidate.kind in topic.kinds:
+            kind_bonus = 3.0 - topic.kinds.index(candidate.kind)
+        key = (kind_bonus + 2.0 * min(cue, 3) + 0.5 * overlap + candidate.importance, candidate.created_at.timestamp())
+        if best is None or key > best:
+            best, chosen = key, candidate
+    return chosen
+
+
+def _recall_reference(memory: _RecallCandidate, topic: _RecallTopic | None, seed: int) -> str:
+    core = memory_core(memory.content)
+    if topic is not None and topic.key == "call":
+        text = _pick(
+            (f"もちろん。{core}って呼んでほしいって言ってたよね。", f"{core}、でしょ？ちゃんと覚えてるよ。"), seed, 14
+        )
+    else:
+        text = _pick(
+            (f"もちろん覚えてるよ。{core}って言ってたよね。", f"{core}って話してくれたの、ちゃんと覚えてるよ。"),
+            seed,
+            15,
+        )
+    return ("二人だけの秘密の話だけど、" + text) if memory.secret else text
+
+
+def _recall_unknown(message: str, topic: _RecallTopic | None, seed: int) -> str:
+    entity = next((e for e in _RECALL_ENTITIES if e in message), None)
+    label = entity or (topic.label if topic is not None else "そのこと")
+    return _pick(
+        (
+            f"ごめん、{label}の話はまだちゃんと聞いてないかも。よかったら教えて？",
+            f"{label}のこと？まだ聞いたことないかも。教えてくれる？",
+        ),
+        seed,
+        16,
+    )
+
+
 def mock_chat_reply(hints: MockHints) -> str:
+    """決定的なモック返答。Context Assembler の文脈（状態・関係・約束・記憶・キャラ側の記憶）があれば使う。
+
+    評価ハーネスがオフラインで「状態の反映」「約束の回収」「記憶の想起」を測れるように、
+    - 「いま何してる？」には状態（活動・場所）で答え、忙しい状態なら短めに断る
+    - 期日が今日・明日・昨日の約束を話題にする
+    - 発言と内容語が重なる記憶・キャラ側の記憶に自然に触れる（M10: 「以前あなたは〜と言いました」とは言わない）
+    - 呼び方と話し方の例は関係の段階の指針に従う
+    """
     persona = hints.persona
+    context = hints.context
     message = hints.user_message.strip()
     seed = _seed(persona.key, message, str(len(hints.history)))
     local = hints.now.astimezone(JST)
+    call_user = _call_user(hints)
+    fp = persona.speech.first_person
     parts: list[str] = []
-    greeting = _greeting(message, local.hour, persona.speech.second_person)
+    greeting = _greeting(message, local.hour, call_user)
     if greeting:
         parts.append(greeting)
-    memory = pick_relevant_memory(message, hints.memories)
+    state = context.state if context is not None else None
+    recall_question = is_recall_question(message)
+    answered_state = False
+    if state is not None and _asks_current_activity(message) and not recall_question:
+        parts.append(_state_answer(state, fp, seed))
+        answered_state = True
+    elif state is not None and state.busyness >= 2:
+        parts.append(_busy_remark(state))
+    promise = _due_promise(context, hints.now) if context is not None else None
+    if promise is not None:
+        parts.append(_promise_reference(promise, hints.now, seed))
+    if recall_question:
+        # 「覚えてる？」には、文脈の記憶から話題の種類に合うものを選んで答える（無ければ覚えているふりをしない）
+        recalled = pick_recall_memory(message, _recall_candidates(hints))
+        topic = _recall_topic(message)
+        parts.append(
+            _recall_reference(recalled, topic, seed) if recalled is not None else _recall_unknown(message, topic, seed)
+        )
+        return "".join(parts[:3])
+    memories: Sequence[RetrievedMemory] = hints.memories
+    if not memories and context is not None:
+        memories = tuple(_as_retrieved(m) for m in context.memory.memories)
+    memory = pick_relevant_memory(message, memories)
+    character_memory = (
+        _pick_character_memory(message, context.memory.character_memories) if context is not None else None
+    )
     if memory is not None:
         parts.append(_memory_reference(memory, seed, hints.now))
-    elif greeting is None or _has_substance(message, (persona.name,)):
+    elif character_memory is not None:
+        parts.append(_character_memory_reference(character_memory, seed))
+    elif not answered_state and (greeting is None or _has_substance(message, (persona.name,))):
         parts.append(_reaction(message, seed, persona, hints.now))
-    if len(parts) < 3 and persona.speech.examples:
+    guidance = context.relationship if context is not None else None
+    examples = list(guidance.examples) if guidance is not None and guidance.examples else persona.speech.examples
+    if len(parts) < 3 and examples:
         # 直前の文と書き出しが同じ口調例（「わたし？…」が2回続く等）は避ける
         openings = {part[:3] for part in parts}
-        examples = [ex for ex in persona.speech.examples if ex[:3] not in openings] or persona.speech.examples
-        parts.append(_pick(examples, seed, 8))
+        candidates = [ex for ex in examples if ex[:3] not in openings] or examples
+        parts.append(_pick(candidates, seed, 8))
     return "".join(parts[:3])
-
-
-def mock_summary(hints: MockHints) -> str:
-    user_lines = [h.body for h in hints.history if h.sender_type == "user"]
-    picked: list[str] = []
-    for body in user_lines:
-        for sentence in split_sentences(body):
-            core = strip_trailing(sentence).strip()
-            if core and score_sentence(core)[1] is not None and core not in picked:
-                picked.append(core[:40])
-    if not picked:
-        picked = [strip_trailing(b).strip()[:40] for b in user_lines[:3] if b.strip()]
-    quoted = "".join(f"「{p}」" for p in picked[:6])
-    summary = f"これまでの{len(hints.history)}件のやりとりで、ユーザーは{quoted}と話していた。"
-    return summary[:400]
 
 
 def mock_comment_reply(hints: MockHints) -> str:
@@ -832,12 +1214,40 @@ def registered_mock_purposes() -> frozenset[str]:
     return frozenset(_MOCK_HANDLERS)
 
 
+MOCK_STREAM_CHUNK_CHARS: Final[int] = 3
+
+
+def chunk_text(text: str, size: int = MOCK_STREAM_CHUNK_CHARS) -> list[str]:
+    return [text[i : i + size] for i in range(0, len(text), size)] or [""]
+
+
 class MockLLM:
     """外部 API を呼ばない決定的な LLM。"""
+
+    # サブクラス（テストの差し替え）が __init__ を呼ばなくても動くようにクラス属性にも既定値を置く
+    _stream_delay: float = 0.0
+
+    def __init__(self, *, stream_delay_ms: int = 0) -> None:
+        self._stream_delay = stream_delay_ms / 1000
 
     @property
     def model_name(self) -> str:
         return MOCK_MODEL_NAME
+
+    def stream(self, request: LLMRequest) -> LLMStream:
+        """complete() と同じ本文を数文字ずつ返す（サブクラスが complete() を差し替えてもそれに従う）。"""
+        stream = LLMStream(model=MOCK_MODEL_NAME)
+
+        async def chunks() -> AsyncGenerator[str, None]:
+            result = await self.complete(request)
+            stream.model = result.model
+            for piece in chunk_text(result.text):
+                if self._stream_delay > 0:
+                    await asyncio.sleep(self._stream_delay)
+                yield piece
+            stream.usage = result.usage
+
+        return stream.bind(chunks())
 
     async def complete(self, request: LLMRequest) -> LLMResult:
         started = time.perf_counter()
@@ -846,13 +1256,9 @@ class MockLLM:
         if handler is not None:
             text = handler(request)
         elif hints is None:
-            text = self._without_hints(request)
+            text = MOCK_REPLY_WITHOUT_HINTS
         elif request.purpose == "chat":
             text = mock_chat_reply(hints)
-        elif request.purpose == "memory_extraction":
-            text = json.dumps({"memories": mock_extract(hints.user_message)}, ensure_ascii=False)
-        elif request.purpose == "memory_summary":
-            text = json.dumps({"summary": mock_summary(hints)}, ensure_ascii=False)
         else:
             text = mock_comment_reply(hints)
         prompt_chars = sum(len(m["content"]) for m in request.messages)
@@ -868,19 +1274,11 @@ class MockLLM:
             usage=usage,
         )
 
-    @staticmethod
-    def _without_hints(request: LLMRequest) -> str:
-        if request.purpose == "memory_extraction":
-            return json.dumps({"memories": []})
-        if request.purpose == "memory_summary":
-            return json.dumps({"summary": "これまでの会話の要約"}, ensure_ascii=False)
-        return "うんうん、それで？"
-
 
 def create_llm_client(settings: Settings, http: httpx.AsyncClient) -> LLMClient:
     if settings.llm_mode == "live":
         return OpenAICompatibleLLM(settings, http)
-    return MockLLM()
+    return MockLLM(stream_delay_ms=settings.llm_mock_stream_delay_ms)
 
 
 # ===========================================================================

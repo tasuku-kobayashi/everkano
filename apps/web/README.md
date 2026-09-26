@@ -74,7 +74,7 @@ components/
 lib/
   env.ts env.server.ts  環境変数の検証（env.ts は全画面のバンドルに入るため zod を使わない）
   supabase/             client（ブラウザ）/ server（RSC・Route Handler）/ middleware（セッション更新）
-  api/                  Python API の型付きクライアント
+  api/                  Python API の型付きクライアント（client.ts）・SSE の逐次パーサー（sse.ts）・応答の正規化（normalize.ts）
   storage/              StorageAdapter（passthrough / bunny）+ サーバー専用の署名
   auth/                 アカウント取得・サインアウト・リダイレクト・エラー文言
   queries/keys.ts       TanStack Query のクエリキー
@@ -84,6 +84,7 @@ lib/
   format.ts             相対時刻・件数の日本語表記
   text.ts               絵文字を壊さない先頭文字・文字数
   navigation.ts         アプリ内の「戻る」+ 端末の「戻る」でシート・モーダルを閉じる履歴管理
+                        （pushState / replaceState を包み、シートを閉じる history.go(-n) の着地まで Next.js の履歴の書き込みを保留する）
 middleware.ts           セッション更新 + 未ログインは /login へ（判定は lib/auth/route-gate.ts）
 public/                 manifest.json / sw.js / icons（生成物）/ favicon.ico
 ```
@@ -121,7 +122,31 @@ public/                 manifest.json / sw.js / icons（生成物）/ favicon.ic
 - **ホームのスクロール位置**: 別のタブからタブバーの Home タブで戻ると、前に読んでいた位置から表示する
   （`lib/home-scroll.ts`。ブラウザの「戻る」はブラウザが復元）。`app/(main)/loading.tsx` の `data-route-loading` は
   「まだフィードが無い」印なので外さない。
+- **端末の「戻る」とシート**: `BottomSheet` / `Modal` は開くと同じ URL の履歴を 1 つ積む（`lib/navigation.ts`）。
+  `window.history.pushState` / `replaceState` を直接呼ぶコードは書かない（呼ぶ場合も `lib/navigation.ts` のガードを通るので、
+  シートを閉じる処理の着地まで保留されることを前提にする）。シートの操作で画面遷移するときは `onClose()` → `router.push()` の順でよい。
+- **スケルトンの寸法**: 読み込み後の要素と同じ高さにする（違うと、読み込み完了でその下がずれ、スクロール中はスクロール位置も変わる）。
+  `Skeleton shape="text"` の既定の高さ（`h-3`）は、`className` で `h-*` / `size-*` を指定すれば付かない。
+- **ホスト要素の直下に RSC の `children` を置かない**: クライアントコンポーネントで、レイアウトから渡された `children` を `<main>` などの
+  直下に置くと、本番のハイドレーション中に中断・再開したとき React #418 になる（`components/ui/main-shell.tsx` の `RouteContent` 参照）。
+  関数コンポーネントで挟む。
 - `/dev/ui` に全 UI 部品の見本がある（`next dev` のときだけ。開発専用のページは `page.dev.tsx` と名付ける）。
+
+### キャラクターエンジン v1.0 の画面の約束
+
+- **「AIキャラクター」バッジ（E3）**: キャラの名前・ハンドルを出す所には必ず `<AiBadge />`（`components/ui/ai-badge.tsx`）を
+  添える（フィード・投稿詳細・コメント・プロフィール・検索・DM 一覧・DM ヘッダー・会話の先頭。ストーリーズは `variant="compact"`）。
+  `aria-label` で読み上げを上書きするリンクは、ラベルにも「AIキャラクター」（`AI_BADGE_LABEL`）を入れる。
+- **DM の送信は `api.streamChat`**（`POST /chat/stream`・SSE）。`delta` を受信中の吹き出しに追記し、`done` の保存済みメッセージに
+  同じ key で置き換える（`components/dm/stream-state.ts`・`use-send-message.ts`）。ストリーミングを使えない環境・
+  `/chat/stream` の無い API では `POST /chat` にフォールバックする。タイムアウトは接続から `done` まで 45 秒。
+- **E6 相談窓口のカード**: 安全対応をした返答（`messages.safety_triggered = true`。受信中は `replace` の `reason: "safety"`）の
+  下に出し続ける（閉じる操作なし）。印はサーバーが返答の行に残すので、履歴の読み込み・別の端末でも同じ返答の下に出る。
+  窓口の一覧は `GET /safety/resources`（`lib/queries/safety.ts` の `useSafetyResources`。返答を受け取った端末では
+  `ChatResponse.safety.resources` を先にキャッシュへ入れる）。一覧を読み込めないときも 119 番の案内と、返答の本文に入っている窓口は出る。
+- **自発メッセージ（is_proactive）**は通常の吹き出しと同じ表示（返信を急かす特別な表示をしない）。設定は /me と DM の「i」。
+- **好感度の数値・関係の段階はどこにも表示しない（A11）**。DM ヘッダーの 2 行目は `character_states.status_label`（無ければ「アクティブ」）。
+- 「〇〇があなたのことを覚えました」は Realtime（`memories` の INSERT）で出す（記憶は返答の後に非同期で作られる）。
 
 ## 認証フロー
 
@@ -131,6 +156,9 @@ public/                 manifest.json / sw.js / icons（生成物）/ favicon.ic
    `/auth/confirm` は `redirect_to` の中の `next` を取り出し（`lib/auth/confirm-params.ts`。同一オリジンの相対パスだけ）、ログイン後にそのページへ戻す
 3. リンク → `/auth/confirm` は確認画面（「everkano にログインしますか？」）を表示するだけ。「ログインする」で
    `POST /auth/confirm/verify`（同一オリジンのフォーム送信のみ受け付ける）が `verifyOtp` → Cookie 発行 → `next` へ。
+   JS が動いていれば fetch（`Accept: application/json`）で送り、応答の `{ location }` へ `location.replace()` で移る
+   （`lib/auth/confirm-submit.ts`）。確認画面（トークン入りの URL）を履歴に残さず、ログイン後の「戻る」で使用済みの
+   リンクの確認画面へ戻らないようにするため。JS が無い場合は通常のフォーム送信（303）のまま動く（その場合だけ確認画面が履歴に残る）。
    GET でログインしないのは、メールのセキュリティスキャナーの先読みでトークンが消費されるのと、他人のリンクを
    踏まされて黙ってその人のアカウントに切り替わる（ログイン CSRF）のを防ぐため。別のアカウントでログイン中なら
    確認画面で切り替わることを表示する。

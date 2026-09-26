@@ -68,6 +68,8 @@ export type Database = {
       };
       affinity_states: {
         Row: {
+          absence_days: number | null;
+          absence_return_at: string | null;
           awkwardness: number;
           character_id: string;
           closeness: number;
@@ -76,18 +78,24 @@ export type Database = {
           daily_delta: Json;
           discontent: number;
           evaluated_until: string | null;
+          last_decayed_at: string | null;
           last_interaction_at: string | null;
           possessiveness: number;
           romance: number;
           stage: string;
           stage_candidate: string | null;
           stage_candidate_since: string | null;
+          stage_candidate_turns: number;
           stage_changed_at: string | null;
+          tension_high_since: string | null;
           trust: number;
           updated_at: string;
           user_id: string;
+          user_turns: number;
         };
         Insert: {
+          absence_days?: number | null;
+          absence_return_at?: string | null;
           awkwardness?: number;
           character_id: string;
           closeness?: number;
@@ -96,18 +104,24 @@ export type Database = {
           daily_delta?: Json;
           discontent?: number;
           evaluated_until?: string | null;
+          last_decayed_at?: string | null;
           last_interaction_at?: string | null;
           possessiveness?: number;
           romance?: number;
           stage?: string;
           stage_candidate?: string | null;
           stage_candidate_since?: string | null;
+          stage_candidate_turns?: number;
           stage_changed_at?: string | null;
+          tension_high_since?: string | null;
           trust?: number;
           updated_at?: string;
           user_id: string;
+          user_turns?: number;
         };
         Update: {
+          absence_days?: number | null;
+          absence_return_at?: string | null;
           awkwardness?: number;
           character_id?: string;
           closeness?: number;
@@ -116,16 +130,20 @@ export type Database = {
           daily_delta?: Json;
           discontent?: number;
           evaluated_until?: string | null;
+          last_decayed_at?: string | null;
           last_interaction_at?: string | null;
           possessiveness?: number;
           romance?: number;
           stage?: string;
           stage_candidate?: string | null;
           stage_candidate_since?: string | null;
+          stage_candidate_turns?: number;
           stage_changed_at?: string | null;
+          tension_high_since?: string | null;
           trust?: number;
           updated_at?: string;
           user_id?: string;
+          user_turns?: number;
         };
         Relationships: [
           {
@@ -786,6 +804,7 @@ export type Database = {
           created_at: string;
           id: string;
           is_proactive: boolean;
+          safety_triggered: boolean;
           sender_type: string;
         };
         Insert: {
@@ -794,6 +813,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_proactive?: boolean;
+          safety_triggered?: boolean;
           sender_type: string;
         };
         Update: {
@@ -802,6 +822,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           is_proactive?: boolean;
+          safety_triggered?: boolean;
           sender_type?: string;
         };
         Relationships: [

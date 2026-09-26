@@ -1,4 +1,5 @@
-"""記憶の上限・予約タグ・書き込みレート制限、埋め込み障害時の /chat、中期要約のチャンク分けと失敗時の扱い。"""
+"""記憶の上限・予約タグ・書き込みレート制限、埋め込み障害時の /chat と返答の後のジョブ、中期要約のチャンク分けと
+失敗時の扱い（エンジン v1.0: 抽出・要約は返答の後のジョブ。失敗のバックオフはアプリの時計 now で数える）。"""
 
 from __future__ import annotations
 
@@ -6,24 +7,23 @@ import asyncio
 import time
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
 
 from app.container import Services
-from app.services.embedding import EmbeddingError, HashEmbedding
+from app.engine.memory import MemoryConfig, MemoryEngineService
+from app.engine.memory.capacity import MAX_EVICTIONS_PER_INSERT
+from app.engine.memory.embedding import EmbeddingError, HashEmbedding
+from app.engine.memory.summary import SUMMARY_RETRY_BASE_SECONDS
+from app.engine.memory.text import TRANSCRIPT_MAX_CHARS
 from app.services.llm import LLMError, LLMRequest, LLMResult, MockLLM
-from app.services.memory import SUMMARY_RETRY_BASE_SECONDS, MemoryEngine
-from app.services.memory_capacity import MAX_EVICTIONS_PER_INSERT
-from app.services.persona import load_persona_file
-from app.services.prompt import TRANSCRIPT_MAX_CHARS
-from tests.conftest import FIXTURES_DIR, AppFactory, World, make_settings
+from tests.conftest import AppFactory, World, make_settings
 
 pytestmark = pytest.mark.integration
 
-PERSONA = load_persona_file(FIXTURES_DIR / "personas" / "test_persona.yaml")
 # 要約を起こしやすい設定: 未要約 > 2×3 = 6 件で要約、短期ウィンドウ = 2×2 = 4 件
 SUMMARY_SETTINGS: dict[str, Any] = {"memory_summary_trigger_turns": 3, "memory_short_term_turns": 2}
 
@@ -50,18 +50,26 @@ def _services(client: httpx.AsyncClient) -> Services:
     return services
 
 
-class FakeClock:
-    def __init__(self) -> None:
-        self.now = 1000.0
+async def _drain(client: httpx.AsyncClient, conversation_id: uuid.UUID) -> int:
+    """この会話の返答の後のジョブ（post_turn・memory.summarize）を今すぐ実行する。"""
+    return await _services(client).engine.worker.run_until_idle(ignore_run_at=True, dedupe_keys=[str(conversation_id)])
 
-    def __call__(self) -> float:
-        return self.now
+
+class FakeClock:
+    """要約の失敗のバックオフを進める時計（maybe_summarize の now）。"""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 26, 3, 0, tzinfo=UTC)
+
+    def advance(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
 
 
 class SummaryLLM(MockLLM):
     """要約だけを差し替える LLM（それ以外はモックのまま）。"""
 
     def __init__(self, *, error: LLMError | None = None, text: str | None = None) -> None:
+        super().__init__()
         self.error = error
         self.text = text
         self.summary_calls = 0
@@ -77,26 +85,27 @@ class SummaryLLM(MockLLM):
         return await super().complete(request)
 
 
-def _engine(services: Services, llm: MockLLM, clock: FakeClock, embedder: Any = None) -> MemoryEngine:
-    return MemoryEngine(
-        settings=services.settings,
+def _engine(services: Services, llm: MockLLM, clock: FakeClock, embedder: Any = None) -> MemoryEngineService:
+    engine = MemoryEngineService(
         pool=services.pool,
-        embedder=embedder or services.embedder,
         llm=llm,
-        prompts=services.prompts,
+        embedder=embedder or services.embedder,
         audit=services.audit,
+        personas=services.personas,
         moderator=services.moderator,
-        clock=clock,
+        config=MemoryConfig.from_settings(services.settings),
     )
+    engine._test_clock = clock  # type: ignore[attr-defined]
+    return engine
 
 
-async def _summarize(engine: MemoryEngine, conversation_id: uuid.UUID, user_id: uuid.UUID, world: World) -> Any:
-    return await engine.maybe_summarize(
+async def _summarize(engine: MemoryEngineService, conversation_id: uuid.UUID, user_id: uuid.UUID, world: World) -> Any:
+    clock: FakeClock = engine._test_clock  # type: ignore[attr-defined]
+    return await engine.summarizer.maybe_summarize(
         conversation_id=conversation_id,
         user_id=user_id,
         character_id=world.character_id,
-        persona=PERSONA,
-        now=datetime.now().astimezone(),
+        now=clock.now,
     )
 
 
@@ -196,6 +205,22 @@ async def test_concurrent_creates_do_not_exceed_the_cap(app_factory: AppFactory,
     assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) == 10
 
 
+async def _chat_and_drain(client: httpx.AsyncClient, world: World, conversation_id: uuid.UUID, user: Any) -> Any:
+    res = await client.post(
+        "/chat",
+        json={
+            "character_id": str(world.character_id),
+            "conversation_id": str(conversation_id),
+            "message": "猫が好きなんだ。",
+        },
+        headers=user.headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["memories_created"] == []  # 抽出は返答の後のジョブ
+    await _drain(client, conversation_id)
+    return res
+
+
 async def test_extraction_at_capacity_evicts_least_important_auto_memory(app_factory: AppFactory, world: World) -> None:
     client = await app_factory(make_settings(memory_max_per_character=10))
     user = await world.create_user()
@@ -209,22 +234,13 @@ async def test_extraction_at_capacity_evicts_least_important_auto_memory(app_fac
             f"古い記憶{i}",
             0.61 if i == 3 else 0.8,
         )
-    res = await client.post(
-        "/chat",
-        json={
-            "character_id": str(world.character_id),
-            "conversation_id": str(conversation_id),
-            "message": "来週、大阪に出張するんだ。",
-        },
-        headers=user.headers,
-    )
-    assert res.status_code == 200, res.text
-    assert len(res.json()["memories_created"]) == 1
+    await _chat_and_drain(client, world, conversation_id, user)
     contents = [
         r["content"] for r in await world.conn.fetch("select content from public.memories where user_id = $1", user.id)
     ]
     assert len(contents) == 10
     assert "古い記憶3" not in contents
+    assert any("猫が好き" in c for c in contents)
     eviction = await world.conn.fetchval(
         "select payload from public.audit_logs where user_id = $1 and event_type = 'memory.delete'", user.id
     )
@@ -245,17 +261,7 @@ async def test_eviction_is_bounded_when_far_over_capacity(app_factory: AppFactor
             world.character_id,
             f"既存の記憶{i}",
         )
-    res = await client.post(
-        "/chat",
-        json={
-            "character_id": str(world.character_id),
-            "conversation_id": str(conversation_id),
-            "message": "来週、大阪に出張するんだ。",
-        },
-        headers=user.headers,
-    )
-    assert res.status_code == 200, res.text
-    assert len(res.json()["memories_created"]) == 1
+    await _chat_and_drain(client, world, conversation_id, user)
     count = await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id)
     assert count == 30 - MAX_EVICTIONS_PER_INSERT + 1
 
@@ -269,20 +275,14 @@ async def test_extraction_at_capacity_never_evicts_user_edited(app_factory: AppF
             "/memories", json={"character_id": str(world.character_id), "content": f"大事{i}"}, headers=user.headers
         )
         assert created.status_code == 201
-    res = await client.post(
-        "/chat",
-        json={
-            "character_id": str(world.character_id),
-            "conversation_id": str(conversation_id),
-            "message": "来週、大阪に出張するんだ。",
-        },
-        headers=user.headers,
-    )
-    assert res.status_code == 200, res.text
-    assert res.json()["memories_created"] == []
+    await _chat_and_drain(client, world, conversation_id, user)
     rows = await world.conn.fetch("select is_user_edited from public.memories where user_id = $1", user.id)
     assert len(rows) == 10
     assert all(r["is_user_edited"] for r in rows)
+    analysis = await world.conn.fetchval(
+        "select payload from public.audit_logs where user_id = $1 and event_type = 'memory.analysis'", user.id
+    )
+    assert analysis["dropped_capacity"] == 1
 
 
 async def test_memory_writes_are_rate_limited(app_factory: AppFactory, world: World) -> None:
@@ -364,9 +364,9 @@ async def _llm_errors(world: World, user_id: uuid.UUID) -> list[dict[str, Any]]:
 
 
 async def test_embedding_outage_keeps_chat_up_but_is_audited(app_factory: AppFactory, world: World) -> None:
-    """埋め込み障害中も /chat は 200 で返すが、長期記憶を使えなかったこと・抽出した記憶を失ったことを監査ログに残す。
+    """埋め込み障害中も /chat は 200 で返すが、長期記憶を使えなかったこと・記憶を分析できなかったことを監査ログに残す。
 
-    以前は stdout にしか出ず、llm.error のアラートも鳴らないまま全員の記憶が止まっていた（ADR-0013）。
+    以前は stdout にしか出ず、llm.error のアラートも鳴らないまま全員の記憶が止まっていた（ADR-0013 / 0022）。
     """
     embedder = DownEmbedder()
     client = await app_factory(embedder=embedder)
@@ -385,25 +385,20 @@ async def test_embedding_outage_keeps_chat_up_but_is_audited(app_factory: AppFac
     assert res.json()["memories_used"] == []
     assert res.json()["memories_created"] == []
 
-    errors = await _llm_errors(world, user.id)
-    assert [e["purpose"] for e in errors] == ["embedding_query", "memory_save"]
-    query_error, save_error = errors
+    [query_error] = await _llm_errors(world, user.id)
+    assert query_error["purpose"] == "embedding_query"
     assert query_error["conversation_id"] == str(conversation_id)
     assert query_error["status_code"] == 401
     assert query_error["attempts"] == 1
     assert query_error["error"] == "HTTP 401: invalid api key"
     assert query_error["embedding_model"] == "hash-ngram-1536"
     assert query_error["request_id"] == res.headers["x-request-id"]
-    assert save_error["lost_candidates"] >= 1
-    assert save_error["user_message_id"] == res.json()["user_message"]["id"]
 
-    response = await world.conn.fetchval(
-        "select payload from public.audit_logs where user_id = $1 and event_type = 'chat.response'", user.id
-    )
-    assert response["retrieval_skipped"] is True
-    assert response["memory_save_error"] == "HTTP 401: invalid api key"
-    assert response["memory_candidates"] >= 1
-    assert response["memories_created"] == []
+    # 返答の後の分析も埋め込みを使う → 失敗を llm.error に残し、記憶は作らない（401 は再実行しても直らない）
+    await _drain(client, conversation_id)
+    purposes = [e["purpose"] for e in await _llm_errors(world, user.id)]
+    assert purposes == ["embedding_query", "memory_analysis_context"]
+    assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) == 0
 
     # メモリパネルからの追加・本文の編集は 503（保存しない）で、llm.error を残す
     created = await client.post(
@@ -441,13 +436,9 @@ async def test_healthy_chat_reports_no_memory_failures(client: httpx.AsyncClient
         headers=user.headers,
     )
     assert res.status_code == 200, res.text
-    assert res.json()["memories_created"]
-    response = await world.conn.fetchval(
-        "select payload from public.audit_logs where user_id = $1 and event_type = 'chat.response'", user.id
-    )
-    assert response["retrieval_skipped"] is False
-    assert response["memory_save_error"] is None
-    assert response["prompt_chars"] == sum(len(m["content"]) for m in response["prompt_messages"])
+    assert res.json()["memories_created"] == []
+    await _drain(client, conversation_id)
+    assert await world.conn.fetchval("select count(*) from public.memories where user_id = $1", user.id) >= 1
     assert await _llm_errors(world, user.id) == []
 
 
@@ -493,9 +484,13 @@ async def test_summary_backlog_is_summarized_in_bounded_chunks_oldest_first(
     assert all(0 < c <= 45 for c in covered), covered
     # 各チャンクのログには、そのチャンクで要約済みにしたメッセージがすべて入っている（黙って捨てていない）
     for transcript, count in zip(llm.transcripts, covered, strict=True):
-        assert len(transcript.splitlines()) - 1 == count  # 先頭行は見出し「# 会話ログ（古い順）」
+        # 先頭の 2 行は見出し「# 会話ログ（古い順）」と範囲の日付
+        assert len(transcript.splitlines()) - 2 == count
+        assert transcript.splitlines()[1].startswith("（この範囲の会話: ")
     summaries = await world.conn.fetch(
-        "select content from public.memories where user_id = $1 and 'summary' = any(tags) order by created_at",
+        # 同じジョブで作った要約は created_at（アプリの時計）が同じなので、要約した範囲の最後のメッセージの順に並べる
+        "select m.content from public.memories m join public.messages msg on msg.id = m.source_message_id"
+        " where m.user_id = $1 and m.kind = 'summary' order by msg.created_at",
         user.id,
     )
     # 最も古いメッセージが要約に残っている（以前は新しい側だけが残り、古い側が黙って捨てられていた）
@@ -529,10 +524,10 @@ async def test_failing_summary_backs_off_then_skips_the_chunk(app_factory: AppFa
     assert llm.summary_calls == 1
     assert await _cursor(world, conversation_id) is None
 
-    clock.now += SUMMARY_RETRY_BASE_SECONDS + 1
+    clock.advance(SUMMARY_RETRY_BASE_SECONDS + 1)
     await _summarize(engine, conversation_id, user.id, world)
     assert llm.summary_calls == 2
-    clock.now += SUMMARY_RETRY_BASE_SECONDS * 2 + 1
+    clock.advance(SUMMARY_RETRY_BASE_SECONDS * 2 + 1)
     await _summarize(engine, conversation_id, user.id, world)
     assert llm.summary_calls == 3
     # 3回失敗したチャンクは飛ばしてカーソルを進める（永久に同じ範囲を再試行しない）
@@ -543,7 +538,7 @@ async def test_failing_summary_backs_off_then_skips_the_chunk(app_factory: AppFa
     assert [e["payload"]["skipped"] for e in errors] == [False, False, True]
     assert errors[-1]["payload"]["skipped_messages"] > 0
     # 以後は未要約が閾値以下なので呼ばない
-    clock.now += 10_000
+    clock.advance(10_000)
     await _summarize(engine, conversation_id, user.id, world)
     assert llm.summary_calls == 3
 
@@ -655,6 +650,6 @@ async def test_unexpected_summary_crash_is_contained(app_factory: AppFactory, wo
     assert await _summarize(crashing, conversation_id, user.id, world) is None
     assert await _cursor(world, conversation_id) is None
     # 実行中フラグが残らない（同じエンジンで次は要約できる）
-    crashing._llm = MockLLM()
+    crashing.summarizer._llm = MockLLM()
     assert await _summarize(crashing, conversation_id, user.id, world) is not None
     assert await _cursor(world, conversation_id) is not None

@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test";
-import { messageLog } from "./support/dm";
+import { messageLog, suggestionLink } from "./support/dm";
 import { MISAKI } from "./support/env";
 import { expect, test } from "./support/fixtures";
 
@@ -44,7 +44,10 @@ test("DM 会話のヘッダー → プロフィール: 触れた時点でプロ�
   await expect(messageLog(page, MISAKI.name)).toBeVisible({ timeout: 20_000 });
   expect(profile.count(), "DM 画面自体はキャラを handle では取得しない").toBe(0);
 
-  const link = page.getByRole("link", { name: `${MISAKI.name}のプロフィール`, exact: true });
+  // DM ヘッダーのリンク（名前は「美咲のプロフィール（AIキャラクター・<今の状況>）」）
+  const link = page.getByRole("link", {
+    name: new RegExp(`^${MISAKI.name}のプロフィール（AIキャラクター・`),
+  });
   const requested = profile.next();
   await link.dispatchEvent("pointerdown");
   await requested;
@@ -96,7 +99,7 @@ test("DM 一覧の「おすすめ」（会話のまだ無いキャラ）: 触れ
 
   await login(page, user, "/dm");
   await expect(page.getByText("メッセージはまだありません")).toBeVisible();
-  const row = page.getByRole("link", { name: `${MISAKI.name}にメッセージを送る`, exact: true });
+  const row = suggestionLink(page, MISAKI);
   await expect(row).toBeVisible();
   expect(dmCharacter.count()).toBe(0);
 

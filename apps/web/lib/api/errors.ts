@@ -150,6 +150,38 @@ export function apiErrorFromResponse(
   });
 }
 
+/** エラーコード → HTTP ステータス（/chat/stream の `error` イベントはステータスを持たないため） */
+const STATUS_BY_CODE: Partial<Record<ApiErrorKind, number>> = {
+  unauthorized: 401,
+  forbidden: 403,
+  account_deleted: 403,
+  not_found: 404,
+  validation_error: 422,
+  moderation_blocked: 422,
+  rate_limited: 429,
+  llm_unavailable: 503,
+  internal_error: 500,
+};
+
+/**
+ * ストリームの途中で届いた `error` イベント（ApiErrorBody["error"]）を ApiError にする。
+ * HTTP のエラー応答と同じように、コードに対応するステータスを付ける（再試行・ログアウトの判定が同じになる）。
+ */
+export function apiErrorFromStreamError(
+  body: { code: string; message: string; request_id?: string },
+  fallbackRequestId?: string,
+): ApiError {
+  const code: ApiErrorKind = KNOWN_CODES.has(body.code)
+    ? (body.code as ApiErrorKind)
+    : "internal_error";
+  return new ApiError({
+    status: STATUS_BY_CODE[code] ?? 500,
+    code,
+    message: body.message.trim() || API_ERROR_MESSAGES[code],
+    requestId: body.request_id ?? fallbackRequestId,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Supabase（PostgREST / Auth）のエラーを ApiError にそろえる
 // ---------------------------------------------------------------------------

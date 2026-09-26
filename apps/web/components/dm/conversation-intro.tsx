@@ -3,6 +3,7 @@
 import type { PublicCharacter } from "@everkano/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonClassName } from "@/components/ui/button";
 import { formatCount } from "@/lib/format";
@@ -23,6 +24,7 @@ export function ConversationIntro({ character }: ConversationIntroProps) {
     >
       <Avatar src={character.avatar_url} alt={character.name} size={96} />
       <h2 className="mt-3 text-[20px] leading-6 font-bold">{character.name}</h2>
+      <AiBadge className="mt-1.5" />
       <p className="mt-1 text-[14px] leading-[18px] text-ig-secondary">
         {character.handle} · everkano
       </p>

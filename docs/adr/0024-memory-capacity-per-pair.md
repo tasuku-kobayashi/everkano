@@ -1,6 +1,6 @@
 # ADR-0024: ユーザー × キャラあたりの記憶の上限（MEMORY_MAX_PER_CHARACTER）と自動記憶の入れ替え
 
-- ステータス: 採用
+- ステータス: 採用（自動記憶の入れ替えで置き換えられた記憶（履歴）を先にすることを [ADR-0038](0038-memory-engine-v2.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §9 / [ADR-0005](0005-vector-index-and-exact-memory-search.md)・[ADR-0009](0009-memory-engine.md)（本 ADR で追補）・[ADR-0018](0018-in-process-rate-limit.md) /
   実装: `apps/api/app/services/memory_capacity.py`, `apps/api/app/services/memory.py`（`save_candidates` / 要約）, `apps/api/app/services/user_memories.py`,

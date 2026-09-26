@@ -350,3 +350,60 @@ export function LogOutIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** 電話（相談窓口に電話する） */
+export function PhoneIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.6 3.5H5.8a1.8 1.8 0 0 0-1.8 2C4.5 13.6 10.4 19.5 18.5 20a1.8 1.8 0 0 0 2-1.8v-2.8l-4.2-1.7-2 2a13 13 0 0 1-6-6l2-2Z" />
+    </Svg>
+  );
+}
+
+/** 外部リンク（別のタブで開く） */
+export function ExternalLinkIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M13.5 4.5h6v6M19.5 4.5l-8.5 8.5" />
+      <path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />
+    </Svg>
+  );
+}
+
+/** きらめき（「AIキャラクター」バッジ） */
+export function SparkleIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path
+        d="M12 2.5c.5 4.6 2.4 7 7.5 7.5v.4c-5.1.5-7 2.9-7.5 7.6h-.4c-.5-4.7-2.4-7.1-7.6-7.6v-.4c5.2-.5 7.1-2.9 7.6-7.5Z"
+        fill="currentColor"
+        stroke="none"
+      />
+      <path
+        d="M19 15.5c.2 1.8 1 2.6 2.5 2.8-1.5.2-2.3 1-2.5 2.7-.2-1.7-1-2.5-2.5-2.7 1.5-.2 2.3-1 2.5-2.8Z"
+        fill="currentColor"
+        stroke="none"
+      />
+    </Svg>
+  );
+}
+
+/** 時計（送らない時間帯・約束の期日） */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5.2l3.3 2" />
+    </Svg>
+  );
+}
+
+/** 履歴（以前の記憶） */
+export function HistoryIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.8 12a8.2 8.2 0 1 0 2.4-5.8L3.8 8.6" />
+      <path d="M3.8 4.2v4.4h4.4M12 8v4.3l3 1.8" />
+    </Svg>
+  );
+}

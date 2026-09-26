@@ -427,6 +427,10 @@ engine:
       location: "渋谷のネイルサロン"
       start: "12:00"
       end: "21:00"
+      # 予約が途切れない繁忙期の仕事（ふだんの施術 busyness 2 より忙しい）
+      busyness: 3
+      mood: "予約続きでくたくた。でもみんなの仕上がりに大満足"
+      status_label: "予約で大忙し"
       post_tags: [valentine, cosmetics]
       post_probability: 0.5
     - key: white_day

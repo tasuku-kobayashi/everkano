@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PostGrid, PostGridSkeleton } from "@/components/post/post-grid";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { ErrorState } from "@/components/ui/error-state";
 import { InfiniteScrollSentinel } from "@/components/ui/infinite-scroll-sentinel";
@@ -104,7 +105,12 @@ function SearchResultRow({ character }: { character: PublicCharacter }) {
     >
       <Avatar src={character.avatar_url} alt={character.name} size="md" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] leading-[18px] font-semibold">{character.handle}</p>
+        <p className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[14px] leading-[18px] font-semibold">
+            {character.handle}
+          </span>
+          <AiBadge />
+        </p>
         <p className="truncate text-[14px] leading-[18px] text-ig-secondary">
           {character.name} • フォロワー{formatCount(character.follower_count)}人
         </p>

@@ -11,7 +11,7 @@ import { freePostWithComments } from "./support/data";
 import { deleteUsersByEmail, sql, sqlOne } from "./support/db";
 import { E2E } from "./support/env";
 import { expect, test } from "./support/fixtures";
-import { tab } from "./support/ui";
+import { sessionHistory, tab } from "./support/ui";
 
 /**
  * A2: マジックリンクでログインできる（§5.1 / ADR-0012）
@@ -244,6 +244,26 @@ test("マジックリンクは開いただけではログインせず、トー�
   await expect(tab(page, "ホーム")).toBeVisible();
 });
 
+test("確認画面の「ログインする」は確認画面を履歴に残さない（ログイン後の「戻る」で確認画面へ戻らない）", async ({
+  page,
+  makeUser,
+}) => {
+  const user = await makeUser();
+  // メールのリンクから開いた想定（同じタブで前に開いていたページがある）
+  await page.goto("/offline");
+  await confirmMagicLink(page, await confirmPathFor(user.email, "/me"));
+  await expect(page).toHaveURL(/\/me$/, { timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "ログアウト" })).toBeVisible();
+
+  // 確認画面のエントリは遷移先で置き換わっている（トークン入りの URL も履歴に残らない）
+  const history = await sessionHistory(page);
+  expect(history.paths.filter((path) => path.startsWith("/auth/"))).toEqual([]);
+  expect(history.paths.slice(history.current - 1)).toEqual(["/offline", "/me"]);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/offline$/);
+});
+
 test("別のアカウントでログイン中にマジックリンクを開くと、切り替わることを明示する", async ({
   page,
   makeUser,
@@ -291,6 +311,20 @@ async function expectSessionCookieCleared(page: Page): Promise<void> {
     .toBe(0);
 }
 
+/**
+ * アカウントの削除・利用停止の直後に、まだ有効な JWT の Cookie を持ったまま画面を開く（リダイレクトのループの検査）。
+ * - 開いていた画面が先に気づいてサインアウトすると、テストの遷移と競合して結果が揺れる（Cookie が先に消えると
+ *   middleware が ?error= なしの /login へ送る）ため、削除・停止の前にアプリの画面を閉じておく（about:blank）
+ * - 開いた画面は load より前にログイン画面へ移ることがあるため、遷移の確定（commit）までだけ待つ
+ */
+async function leaveApp(page: Page): Promise<void> {
+  await page.goto("about:blank");
+}
+
+async function reopenApp(page: Page, url: string): Promise<void> {
+  await page.goto(url, { waitUntil: "commit" });
+}
+
 test("開いている間にアカウントが削除されたら、1 回でログイン画面へ（/ ⇄ /login のループなし）", async ({
   page,
   makeUser,
@@ -300,9 +334,10 @@ test("開いている間にアカウントが削除されたら、1 回でログ
   await login(page, user);
   await expect(tab(page, "ホーム")).toBeVisible();
 
+  await leaveApp(page);
   await deleteAuthUser(user.id); // 運用手順のアカウント削除（アクセストークンはまだ期限内）
   const navigations = countDocumentRequests(page);
-  await page.goto("/");
+  await reopenApp(page, "/");
   await expect(page).toHaveURL(/\/login\?error=session/, { timeout: 15_000 });
   await expect(page.locator("#login-error")).toContainText("ログインの有効期限が切れました");
   await page.waitForTimeout(3_000); // ループしていれば、この間にも遷移が続く
@@ -346,9 +381,10 @@ test("利用停止（ban）されたアカウントは、理由を表示して�
   await login(page, user);
   await expect(tab(page, "ホーム")).toBeVisible();
 
+  await leaveApp(page);
   await banUser(user.id);
   const navigations = countDocumentRequests(page);
-  await page.goto("/me");
+  await reopenApp(page, "/me");
   await expect(page).toHaveURL(/\/login\?error=banned/, { timeout: 15_000 });
   await expect(page.locator("#login-error")).toContainText("利用停止中");
   await page.waitForTimeout(3_000);

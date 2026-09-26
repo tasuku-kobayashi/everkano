@@ -44,15 +44,6 @@ class RetrievedMemory:
 
 
 @dataclass(frozen=True, slots=True)
-class MemoryCandidate:
-    """会話から抽出された記憶候補（§9.2）。"""
-
-    content: str
-    importance: float
-    category: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class CharacterRecord:
     """characters テーブルのサーバー専用列を含む行。"""
 

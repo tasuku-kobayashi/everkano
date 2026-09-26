@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.container import build_services
+from app.container import EngineOverrides, Services, build_services
 from app.core.config import Settings, get_settings
 from app.core.db import Pool, create_pool
 from app.core.errors import register_exception_handlers
@@ -22,7 +22,8 @@ from app.core.http import create_jwks_client, create_upstream_client
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, BodySizeLimitMiddleware, RequestContextMiddleware
 from app.core.observability import init_sentry
-from app.routers import chat, comments, conversations, health, memories
+from app.engine.types import Clock
+from app.routers import chat, comments, conversations, health, memories, proactive, promises, safety
 from app.services.embedding import EmbeddingClient
 from app.services.llm import LLMClient
 from app.services.persona import PersonaRepository
@@ -32,8 +33,9 @@ logger = get_logger("main")
 
 API_TITLE: Final[str] = "everkano API"
 API_DESCRIPTION: Final[str] = (
-    "Project P MVP の Python API。DM のキャラ返答生成（メモリエンジン・Gate #1 モデレーション・監査ログ）、"
-    "コメント投稿とキャラの返信生成、メモリパネル用の記憶 CRUD を提供する。\n\n"
+    "Project P の Python API。DM のキャラ返答生成（キャラクターエンジン v1.0: 記憶 × カレンダー × 好感度・"
+    "ストリーミング・E6 の安全対応・Gate #1 モデレーション・監査ログ）、コメント投稿とキャラの返信生成、"
+    "メモリパネル用の記憶・約束の API、自発メッセージの設定を提供する。\n\n"
     "認証: `Authorization: Bearer <Supabase access token>`（`GET /health` を除く）。"
     'エラーは `{"error": {"code", "message", "request_id"}}`（message は日本語）。'
 )
@@ -44,8 +46,14 @@ def create_app(
     *,
     llm: LLMClient | None = None,
     embedder: EmbeddingClient | None = None,
+    clock: Clock | None = None,
+    engine_overrides: EngineOverrides | None = None,
 ) -> FastAPI:
-    """アプリを生成する。テストでは settings / llm / embedder を差し替えられる。"""
+    """アプリを生成する。テスト・評価ハーネスでは settings / llm / embedder / 時計 / モジュールを差し替えられる。
+
+    ENGINE_WORKER_ENABLED / ENGINE_SCHEDULER_ENABLED が true なら、ジョブのワーカーとスケジューラをこのプロセス内で
+    動かす（本番は API では無効にし、Fly.io の worker プロセスグループ `python -m app.worker` で動かす）。
+    """
     settings = settings or get_settings()
     configure_logging(settings.log_level)
     # 本文・トークン・ローカル変数・監査ログを送らない設定で初期化する（app/core/observability.py）
@@ -76,11 +84,14 @@ def create_app(
                 prompts=prompts,
                 llm=llm,
                 embedder=embedder,
+                clock=clock,
+                engine_overrides=engine_overrides,
             )
             app.state.services = services
             await _log_persona_coverage(services.pool, personas)
             # 起動直後の最初のリクエストが JWKS の取得を待たないよう先に取得しておく（失敗しても起動は続ける）
             await services.jwks.warm_up()
+            start_engine_background(services)
             logger.info(
                 "startup complete",
                 extra={
@@ -96,11 +107,22 @@ def create_app(
                         "personas_dir": str(settings.resolved_personas_dir),
                         "prompts_dir": str(settings.resolved_prompts_dir),
                         "jwt_hs256_enabled": settings.supabase_jwt_secret is not None,
+                        "engine": {
+                            "memory": settings.engine_memory_enabled,
+                            "calendar": settings.engine_calendar_enabled,
+                            "affinity": settings.engine_affinity_enabled,
+                            "proactive": settings.engine_proactive_enabled,
+                            "worker": settings.engine_worker_enabled,
+                            "scheduler": settings.engine_scheduler_enabled,
+                        },
                     }
                 },
             )
             yield
         finally:
+            services_or_none: Services | None = getattr(app.state, "services", None)
+            if services_or_none is not None:
+                await stop_engine_background(services_or_none)
             await pool.close()
             await http.aclose()
             await jwks_http.aclose()
@@ -124,7 +146,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
         expose_headers=[REQUEST_ID_HEADER, "Retry-After"],
         max_age=600,
@@ -133,8 +155,27 @@ def create_app(
     app.include_router(conversations.router)
     app.include_router(chat.router)
     app.include_router(memories.router)
+    app.include_router(promises.router)
+    app.include_router(proactive.router)
+    app.include_router(safety.router)
     app.include_router(comments.router)
     return app
+
+
+def start_engine_background(services: Services) -> None:
+    """設定に応じて、ジョブのワーカーとスケジューラをこのプロセス内で起動する。"""
+    settings = services.settings
+    if settings.engine_worker_enabled:
+        services.engine.worker.start()
+    if settings.engine_scheduler_enabled:
+        services.engine.scheduler.start()
+
+
+async def stop_engine_background(services: Services) -> None:
+    """停止時: スケジューラ・ワーカーを止め、生成中の返答（切断されたものを含む）の保存を待つ。"""
+    await services.engine.scheduler.stop()
+    await services.engine.worker.stop()
+    await services.chat.drain()
 
 
 async def _log_persona_coverage(pool: Pool, personas: PersonaRepository) -> None:

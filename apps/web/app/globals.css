@@ -41,6 +41,11 @@
   --ig-toast-action: #4cb5f9; /* トーストの操作ボタン（暗い面の上。#262626 で 6.7:1） */
   --ig-overlay: rgb(0 0 0 / 0.65); /* モーダル背景 */
   --ig-badge: #ff3040; /* 未読バッジ */
+  /* 「AIキャラクター」バッジ（E3）。ブランドの紫系。文字は面の上で 6.3:1 */
+  --ig-ai-badge-bg: #f1e9ff;
+  --ig-ai-badge-text: #6b21d8;
+  /* 相談窓口のカード（E6）の見出しのアクセント（アイコン専用） */
+  --ig-care: #e0457b;
 
   /* レイアウト寸法 */
   --tab-bar-h: 50px; /* 下部タブバーの高さ（safe-area を除く） */
@@ -72,6 +77,9 @@
     --ig-toast-action: #4cb5f9; /* #363636 で 5.3:1 */
     --ig-overlay: rgb(0 0 0 / 0.65);
     --ig-badge: #ff3040;
+    --ig-ai-badge-bg: #2b2140; /* 文字は 7.6:1 */
+    --ig-ai-badge-text: #c9a8ff;
+    --ig-care: #ff7aa8;
   }
 }
 
@@ -97,6 +105,9 @@
   --color-ig-toast-action: var(--ig-toast-action);
   --color-ig-overlay: var(--ig-overlay);
   --color-ig-badge: var(--ig-badge);
+  --color-ig-ai-badge-bg: var(--ig-ai-badge-bg);
+  --color-ig-ai-badge-text: var(--ig-ai-badge-text);
+  --color-ig-care: var(--ig-care);
 }
 
 @theme {

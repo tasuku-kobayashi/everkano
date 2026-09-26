@@ -33,7 +33,15 @@ function msg(
   sender: "user" | "character" = "character",
   body = `body-${id}`,
 ): MessageDTO {
-  return { id, conversation_id: CONV, sender_type: sender, body, created_at: createdAt };
+  return {
+    id,
+    conversation_id: CONV,
+    sender_type: sender,
+    body,
+    created_at: createdAt,
+    is_proactive: false,
+    safety_triggered: false,
+  };
 }
 
 function data(...pages: MessageDTO[][]): MessagesData {
@@ -89,6 +97,13 @@ describe("parseMessageRow", () => {
   it("Realtime のペイロードを検証して MessageDTO にする", () => {
     const row = { ...msg("m1", "2026-09-25T03:00:00Z", "user"), extra: 1 };
     expect(parseMessageRow(row)).toEqual(msg("m1", "2026-09-25T03:00:00Z", "user"));
+  });
+
+  it("自発メッセージ（is_proactive）はそのまま、欠けていれば false（エンジン導入前の行）", () => {
+    const proactive = { ...msg("m2", "2026-09-25T03:00:00Z"), is_proactive: true };
+    expect(parseMessageRow(proactive)?.is_proactive).toBe(true);
+    const { is_proactive: _omitted, ...legacy } = msg("m3", "2026-09-25T03:00:00Z");
+    expect(parseMessageRow(legacy)?.is_proactive).toBe(false);
   });
 
   it("形が違えば null", () => {
@@ -164,6 +179,19 @@ describe("mergeTimeline（楽観的メッセージの合成）", () => {
   ): LocalMessage {
     return { localId, body, createdAt: "2026-09-25T03:10:00Z", afterCreatedAt, status };
   }
+
+  it("E6: 安全対応の印（safety_triggered）のあるキャラの返答だけ safetyTriggered になる", () => {
+    const flagged = {
+      ...msg("m3", "2026-09-25T03:03:00Z", "character", "話してくれてありがとう"),
+      safety_triggered: true,
+    };
+    const { items } = mergeTimeline([...server, flagged], []);
+    expect(items.map((i) => [i.id, i.safetyTriggered ?? false])).toEqual([
+      ["m1", false],
+      ["m2", false],
+      ["m3", true],
+    ]);
+  });
 
   it("送信中のメッセージを送信時点の最新メッセージの直後に置く", () => {
     const { items, confirmed } = mergeTimeline(server, [

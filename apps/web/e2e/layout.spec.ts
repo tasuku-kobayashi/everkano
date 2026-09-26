@@ -5,7 +5,13 @@ import { sql } from "./support/db";
 import { E2E, MISAKI } from "./support/env";
 import { messageLog, sendAndWaitReply } from "./support/dm";
 import { expect, test } from "./support/fixtures";
-import { expectNoHorizontalOverflow, expectNoOrphanLine, tab, tabBar } from "./support/ui";
+import {
+  expectNoHorizontalOverflow,
+  expectNoOrphanLine,
+  sessionHistory,
+  tab,
+  tabBar,
+} from "./support/ui";
 
 /**
  * A1（代替）: スマホ幅でレイアウトが崩れない — 実機確認の代わりに、エミュレートした端末幅（390px / 412px）で
@@ -273,6 +279,45 @@ test("ホーム: 別のタブへ移ってから Home タブで戻ると、読ん
   await expectScrollY(page, 0, "先頭で離れたホームは先頭から");
 });
 
+test("ホーム: ストーリーズ行は読み込みの前後で高さが変わらず、読み込み中にスクロールした位置がずれない", async ({
+  page,
+  makeUser,
+  login,
+}) => {
+  // ストーリーズ（characters + 最新の投稿）の応答を、フィードを表示してスクロールした後まで止める
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    (url) =>
+      url.pathname.endsWith("/rest/v1/characters") &&
+      (url.searchParams.get("select") ?? "").startsWith("id,handle,name,avatar_url,posts("),
+    async (route) => {
+      await gate;
+      await route.continue();
+    },
+  );
+
+  const user = await makeUser();
+  await login(page, user);
+  await expect(page.getByTestId("post-card").nth(4)).toBeVisible();
+  const row = page.getByTestId("stories-row");
+  await expect(row.getByTestId("story")).toHaveCount(0);
+  const skeletonHeight = await row.evaluate((el) => el.getBoundingClientRect().height);
+
+  const reading = 2_000;
+  await page.evaluate((y) => window.scrollTo(0, y), reading);
+  await expectScrollY(page, reading, "ストーリーズの読み込み前にフィードを途中まで読む");
+
+  release();
+  await expect(row.getByTestId("story").first()).toBeAttached();
+  const loadedHeight = await row.evaluate((el) => el.getBoundingClientRect().height);
+  expect(loadedHeight, "ストーリーズ行の高さ（読み込み後 = 読み込み中）").toBe(skeletonHeight);
+  await page.waitForTimeout(300);
+  await expectScrollY(page, reading, "ストーリーズの読み込み後も同じ位置");
+});
+
 test("ホーム: ファーストビューの画像（LCP）はフェードインせず、2 枚目以降はフェードインする", async ({
   page,
   makeUser,
@@ -357,6 +402,12 @@ test("シートの操作で画面遷移しても遷移は取り消されず、�
   await expect(page.getByTestId("post-grid")).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page).toHaveURL(/\/c\/[^/]+$/);
+
+  // 履歴は「…確認画面は残らない → ホーム → プロフィール」。シートのエントリが残っていない・
+  // ホームのエントリがプロフィールの URL に書き換わっていない（書き換わると「戻る」で確認画面まで戻る）
+  const history = await sessionHistory(page);
+  expect(history.paths.filter((path) => path.startsWith("/auth/"))).toEqual([]);
+  expect(history.paths.slice(history.current - 1)).toEqual(["/", new URL(page.url()).pathname]);
 
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);

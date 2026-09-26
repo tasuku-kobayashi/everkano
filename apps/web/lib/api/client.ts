@@ -2,6 +2,7 @@ import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import type {
   ChatRequest,
   ChatResponse,
+  ChatStreamEvent,
   CreateCommentRequest,
   CreateCommentResponse,
   CreateConversationRequest,
@@ -9,13 +10,33 @@ import type {
   CreateMemoryRequest,
   HealthResponse,
   ListMemoriesResponse,
+  ListPromisesResponse,
   MemoryDTO,
+  PromiseDTO,
+  ProactiveSettingsResponse,
+  SafetyResourcesResponse,
   UpdateMemoryRequest,
+  UpdateProactiveCharacterSettingRequest,
+  UpdateProactiveGlobalSettingsRequest,
+  UpdatePromiseRequest,
   UUID,
 } from "@everkano/shared";
 import { getPublicEnv } from "@/lib/env";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { API_ERROR_MESSAGES, ApiError, apiErrorFromResponse } from "./errors";
+import {
+  API_ERROR_MESSAGES,
+  ApiError,
+  apiErrorFromResponse,
+  apiErrorFromStreamError,
+} from "./errors";
+import {
+  isProactiveSettingsResponse,
+  normalizeChatResponse,
+  normalizeMemoryDTO,
+  normalizePromiseDTO,
+  normalizeSafetyResourcesResponse,
+} from "./normalize";
+import { createSseParser, toChatStreamEvent, type SseMessage } from "./sse";
 
 /**
  * Python API（apps/api / FastAPI）の型付きクライアント。
@@ -26,7 +47,7 @@ import { API_ERROR_MESSAGES, ApiError, apiErrorFromResponse } from "./errors";
  *
  * 使い方（クライアントコンポーネント）:
  *   import { api } from "@/lib/api/client";   // または "@/lib/api"
- *   const res = await api.sendChat({ character_id, conversation_id, message });
+ *   const res = await api.streamChat({ character_id, conversation_id, message }, { onEvent });
  *
  * React Query と併用する場合は queryFn の signal を渡す:
  *   queryFn: ({ signal }) => api.listMemories(characterId, { signal })
@@ -38,6 +59,12 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
  * 記憶の保存時間より長くしておくこと。短いと、サーバーでは保存済みの発言を再送して二重送信になる。
  */
 export const CHAT_TIMEOUT_MS = 45_000;
+/**
+ * POST /chat/stream の締め切り（接続から `done` まで）。/chat と同じ 45 秒（API の締め切り 38 秒 + 保存）。
+ * 返答の途中で打ち切ると、サーバーでは保存済みの発言を失敗表示にしてしまうため、区切りごとの無通信
+ * タイムアウトは設けない（API 側の締め切りが先に来て `error` が届く）。
+ */
+export const CHAT_STREAM_TIMEOUT_MS = CHAT_TIMEOUT_MS;
 
 export interface RequestOptions {
   /** 呼び出し側からの中断（React Query の signal など） */
@@ -55,11 +82,59 @@ export interface ApiClientConfig {
   fetch?: typeof fetch;
   defaultTimeoutMs?: number;
   chatTimeoutMs?: number;
+  chatStreamTimeoutMs?: number;
+  /**
+   * ストリーミング（ReadableStream + TextDecoder）が使えるか。既定は実行環境から判定する。
+   * false なら /chat/stream を使わず /chat（返答の全文を一度に受け取る）にする。
+   */
+  supportsStreaming?: () => boolean;
   /** X-Request-ID を生成する（既定: crypto.randomUUID） */
   generateRequestId?: () => string;
 }
 
-type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** /chat/stream の送信オプション */
+export interface StreamChatOptions extends RequestOptions {
+  /**
+   * イベントを受け取るたびに呼ばれる（delta / replace / done。error は例外として投げる前に呼ぶ）。
+   * ストリーミングを使えない場合（/chat にフォールバック）は done だけが 1 回呼ばれる。
+   */
+  onEvent?: (event: ChatStreamEvent) => void;
+}
+
+/** GET /memories のオプション */
+export interface ListMemoriesOptions extends RequestOptions {
+  /** 置き換えられた古い記憶（履歴。status = superseded）も含める */
+  includeSuperseded?: boolean;
+}
+
+/** GET /promises のオプション */
+export interface ListPromisesOptions extends RequestOptions {
+  /** 完了・取り消し済みも含める */
+  includeClosed?: boolean;
+}
+
+/**
+ * /chat/stream が API に無い（404 / 405）ことを表す内部の目印。/chat にフォールバックする。
+ * （所有者チェックの 404 と区別できないため、/chat も失敗したらその失敗をそのまま返す）
+ */
+class StreamEndpointUnavailable extends Error {
+  constructor(readonly apiError: ApiError) {
+    super(apiError.message);
+    this.name = "StreamEndpointUnavailable";
+  }
+}
+
+/** fetch の本文を ReadableStream で読み、TextDecoder で逐次デコードできる環境か */
+export function defaultSupportsStreaming(): boolean {
+  return (
+    typeof ReadableStream !== "undefined" &&
+    typeof TextDecoder !== "undefined" &&
+    typeof Response !== "undefined" &&
+    "body" in Response.prototype
+  );
+}
 
 interface CallOptions extends RequestOptions {
   method: HttpMethod;
@@ -83,23 +158,27 @@ export function createApiClient(config: ApiClientConfig) {
     config.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
   const chatTimeoutMs = config.chatTimeoutMs ?? CHAT_TIMEOUT_MS;
+  const chatStreamTimeoutMs = config.chatStreamTimeoutMs ?? CHAT_STREAM_TIMEOUT_MS;
   const generateRequestId = config.generateRequestId ?? defaultRequestId;
+  const supportsStreaming = config.supportsStreaming ?? defaultSupportsStreaming;
+  /** /chat/stream が無い API だと分かった（以降は /chat を直接使う） */
+  let streamUnavailable = false;
 
-  async function call<T>(options: CallOptions): Promise<T> {
-    const { method, path, body, query, auth = true, signal } = options;
-    const timeoutMs = options.timeoutMs ?? options.defaultTimeoutMs;
-
-    if (signal?.aborted) {
-      throw new ApiError({ status: 0, code: "aborted", message: API_ERROR_MESSAGES.aborted });
-    }
-
+  /** 認証ヘッダー・X-Request-ID・URL を組み立てる（未ログインなら 401 unauthorized） */
+  async function prepare(options: {
+    path: string;
+    body?: unknown;
+    query?: Record<string, string>;
+    auth: boolean;
+    accept: string;
+  }): Promise<{ url: string; headers: Record<string, string> }> {
     const headers: Record<string, string> = {
-      Accept: "application/json",
+      Accept: options.accept,
       "X-Request-ID": generateRequestId(),
     };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
-    if (auth) {
+    if (options.auth) {
       const token = await config.getAccessToken();
       if (!token) {
         throw new ApiError({
@@ -111,9 +190,62 @@ export function createApiClient(config: ApiClientConfig) {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const url = new URL(`${baseUrl}${path}`);
-    if (query) {
-      for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    const url = new URL(`${baseUrl}${options.path}`);
+    if (options.query) {
+      for (const [key, value] of Object.entries(options.query)) url.searchParams.set(key, value);
+    }
+    return { url: url.toString(), headers };
+  }
+
+  /** 通信層の失敗（fetch・本文の読み取り）を ApiError にする */
+  function transportError(
+    cause: unknown,
+    state: { timedOut: boolean; signal: AbortSignal | undefined; requestId: string },
+  ): ApiError {
+    if (state.timedOut) {
+      return new ApiError({
+        status: 0,
+        code: "timeout",
+        message: API_ERROR_MESSAGES.timeout,
+        requestId: state.requestId,
+        cause,
+      });
+    }
+    if (state.signal?.aborted) {
+      return new ApiError({
+        status: 0,
+        code: "aborted",
+        message: API_ERROR_MESSAGES.aborted,
+        cause,
+      });
+    }
+    return new ApiError({
+      status: 0,
+      code: "network_error",
+      message: API_ERROR_MESSAGES.network_error,
+      requestId: state.requestId,
+      cause,
+    });
+  }
+
+  async function call<T>(options: CallOptions): Promise<T> {
+    const { method, path, body, query, auth = true, signal } = options;
+    const timeoutMs = options.timeoutMs ?? options.defaultTimeoutMs;
+
+    if (signal?.aborted) {
+      throw new ApiError({ status: 0, code: "aborted", message: API_ERROR_MESSAGES.aborted });
+    }
+
+    const { url, headers } = await prepare({
+      path,
+      body,
+      query,
+      auth,
+      accept: "application/json",
+    });
+    // トークンの取得中に中断された（abort イベントはもう来ない）
+    if (signal?.aborted) {
+      throw new ApiError({ status: 0, code: "aborted", message: API_ERROR_MESSAGES.aborted });
     }
 
     // タイムアウトと呼び出し側の中断を 1 つの AbortController にまとめる
@@ -128,7 +260,7 @@ export function createApiClient(config: ApiClientConfig) {
 
     let response: Response;
     try {
-      response = await doFetch(url.toString(), {
+      response = await doFetch(url, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -137,30 +269,7 @@ export function createApiClient(config: ApiClientConfig) {
         cache: "no-store",
       });
     } catch (cause) {
-      if (timedOut) {
-        throw new ApiError({
-          status: 0,
-          code: "timeout",
-          message: API_ERROR_MESSAGES.timeout,
-          requestId: headers["X-Request-ID"],
-          cause,
-        });
-      }
-      if (signal?.aborted) {
-        throw new ApiError({
-          status: 0,
-          code: "aborted",
-          message: API_ERROR_MESSAGES.aborted,
-          cause,
-        });
-      }
-      throw new ApiError({
-        status: 0,
-        code: "network_error",
-        message: API_ERROR_MESSAGES.network_error,
-        requestId: headers["X-Request-ID"],
-        cause,
-      });
+      throw transportError(cause, { timedOut, signal, requestId: headers["X-Request-ID"]! });
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onExternalAbort);
@@ -204,6 +313,174 @@ export function createApiClient(config: ApiClientConfig) {
     return parsed as T;
   }
 
+  /** 応答の本文を JSON として読む（読めなければ undefined） */
+  async function readJson(response: Response): Promise<unknown> {
+    const text = await response.text().catch(() => "");
+    if (!text) return undefined;
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function malformedResponse(requestId: string): ApiError {
+    return new ApiError({
+      status: 200,
+      code: "internal_error",
+      message: API_ERROR_MESSAGES.internal_error,
+      requestId,
+    });
+  }
+
+  /** /chat の応答を正規化する（is_proactive・safety の無い古い API にも合わせる） */
+  async function sendChatOnce(body: ChatRequest, options: RequestOptions): Promise<ChatResponse> {
+    const raw = await call<unknown>({
+      ...options,
+      method: "POST",
+      path: "/chat",
+      body,
+      defaultTimeoutMs: chatTimeoutMs,
+    });
+    const response = normalizeChatResponse(raw);
+    if (!response) throw malformedResponse("");
+    return response;
+  }
+
+  /**
+   * SSE の本文を読み、イベントごとに onEvent を呼ぶ。`done` で結果を返す（残りは読まずに閉じる）。
+   * `error` は ApiError として投げる。`done` の前に接続が閉じたら network_error。
+   */
+  async function readChatStream(
+    response: Response,
+    onEvent: StreamChatOptions["onEvent"],
+    requestId: string,
+  ): Promise<ChatResponse> {
+    const parser = createSseParser();
+    let result: ChatResponse | null = null;
+    /** イベントを処理し、done が来たら true */
+    const handle = (messages: readonly SseMessage[]): boolean => {
+      for (const message of messages) {
+        const event = toChatStreamEvent(message);
+        if (!event) continue;
+        onEvent?.(event);
+        if (event.type === "error") throw apiErrorFromStreamError(event.data, requestId);
+        if (event.type === "done") {
+          result = event.data;
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!response.body) {
+      // 本文をストリームで読めない環境: 全文を受け取ってからまとめて処理する
+      const text = await response.text();
+      if (handle(parser.push(text)) || handle(parser.end())) return result!;
+    } else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (handle(parser.push(decoder.decode(value, { stream: true })))) return result!;
+        }
+        if (handle(parser.push(decoder.decode())) || handle(parser.end())) return result!;
+      } finally {
+        // done / error の後は残りを読まずに接続を閉じる（読み終えていれば何もしない）
+        reader.cancel().catch(() => undefined);
+      }
+    }
+    // done も error も無いまま閉じた（中継の切断など）。サーバーでは保存済みの可能性があるが、
+    // その場合は Realtime / 差分取得で届いた保存済みの発言が送信失敗の吹き出しを置き換える
+    throw new ApiError({
+      status: 0,
+      code: "network_error",
+      message: API_ERROR_MESSAGES.network_error,
+      requestId,
+    });
+  }
+
+  /** POST /chat/stream を 1 回実行する（API に無ければ StreamEndpointUnavailable を投げる） */
+  async function streamChatOnce(
+    body: ChatRequest,
+    options: StreamChatOptions,
+  ): Promise<ChatResponse> {
+    const { signal, onEvent } = options;
+    const timeoutMs = options.timeoutMs ?? chatStreamTimeoutMs;
+    if (signal?.aborted) {
+      throw new ApiError({ status: 0, code: "aborted", message: API_ERROR_MESSAGES.aborted });
+    }
+    const { url, headers } = await prepare({
+      path: "/chat/stream",
+      body,
+      auth: true,
+      accept: "text/event-stream",
+    });
+    const requestId = headers["X-Request-ID"]!;
+    if (signal?.aborted) {
+      throw new ApiError({ status: 0, code: "aborted", message: API_ERROR_MESSAGES.aborted });
+    }
+
+    // タイムアウトは接続から done まで（本文の読み取り中も有効）
+    const controller = new AbortController();
+    const state = { timedOut: false, signal, requestId };
+    const timer = setTimeout(() => {
+      state.timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    signal?.addEventListener("abort", onExternalAbort, { once: true });
+
+    try {
+      let response: Response;
+      try {
+        response = await doFetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+          credentials: "omit",
+          cache: "no-store",
+        });
+      } catch (cause) {
+        throw transportError(cause, state);
+      }
+
+      // 認証・所有者・レート制限などはストリーム開始前に通常の JSON エラーで返る
+      if (!response.ok) {
+        const parsed = await readJson(response);
+        const error = apiErrorFromResponse(response.status, parsed, response.headers, requestId);
+        console.warn(
+          `[api] POST /chat/stream -> ${response.status} ${error.code} (request_id=${error.requestId ?? "-"})`,
+        );
+        if (response.status === 404 || response.status === 405) {
+          throw new StreamEndpointUnavailable(error);
+        }
+        throw error;
+      }
+
+      try {
+        const contentType = (response.headers.get("Content-Type") ?? "").toLowerCase();
+        if (!contentType.includes("text/event-stream")) {
+          // ストリームにせず ChatResponse を JSON で返す中継・API にも対応する
+          const result = normalizeChatResponse(await readJson(response));
+          if (!result) throw malformedResponse(requestId);
+          onEvent?.({ type: "done", data: result });
+          return result;
+        }
+        return await readChatStream(response, onEvent, requestId);
+      } catch (cause) {
+        if (cause instanceof ApiError) throw cause;
+        throw transportError(cause, state);
+      }
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
   return {
     /** GET /health（認証不要） */
     health(options: RequestOptions = {}): Promise<HealthResponse> {
@@ -230,52 +507,96 @@ export function createApiClient(config: ApiClientConfig) {
       });
     },
 
-    /** POST /chat — DM 送信 → キャラの返答（タイムアウト 45 秒） */
+    /** POST /chat — DM 送信 → キャラの返答（全文を一度に受け取る。タイムアウト 45 秒） */
     sendChat(body: ChatRequest, options: RequestOptions = {}): Promise<ChatResponse> {
-      return call<ChatResponse>({
-        ...options,
-        method: "POST",
-        path: "/chat",
-        body,
-        defaultTimeoutMs: chatTimeoutMs,
-      });
+      return sendChatOnce(body, options);
     },
 
-    /** GET /memories?character_id= — そのキャラとの記憶一覧 */
-    listMemories(characterId: UUID, options: RequestOptions = {}): Promise<ListMemoriesResponse> {
-      return call<ListMemoriesResponse>({
-        ...options,
+    /**
+     * POST /chat/stream — DM 送信 → キャラの返答を順に受け取る（E8: 最初の文字を早く表示する）。
+     * - delta / replace は onEvent で届き、結果（保存済みの 2 件のメッセージ）は done の ChatResponse で返る
+     * - ストリーム開始前の HTTP エラー（401・404・429 など）と `error` イベントは ApiError を投げる
+     * - ストリーミングを使えない環境・/chat/stream が無い API では /chat にフォールバックし、done だけを呼ぶ
+     * - タイムアウトは接続から done まで 45 秒（CHAT_STREAM_TIMEOUT_MS）
+     */
+    async streamChat(body: ChatRequest, options: StreamChatOptions = {}): Promise<ChatResponse> {
+      const fallback = async (): Promise<ChatResponse> => {
+        const result = await sendChatOnce(body, {
+          signal: options.signal,
+          timeoutMs: options.timeoutMs,
+        });
+        options.onEvent?.({ type: "done", data: result });
+        return result;
+      };
+      if (streamUnavailable || !supportsStreaming()) return fallback();
+      try {
+        return await streamChatOnce(body, options);
+      } catch (error) {
+        if (!(error instanceof StreamEndpointUnavailable)) throw error;
+        // /chat/stream が無い（古い API）か、会話が見つからない（所有者チェック）。/chat で確かめる
+        const result = await fallback();
+        streamUnavailable = true;
+        return result;
+      }
+    },
+
+    /** GET /memories?character_id=&include_superseded= — そのキャラとの記憶一覧 */
+    async listMemories(
+      characterId: UUID,
+      options: ListMemoriesOptions = {},
+    ): Promise<ListMemoriesResponse> {
+      const { includeSuperseded, ...rest } = options;
+      const query: Record<string, string> = { character_id: characterId };
+      if (includeSuperseded) query.include_superseded = "true";
+      const raw = await call<{ memories?: unknown }>({
+        ...rest,
         method: "GET",
         path: "/memories",
-        query: { character_id: characterId },
+        query,
         defaultTimeoutMs,
       });
+      const list = Array.isArray(raw.memories) ? raw.memories : [];
+      return {
+        memories: list.flatMap((item) => {
+          const memory = normalizeMemoryDTO(item);
+          return memory ? [memory] : [];
+        }),
+      };
     },
 
     /** POST /memories — 記憶を追加（is_user_edited = true） */
-    createMemory(body: CreateMemoryRequest, options: RequestOptions = {}): Promise<MemoryDTO> {
-      return call<MemoryDTO>({
+    async createMemory(
+      body: CreateMemoryRequest,
+      options: RequestOptions = {},
+    ): Promise<MemoryDTO> {
+      const raw = await call<unknown>({
         ...options,
         method: "POST",
         path: "/memories",
         body,
         defaultTimeoutMs,
       });
+      const memory = normalizeMemoryDTO(raw);
+      if (!memory) throw malformedResponse("");
+      return memory;
     },
 
-    /** PATCH /memories/{id} — 内容・重要度・タグを更新 */
-    updateMemory(
+    /** PATCH /memories/{id} — 内容・重要度・タグ・種類を更新 */
+    async updateMemory(
       memoryId: UUID,
       body: UpdateMemoryRequest,
       options: RequestOptions = {},
     ): Promise<MemoryDTO> {
-      return call<MemoryDTO>({
+      const raw = await call<unknown>({
         ...options,
         method: "PATCH",
         path: `/memories/${encodeURIComponent(memoryId)}`,
         body,
         defaultTimeoutMs,
       });
+      const memory = normalizeMemoryDTO(raw);
+      if (!memory) throw malformedResponse("");
+      return memory;
     },
 
     /** DELETE /memories/{id}（204） */
@@ -300,6 +621,105 @@ export function createApiClient(config: ApiClientConfig) {
         body,
         defaultTimeoutMs,
       });
+    },
+
+    /** GET /promises?character_id=&include_closed= — そのキャラとの約束（既定は未達・話題にしたものだけ） */
+    async listPromises(
+      characterId: UUID,
+      options: ListPromisesOptions = {},
+    ): Promise<ListPromisesResponse> {
+      const { includeClosed, ...rest } = options;
+      const query: Record<string, string> = { character_id: characterId };
+      if (includeClosed) query.include_closed = "true";
+      const raw = await call<{ promises?: unknown }>({
+        ...rest,
+        method: "GET",
+        path: "/promises",
+        query,
+        defaultTimeoutMs,
+      });
+      const list = Array.isArray(raw.promises) ? raw.promises : [];
+      return {
+        promises: list.flatMap((item) => {
+          const promise = normalizePromiseDTO(item);
+          return promise ? [promise] : [];
+        }),
+      };
+    },
+
+    /** PATCH /promises/{id} — 約束を完了・取り消しにする */
+    async updatePromise(
+      promiseId: UUID,
+      body: UpdatePromiseRequest,
+      options: RequestOptions = {},
+    ): Promise<PromiseDTO | null> {
+      const raw = await call<unknown>({
+        ...options,
+        method: "PATCH",
+        path: `/promises/${encodeURIComponent(promiseId)}`,
+        body,
+        defaultTimeoutMs,
+      });
+      return normalizePromiseDTO(raw);
+    },
+
+    /** GET /proactive/settings — 自発メッセージの設定（全体 + キャラ別） */
+    async getProactiveSettings(options: RequestOptions = {}): Promise<ProactiveSettingsResponse> {
+      const raw = await call<unknown>({
+        ...options,
+        method: "GET",
+        path: "/proactive/settings",
+        defaultTimeoutMs,
+      });
+      if (!isProactiveSettingsResponse(raw)) throw malformedResponse("");
+      return raw;
+    },
+
+    /**
+     * PUT /proactive/settings — 全体の設定を更新（省略した項目は変更しない）。
+     * 応答が設定全体でなければ null（呼び出し側は取り直す）。
+     */
+    async updateProactiveSettings(
+      body: UpdateProactiveGlobalSettingsRequest,
+      options: RequestOptions = {},
+    ): Promise<ProactiveSettingsResponse | null> {
+      const raw = await call<unknown>({
+        ...options,
+        method: "PUT",
+        path: "/proactive/settings",
+        body,
+        defaultTimeoutMs,
+      });
+      return isProactiveSettingsResponse(raw) ? raw : null;
+    },
+
+    /** PUT /proactive/settings/{character_id} — キャラ別のオン・オフ（応答が設定全体でなければ null） */
+    async updateProactiveCharacterSetting(
+      characterId: UUID,
+      body: UpdateProactiveCharacterSettingRequest,
+      options: RequestOptions = {},
+    ): Promise<ProactiveSettingsResponse | null> {
+      const raw = await call<unknown>({
+        ...options,
+        method: "PUT",
+        path: `/proactive/settings/${encodeURIComponent(characterId)}`,
+        body,
+        defaultTimeoutMs,
+      });
+      return isProactiveSettingsResponse(raw) ? raw : null;
+    },
+
+    /** GET /safety/resources — E6 の相談窓口の一覧（安全対応をした返答の下のカード用） */
+    async getSafetyResources(options: RequestOptions = {}): Promise<SafetyResourcesResponse> {
+      const raw = await call<unknown>({
+        ...options,
+        method: "GET",
+        path: "/safety/resources",
+        defaultTimeoutMs,
+      });
+      const response = normalizeSafetyResourcesResponse(raw);
+      if (!response) throw malformedResponse("");
+      return response;
     },
 
     // POST /comments/generate（投稿者キャラの返信を即時生成）は Web からは使わない。
@@ -363,11 +783,19 @@ export const api: ApiClient = {
   health: (...args) => getApiClient().health(...args),
   createConversation: (...args) => getApiClient().createConversation(...args),
   sendChat: (...args) => getApiClient().sendChat(...args),
+  streamChat: (...args) => getApiClient().streamChat(...args),
   listMemories: (...args) => getApiClient().listMemories(...args),
   createMemory: (...args) => getApiClient().createMemory(...args),
   updateMemory: (...args) => getApiClient().updateMemory(...args),
   deleteMemory: (...args) => getApiClient().deleteMemory(...args),
   createComment: (...args) => getApiClient().createComment(...args),
+  listPromises: (...args) => getApiClient().listPromises(...args),
+  updatePromise: (...args) => getApiClient().updatePromise(...args),
+  getProactiveSettings: (...args) => getApiClient().getProactiveSettings(...args),
+  updateProactiveSettings: (...args) => getApiClient().updateProactiveSettings(...args),
+  updateProactiveCharacterSetting: (...args) =>
+    getApiClient().updateProactiveCharacterSetting(...args),
+  getSafetyResources: (...args) => getApiClient().getSafetyResources(...args),
 };
 
 export { ApiError, isApiError, getErrorMessage, toAppError, API_ERROR_MESSAGES } from "./errors";

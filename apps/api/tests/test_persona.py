@@ -79,3 +79,68 @@ def test_repository_personas_are_valid_if_present() -> None:
         pytest.skip("packages/personas has no YAML yet")
     repo = PersonaRepository.load_dir(directory)
     assert len(repo) >= 1
+
+
+# ---------------------------------------------------------------------------
+# エンジン v1.0 の任意項目（後方互換: 省略できる）
+# ---------------------------------------------------------------------------
+
+
+def test_stage_literal_matches_the_engine_vocabulary() -> None:
+    from typing import get_args  # noqa: PLC0415
+
+    from app.engine.types import SEASONAL_KEYS, STAGES  # noqa: PLC0415
+    from app.services.persona import SeasonalKey, StageName  # noqa: PLC0415
+
+    assert get_args(StageName) == STAGES
+    assert get_args(SeasonalKey) == SEASONAL_KEYS
+
+
+def test_optional_engine_fields_are_backward_compatible() -> None:
+    persona = load_persona_file(FIXTURES_DIR / "personas" / "test_persona.yaml")
+    assert persona.engine is not None
+    assert persona.engine.affinity.max_stage is None  # 省略 = 上限なし
+    for reaction in persona.engine.seasonal:
+        assert reaction.busyness is None
+        assert reaction.mood is None
+        assert reaction.status_label is None
+
+
+def _engine_yaml(tmp_path: Path, old: str, new: str) -> Path:
+    text = (FIXTURES_DIR / "personas" / "test_persona.yaml").read_text(encoding="utf-8")
+    assert old in text
+    path = tmp_path / "test_persona.yaml"
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return path
+
+
+def test_max_stage_is_validated(tmp_path: Path) -> None:
+    text = (FIXTURES_DIR / "personas" / "test_persona.yaml").read_text(encoding="utf-8")
+    anchor = next(line for line in text.splitlines() if line.strip().startswith("stage_pace:"))
+    indent = anchor[: len(anchor) - len(anchor.lstrip())]
+    ok = load_persona_file(_engine_yaml(tmp_path, anchor, f"{anchor}\n{indent}max_stage: close"))
+    assert ok.engine is not None
+    assert ok.engine.affinity.max_stage == "close"
+    with pytest.raises(PersonaLoadError, match="max_stage"):
+        load_persona_file(_engine_yaml(tmp_path, anchor, f"{anchor}\n{indent}max_stage: soulmate"))
+
+
+def test_married_persona_is_capped_at_close() -> None:
+    """楓（人妻）は恋人段階に進まない（max_stage: close。好感度エンジンが上限として守る）。"""
+    kaede = load_persona_file(REPO_ROOT / "packages" / "personas" / "tonari_okusan.yaml")
+    assert kaede.engine is not None
+    assert kaede.engine.affinity.max_stage == "close"
+
+
+def test_work_rush_seasonal_events_have_their_own_state() -> None:
+    """繁忙期の仕事の行事（玲奈のバレンタイン・クリスマス、莉子のバレンタイン）は忙しさ・気分・表示を持つ。"""
+    for key, seasonal_keys in (("tsundere", ("valentine", "christmas")), ("gyaru", ("valentine",))):
+        persona = load_persona_file(REPO_ROOT / "packages" / "personas" / f"{key}.yaml")
+        assert persona.engine is not None
+        reactions = {r.key: r for r in persona.engine.seasonal}
+        for seasonal_key in seasonal_keys:
+            reaction = reactions[seasonal_key]
+            assert reaction.attends
+            assert reaction.busyness == 3
+            assert reaction.mood
+            assert reaction.status_label

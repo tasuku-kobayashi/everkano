@@ -6,7 +6,7 @@
 
 - routine: 曜日ごとに重なりが無く、24時間すき間なく埋まっていること（`days` はブロックの開始日の曜日。
   `end <= start` は日をまたぐ。日曜の夜のブロックは月曜の朝へ続く）。`24:00` 表記は使わない
-- post_tags がタグ語彙（ENGINE_BRIEF §2.7。カレンダーの画像プール post_image_pool と共通）に含まれること
+- post_tags がタグ語彙（app.engine.types.TAG_VOCABULARY。カレンダーの画像プール post_image_pool と共通）に含まれること
 - seasonal: SEASONAL_KEYS のうち 10 件以上、重複なし。attends なら title / location / start / end が必須
 - stages: 呼び方のプレースホルダは `{name}` のみ（examples・fallback には書かない）。知り合い段階の自発頻度は控えめ
 - affinity: possessiveness はヤンデレだけが > 0。人妻は romance / possessiveness が 0（恋人段階に進まない）
@@ -25,67 +25,10 @@ from itertools import pairwise
 from typing import Any, Final
 
 # API のモデル・語彙（validate_personas.py が apps/api を sys.path に追加してから import する）
-from app.engine.types import SEASONAL_KEYS, STAGES
+# タグ語彙（post_tags）は API の TAG_VOCABULARY（画像プール post_image_pool.tags・キャプションと共通の 1 つの定義）
+from app.engine.types import SEASONAL_KEYS, STAGES, TAG_VOCABULARY
 from app.services.moderation import Moderator
 from app.services.persona import EngineProfile, Persona
-
-# カレンダーの画像プール（post_image_pool.tags）と共通のタグ語彙（ENGINE_BRIEF §2.7）
-TAG_VOCABULARY: Final[frozenset[str]] = frozenset(
-    {
-        "cafe",
-        "food",
-        "sweets",
-        "izakaya",
-        "bar",
-        "office",
-        "home",
-        "room",
-        "book",
-        "study",
-        "gym",
-        "running",
-        "yoga",
-        "travel",
-        "sea",
-        "mountain",
-        "forest",
-        "city",
-        "night_city",
-        "street",
-        "shopping",
-        "fashion",
-        "cosmetics",
-        "cooking",
-        "music",
-        "stage",
-        "live",
-        "karaoke",
-        "game",
-        "anime",
-        "art",
-        "flowers",
-        "sakura",
-        "rain",
-        "summer",
-        "festival",
-        "fireworks",
-        "autumn",
-        "autumn_leaves",
-        "snow",
-        "christmas",
-        "new_year",
-        "valentine",
-        "halloween",
-        "pet",
-        "sky",
-        "sunset",
-        "morning",
-        "train",
-        "library",
-        "school",
-        "park",
-    }
-)
 
 WEEKDAYS: Final[tuple[str, ...]] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 WEEKDAY_JA: Final[dict[str, str]] = dict(zip(WEEKDAYS, "月火水木金土日", strict=True))
@@ -103,20 +46,21 @@ SLEEP_WORDS: Final[tuple[str, ...]] = ("睡眠", "就寝", "寝て", "寝る", "
 
 YANDERE_ARCHETYPES: Final[frozenset[str]] = frozenset({"ヤンデレ"})
 MARRIED_ARCHETYPES: Final[frozenset[str]] = frozenset({"人妻"})
+MARRIED_MAX_STAGE: Final[int] = STAGES.index("close")  # 人妻の段階の上限（これより上に書けない）
 
 PLACEHOLDER_RE: Final = re.compile(r"\{[^{}]*\}")
 ALLOWED_PLACEHOLDERS: Final[frozenset[str]] = frozenset({"{name}"})
 
 # E2: お金・トークンと関係を結びつけない（エンジンの文言にはお金を払う話題そのものを書かない）。
-# 以下は検出する語のリスト（scope-check の対象語を含むため、該当行に scope-check: allow を付ける）
+# 以下は検出する語のリスト（このファイルは scripts/check-scope-allowlist.txt に理由付きで載せている）
 COMMERCE_TERMS: Final[tuple[str, ...]] = (
-    "課金",  # scope-check: allow（E2 の検出語リスト）
+    "課金",
     "有料",
-    "購入",  # scope-check: allow（E2 の検出語リスト）
+    "購入",
     "買って",
     "買ってくれ",
     "トークン",
-    "投げ銭",  # scope-check: allow（E2 の検出語リスト）
+    "投げ銭",
     "貢",
     "支払",
     "払って",
@@ -258,7 +202,7 @@ def check_routine(engine: EngineProfile, errors: list[str], where: str) -> None:
 def _check_tags(tags: Sequence[str], probability: float, label: str, errors: list[str]) -> None:
     unknown = [t for t in tags if t not in TAG_VOCABULARY]
     if unknown:
-        errors.append(f"{label}: post_tags {unknown} はタグ語彙にありません（README のタグ語彙を参照）")
+        errors.append(f"{label}: post_tags {unknown} はタグ語彙（app/engine/types.py の TAG_VOCABULARY）にありません")
     if probability > 0 and not tags:
         errors.append(f"{label}: post_probability > 0 なら post_tags が必要です")
     if len(set(tags)) != len(tags):
@@ -282,6 +226,12 @@ def check_engine(persona: Persona, where: str, errors: list[str], warnings: list
     if persona.archetype in MARRIED_ARCHETYPES and (sens.romance != 0 or sens.possessiveness != 0):
         errors.append(
             f"{where}.affinity: 人妻は romance / possessiveness を 0 にする（恋人段階に進まない。不倫を匂わせない）"
+        )
+    max_stage = engine.affinity.max_stage
+    if persona.archetype in MARRIED_ARCHETYPES and (max_stage is None or STAGES.index(max_stage) > MARRIED_MAX_STAGE):
+        errors.append(
+            f"{where}.affinity: 人妻は max_stage を {STAGES[MARRIED_MAX_STAGE]} 以下にする（恋人段階に進まない。"
+            f"romance の感度だけに頼らず上限でも止める。いま: {max_stage}）"
         )
     if engine.affinity.expression_delay > 0 and sens.romance == 0 and persona.archetype not in MARRIED_ARCHETYPES:
         warnings.append(f"{where}.affinity: expression_delay は表現の遅れ。romance の感度まで 0 にしない")
@@ -376,8 +326,14 @@ def check_engine(persona: Persona, where: str, errors: list[str], warnings: list
                 errors.append(f"{label}: attends: true なら {missing} が必要です")
             elif reaction.start == reaction.end:
                 errors.append(f"{label}: start と end が同じです")
-        elif any(getattr(reaction, f) is not None for f in ("title", "start", "end")) or reaction.post_probability:
-            warnings.append(f"{label}: attends: false なのに title / start / end / post_probability があります")
+        elif (
+            any(getattr(reaction, f) is not None for f in ("title", "start", "end", "busyness", "mood", "status_label"))
+            or reaction.post_probability
+        ):
+            warnings.append(
+                f"{label}: attends: false なのに title / start / end / busyness / mood / status_label / "
+                "post_probability があります（予定を入れない行事では使われない）"
+            )
         _check_tags(reaction.post_tags, reaction.post_probability, label, errors)
 
     # --- proactive ------------------------------------------------------------

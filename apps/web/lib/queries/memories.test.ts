@@ -5,6 +5,13 @@ import { queryKeys } from "./keys";
 import {
   buildTempMemory,
   createMemoryMutationOptions,
+  EDITABLE_MEMORY_KINDS,
+  filterMemoriesByKind,
+  isNoticeWorthyMemory,
+  memoryKindLabel,
+  MEMORY_KIND_OPTIONS,
+  presentMemoryKinds,
+  splitMemoriesByStatus,
   memoryOriginLabel,
   replaceTempMemory,
   stashMemoryDraft,
@@ -34,6 +41,12 @@ function memory(id: string, importance: number, createdAt: string, tags: string[
     source_message_id: null,
     created_at: createdAt,
     updated_at: createdAt,
+    kind: tags.includes("summary") ? "summary" : "fact",
+    status: "active",
+    superseded_by: null,
+    superseded_at: null,
+    last_referenced_at: null,
+    reference_count: 0,
   };
 }
 
@@ -266,7 +279,12 @@ describe("useCreateMemory（楽観的更新と失敗時の取り消し）", () =
 describe("stashMemoryDraft / takeMemoryDraft", () => {
   it("預けた入力内容を 1 回だけ取り出せる（キャラごと）", () => {
     const queryClient = new QueryClient();
-    const draft = { content: "来週プレゼン", level: "high" as const, secret: true };
+    const draft = {
+      content: "来週プレゼン",
+      level: "high" as const,
+      secret: true,
+      kind: "promise" as const,
+    };
     stashMemoryDraft(queryClient, "c1", draft);
     expect(takeMemoryDraft(queryClient, "c2")).toBeUndefined();
     expect(takeMemoryDraft(queryClient, "c1")).toEqual(draft);
@@ -275,5 +293,94 @@ describe("stashMemoryDraft / takeMemoryDraft", () => {
     stashMemoryDraft(queryClient, "c1", { ...draft, content: "2 回目" });
     expect(takeMemoryDraft(queryClient, "c1")?.content).toBe("2 回目");
     queryClient.clear();
+  });
+});
+
+describe("記憶の種類（M2）", () => {
+  it("表示名と、追加・編集で選べる種類（会話の要約は選べない）", () => {
+    expect(MEMORY_KIND_OPTIONS.map((o) => o.label)).toEqual([
+      "事実",
+      "好み",
+      "出来事",
+      "約束・予定",
+      "気持ち",
+      "ふたりの関係",
+      "会話の要約",
+    ]);
+    expect(EDITABLE_MEMORY_KINDS.map((o) => o.kind)).not.toContain("summary");
+    expect(memoryKindLabel("relationship")).toBe("ふたりの関係");
+  });
+
+  it("種類で絞り込み、記憶のある種類だけをチップにする（選択中の種類は 0 件でも残す）", () => {
+    const list = [
+      { ...memory("a", 0.5, "2026-09-25T00:00:00Z"), kind: "preference" as const },
+      { ...memory("b", 0.5, "2026-09-25T00:00:00Z"), kind: "fact" as const },
+      { ...memory("c", 0.5, "2026-09-25T00:00:00Z"), kind: "preference" as const },
+    ];
+    expect(filterMemoriesByKind(list, "preference").map((m) => m.id)).toEqual(["a", "c"]);
+    expect(filterMemoriesByKind(list, "all")).toHaveLength(3);
+    expect(presentMemoryKinds(list).map((o) => o.kind)).toEqual(["fact", "preference"]);
+    expect(presentMemoryKinds(list, "emotion").map((o) => o.kind)).toEqual([
+      "fact",
+      "preference",
+      "emotion",
+    ]);
+  });
+
+  it("buildTempMemory は指定の種類（既定は事実）の有効な記憶", () => {
+    expect(buildTempMemory({ character_id: "c", content: "x" }, "temp-1")).toMatchObject({
+      kind: "fact",
+      status: "active",
+    });
+    expect(
+      buildTempMemory({ character_id: "c", content: "x", kind: "preference" }, "temp-2").kind,
+    ).toBe("preference");
+  });
+
+  it("patchMemory は種類も変える", () => {
+    const [patched] = patchMemory([memory("a", 0.5, "2026-09-25T00:00:00Z")], "a", {
+      kind: "emotion",
+    });
+    expect(patched?.kind).toBe("emotion");
+    expect(patched?.is_user_edited).toBe(true);
+  });
+
+  it("kind = summary は要約として扱う（タグが無くても）", () => {
+    expect(isSummaryMemory({ tags: [], kind: "summary" })).toBe(true);
+    expect(isSummaryMemory({ tags: [], kind: "fact" })).toBe(false);
+  });
+});
+
+describe("splitMemoriesByStatus（以前の記憶）", () => {
+  it("今の記憶と置き換えられた記憶に分け、以前の記憶は置き換わった新しい順", () => {
+    const old1 = {
+      ...memory("o1", 0.5, "2026-09-01T00:00:00Z"),
+      status: "superseded" as const,
+      superseded_at: "2026-09-10T00:00:00Z",
+      superseded_by: "n1",
+    };
+    const old2 = {
+      ...memory("o2", 0.5, "2026-09-02T00:00:00Z"),
+      status: "superseded" as const,
+      superseded_at: "2026-09-20T00:00:00Z",
+      superseded_by: "n2",
+    };
+    const n1 = memory("n1", 0.5, "2026-09-10T00:00:00Z");
+    const { active, superseded } = splitMemoriesByStatus([old1, n1, old2]);
+    expect(active.map((m) => m.id)).toEqual(["n1"]);
+    expect(superseded.map((m) => m.id)).toEqual(["o2", "o1"]);
+  });
+});
+
+describe("isNoticeWorthyMemory（「覚えました」を出す記憶）", () => {
+  it("自動で覚えた有効な記憶だけ（要約・自分で追加した記憶・形の違う行は除く）", () => {
+    expect(isNoticeWorthyMemory({ id: "m", kind: "fact", status: "active" })).toBe(true);
+    expect(isNoticeWorthyMemory({ id: "m" })).toBe(true);
+    expect(isNoticeWorthyMemory({ id: "m", kind: "summary" })).toBe(false);
+    expect(isNoticeWorthyMemory({ id: "m", tags: ["summary"] })).toBe(false);
+    expect(isNoticeWorthyMemory({ id: "m", kind: "fact", is_user_edited: true })).toBe(false);
+    expect(isNoticeWorthyMemory({ id: "m", status: "superseded" })).toBe(false);
+    expect(isNoticeWorthyMemory({ kind: "fact" })).toBe(false);
+    expect(isNoticeWorthyMemory(null)).toBe(false);
   });
 });

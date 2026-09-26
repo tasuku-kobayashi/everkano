@@ -2,6 +2,8 @@
 
 import { PUBLIC_CHARACTER_COLUMNS } from "@everkano/shared";
 import { useState, type ReactNode } from "react";
+import { SafetyResourceCard } from "@/components/dm/safety-resource-card";
+import { AiBadge } from "@/components/ui/ai-badge";
 import { AppHeader, HeaderIconButton } from "@/components/ui/app-header";
 import { Avatar } from "@/components/ui/avatar";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
@@ -13,6 +15,7 @@ import { CdnImage } from "@/components/ui/image";
 import { Modal } from "@/components/ui/modal";
 import { PostCardSkeleton, ListRowSkeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import { api, getErrorMessage, isApiError } from "@/lib/api";
 import { formatCount, formatRelativeTime } from "@/lib/format";
@@ -26,6 +29,7 @@ export function UiCatalog() {
   const [sheet, setSheet] = useState(false);
   const [modal, setModal] = useState(false);
   const [liked, setLiked] = useState(false);
+  const [on, setOn] = useState(true);
 
   return (
     <>
@@ -73,6 +77,41 @@ export function UiCatalog() {
           <Avatar alt="しずく" src="https://invalid.example/x.png" size="xl" ring="story" />
           <Avatar alt="" size="md" ring="active" />
         </div>
+      </Section>
+      <Section title="AI バッジ（E3）/ スイッチ">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+            misaki.daily <AiBadge />
+          </span>
+          <span className="relative inline-flex">
+            <Avatar alt="美咲" size={62} ring="story" />
+            <AiBadge
+              variant="compact"
+              className="absolute -bottom-1 left-1/2 -translate-x-1/2 ring-2 ring-ig-bg"
+            />
+          </span>
+          <Switch checked={on} onChange={setOn} label="キャラからメッセージを受け取る" />
+        </div>
+      </Section>
+      <Section title="相談窓口のカード（E6）">
+        <SafetyResourceCard
+          resources={[
+            {
+              name: "よりそいホットライン",
+              phone: "0120-279-338",
+              hours: "24時間",
+              url: null,
+            },
+            {
+              name: "厚生労働省「まもろうよ こころ」",
+              phone: null,
+              hours: null,
+              url: "https://www.mhlw.go.jp/mamorouyokokoro/",
+            },
+          ]}
+        />
+        <SafetyResourceCard resources={undefined} loading />
+        <SafetyResourceCard resources={undefined} error onRetry={() => undefined} />
       </Section>
       <Section title="Buttons">
         <div className="flex flex-wrap gap-2">

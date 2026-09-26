@@ -48,6 +48,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/venv/bin:$PATH \
     PERSONAS_DIR=/srv/everkano/personas \
     PROMPTS_DIR=/srv/everkano/prompts \
+    SAFETY_RESOURCES_PATH=/srv/everkano/safety/resources.ja.yaml \
     FORWARDED_ALLOW_IPS="127.0.0.1"
 
 # 実行時に使わない pip（と ensurepip が同梱する wheel）を消す（アプリの依存は /opt/venv。ベースイメージ同梱の
@@ -65,6 +66,8 @@ COPY apps/api/scripts/reembed_memories.py ./scripts/reembed_memories.py
 # ペルソナ YAML とプロンプトテンプレート（起動時に検証される）。ペルソナは YAML だけ（seed 生成スクリプト等は入れない）
 COPY packages/personas/*.yaml /srv/everkano/personas/
 COPY packages/prompts/templates /srv/everkano/prompts
+# E6 の相談窓口と返答文面（起動時に検証される。番号・受付時間は公開前に運用者が再確認する）
+COPY packages/prompts/safety /srv/everkano/safety
 
 USER app
 EXPOSE 8000
@@ -73,4 +76,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
 
 # レート制限はプロセス内メモリのため 1 プロセスで起動する（スケールはマシン数で行う）
+# キャラクターエンジンの非同期ジョブ・定期実行は同じイメージの `python -m app.worker` で動かす
+# （Fly.io では fly.toml の [processes] worker。API 側は ENGINE_WORKER_ENABLED / ENGINE_SCHEDULER_ENABLED=false）
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--no-access-log", "--timeout-graceful-shutdown", "20"]

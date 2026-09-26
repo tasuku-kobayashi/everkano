@@ -1,6 +1,6 @@
 # ADR-0026: マジックリンクは確認画面を表示し、POST で初めてログインする
 
-- ステータス: 採用
+- ステータス: 採用（確認画面の送信を fetch と `location.replace()` にして確認画面を履歴に残さないことを [ADR-0048](0048-web-confirm-history-hydration-fixes.md) で追補）
 - 日付: 2026-09-25
 - 関連: 仕様書 §5.1 / [ADR-0012](0012-pwa-and-login-magic-link-otp.md)（「ログイン」の手順 2 のリンクの扱いを置き換え）・[ADR-0017](0017-discard-unverified-password.md) /
   実装: `apps/web/app/auth/confirm/page.tsx`, `apps/web/app/auth/confirm/verify/route.ts`, `apps/web/components/auth/confirm-login-form.tsx`,

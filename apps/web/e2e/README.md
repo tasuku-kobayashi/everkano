@@ -6,7 +6,7 @@ Playwright（Chromium）で、スマホ相当の 2 端末（`iphone` = 390×844 
 
 | ファイル                | 対象                                                                                   |
 | ----------------------- | -------------------------------------------------------------------------------------- |
-| `auth.spec.ts`          | A2 マジックリンク（メールの `/auth/confirm` リンク）と 6 桁コードでのログイン / 共有リンク（`/posts/<id>`・`/dm/<id>`）→ ログイン → 元のページへ戻る（メールのリンクの `redirect_to` が `next` を運ぶ）/ リンクの先読み・ログイン CSRF 対策 / 削除・利用停止されたセッション（ループしない）/ ログアウト（失効要求が失敗しても端末からはログアウト）/ 退会（§5.7）と退会確認の初期フォーカス / コード入力中のアプリ再起動・送信間隔の制限でも続けられること |
+| `auth.spec.ts`          | A2 マジックリンク（メールの `/auth/confirm` リンク）と 6 桁コードでのログイン / 共有リンク（`/posts/<id>`・`/dm/<id>`）→ ログイン → 元のページへ戻る（メールのリンクの `redirect_to` が `next` を運ぶ）/ リンクの先読み・ログイン CSRF 対策 / 確認画面が履歴に残らない（ログイン後の「戻る」で確認画面へ戻らない） / 削除・利用停止されたセッション（ループしない）/ ログアウト（失効要求が失敗しても端末からはログアウト）/ 退会（§5.7）と退会確認の初期フォーカス / コード入力中のアプリ再起動・送信間隔の制限でも続けられること |
 | `feed.spec.ts`          | A3 ホームフィードの無限スクロール（2 ページ目以降・published_at DESC・重複なし）       |
 | `post-detail.spec.ts`   | A4 コメント一覧（昇順）・投稿（API）・キャラの自動返信（Realtime）・Gate #1            |
 | `profile.spec.ts`       | A5 「無料」「有料」タブ / A7 「DMする」→ DM 画面                                        |
@@ -17,9 +17,11 @@ Playwright（Chromium）で、スマホ相当の 2 端末（`iphone` = 390×844 
 | `prefetch.spec.ts`      | 遷移先のデータの先読み: リンクに触れた時点（遷移前）で遷移先のデータを取りに行き、遷移後は取り直さない（フィード → 投稿詳細・プロフィール / DM → プロフィール / DM 一覧の「おすすめ」→ 会話。会話の作成はしない） |
 | `audit.spec.ts`         | A12 `audit_logs` の `chat.request` / `chat.response`（SQL で確認）                      |
 | `rls.spec.ts`           | A13 2 アカウントで RLS（supabase-js）と API の所有者チェック（404）                     |
-| `layout.spec.ts`        | A1 の代替（全画面で横はみ出しなし・入力欄 16px 以上）/ H2 投稿 UI が無いこと / ホームの再読み込み（Home タブ・ロゴ・プルリフレッシュ）とタブを切り替えて戻ったときのスクロール位置 / 空状態の見出しの折り返し / 端末の「戻る」とシート・モーダル / 絵文字の表示名 / LCP 画像 / `<main>` ランドマークと h1・シートの「閉じる」 |
+| `layout.spec.ts`        | A1 の代替（全画面で横はみ出しなし・入力欄 16px 以上）/ H2 投稿 UI が無いこと / ホームの再読み込み（Home タブ・ロゴ・プルリフレッシュ）とタブを切り替えて戻ったときのスクロール位置 / 空状態の見出しの折り返し / ストーリーズ行の読み込み前後で高さ・スクロール位置が変わらない / 端末の「戻る」とシート・モーダル（シートから遷移した後の履歴に確認画面・シートのエントリが残らない） / 絵文字の表示名 / LCP 画像 / `<main>` ランドマークと h1・シートの「閉じる」 |
 | `dark-mode.spec.ts`     | ダークモード（端末設定に追従・白い面が残っていない）/ 読ませる文字のコントラスト 4.5:1 以上（ライト / ダーク） |
+| `hydration.spec.ts`     | 本番ビルドのハイドレーション: CPU を 8 倍遅くして主要画面（`/dm`・`/dm/<id>`・`/me`・`/c/<handle>`・`/`）を繰り返しフルロードしても React #418（ハイドレーションの不一致）が出ない（`iphone` のみ） |
 | `screenshots.spec.ts`   | 全画面のスクリーンショット（ライト / ダーク。`iphone` のみ）                            |
+| `engine.spec.ts`        | キャラクターエンジン v1.0: E3「AIキャラクター」バッジ（全画面・コントラスト）/ DM ヘッダーの今の状況（`character_states`）/ `POST /chat/stream` の表示（入力中 → 返答・replace・error → 再送・/chat へのフォールバック。応答を差し替えて確認）/ E6 相談窓口のカード / P6 自発メッセージ（通常の吹き出し・未読）/ E4 自発メッセージの設定（/me・DM の「i」）/ M11 メモリパネル（種類・以前の記憶・約束） |
 
 A1（実機）・A11 のスタンドアロン起動そのもの・A15（別担当者による環境構築）は実機 / 人手でしか確認できない。
 
@@ -28,6 +30,11 @@ A1（実機）・A11 のスタンドアロン起動そのもの・A15（別担�
 - ローカル Supabase が起動している（`pnpm db:start`。シード済み）
 - Python API と Web（**本番ビルド**）が起動している。テストはサーバーを起動しない
 - LLM はモック（`LLM_MODE=mock`）、Embedding は `hash`。A9 / A10 の返答内容の検証はモック LLM の決定的な返答を前提にしている
+- DM は `POST /chat/stream`（SSE）で送る。記憶の抽出は返答の後の非同期ジョブ（`done` の `memories_created` は常に空）なので、
+  A9 は記憶が作られるのを待つ（最大 60 秒）。API は `ENGINE_POST_TURN_DELAY_SECONDS=1` など短くして起動すると速い
+- API は **`ENGINE_SCHEDULER_ENABLED=false`** で起動する（CI と同じ）。スケジューラが実時間で動くと、テストの途中でキャラの
+  投稿（予定からのフィード投稿）・自発メッセージが増え、フィードの並び・DM の件数を見るテストが不安定になる。
+  返答の後のジョブ（`post_turn`）はワーカー（`ENGINE_WORKER_ENABLED`、既定で有効）が処理する
 - 外部のプレースホルダー画像（picsum.photos / api.dicebear.com / placehold.co）はテスト内で SVG にスタブしている（オフラインでも動く）
 - ログインメールのリンクのオリジンは `E2E_BASE_URL` ではなく Supabase Auth の Site URL（`infra/supabase/config.toml` の
   `site_url`。既定 `http://localhost:3000`）になる。`auth.spec.ts` はリンクのオリジンが `E2E_SITE_URL` であることを確かめたうえで、
@@ -46,7 +53,8 @@ pnpm db:start
 cd apps/api
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
 SUPABASE_URL=http://127.0.0.1:54321 LLM_MODE=mock EMBEDDING_MODE=hash \
-CORS_ALLOW_ORIGINS=http://localhost:3000 APP_ENV=local \
+CORS_ALLOW_ORIGINS=http://localhost:3000 APP_ENV=local ENGINE_POST_TURN_DELAY_SECONDS=1 \
+ENGINE_SCHEDULER_ENABLED=false \
   uv run uvicorn app.main:app --port 8000
 
 # 3. Web（本番ビルド。apps/web/.env.local は pnpm setup:env で作成済みのこと。別ターミナル）

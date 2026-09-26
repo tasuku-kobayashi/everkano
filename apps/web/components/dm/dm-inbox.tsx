@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { OPAQUE_HEADER } from "@/components/post/opaque-header";
 import { AppHeader } from "@/components/ui/app-header";
+import { AI_BADGE_LABEL, AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { ErrorState } from "@/components/ui/error-state";
 import { CloseIcon, PaperPlaneIcon, SearchIcon } from "@/components/ui/icons";
@@ -170,6 +171,7 @@ function ThreadRow({
   const preview = threadPreview(thread);
   const label = [
     thread.character_name,
+    AI_BADGE_LABEL,
     unread ? `未読 ${thread.unread_count} 件` : null,
     preview,
     time,
@@ -190,8 +192,13 @@ function ThreadRow({
     >
       <Avatar src={thread.character_avatar_url} alt={thread.character_name} size="lg" />
       <div className="min-w-0 flex-1">
-        <p className={cn("truncate text-[14px] leading-[18px]", unread && "font-bold")}>
-          {thread.character_name}
+        <p className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={cn("min-w-0 truncate text-[14px] leading-[18px]", unread && "font-bold")}
+          >
+            {thread.character_name}
+          </span>
+          <AiBadge />
         </p>
         <p
           className={cn(
@@ -230,12 +237,17 @@ function SuggestionRow({
       href={`/dm/${character.id}`}
       onPointerDown={onIntent}
       onMouseEnter={onIntent}
-      aria-label={`${character.name}にメッセージを送る`}
+      aria-label={`${character.name}にメッセージを送る（${AI_BADGE_LABEL}）`}
       className="flex items-center gap-3 px-4 py-2 transition-colors active:bg-ig-elevated"
     >
       <Avatar src={character.avatar_url} alt={character.name} size="lg" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] leading-[18px] font-semibold">{character.name}</p>
+        <p className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[14px] leading-[18px] font-semibold">
+            {character.name}
+          </span>
+          <AiBadge />
+        </p>
         <p className="truncate text-[14px] leading-[18px] text-ig-secondary">{character.handle}</p>
       </div>
       <span className="flex h-8 shrink-0 items-center rounded-lg bg-ig-elevated px-3 text-[14px] font-semibold text-ig-text">

@@ -81,6 +81,11 @@ jobs:
       - name: スコープ外機能チェック（A16 / §12）
         run: bash scripts/check-scope.sh
 
+      # E1 / E2 のコンプライアンス上の例外（scripts/check-scope-allowlist.txt・禁止を述べる行）が
+      # 本物の決済コード・課金の文言まで通してしまわないことの回帰テスト
+      - name: check-scope.sh の回帰テスト
+        run: bash scripts/tests/check-scope.test.sh
+
       - name: ShellCheck（scripts/*.sh, scripts/tests/*.sh）
         run: shellcheck -x scripts/*.sh scripts/tests/*.sh
 
@@ -240,7 +245,7 @@ jobs:
 
       - name: mypy (strict)
         working-directory: apps/api
-        run: uv run mypy app
+        run: uv run mypy app evals
 
       - name: ペルソナ YAML の検証
         working-directory: apps/api
@@ -314,8 +319,17 @@ jobs:
       - name: 環境変数ファイル生成（supabase status から）
         run: bash scripts/setup-env.sh --force
 
-      - name: API 起動（モック LLM / ハッシュ埋め込み）
+      # キャラクターエンジンのスケジューラ（予定の生成・フィードへの投稿・自発メッセージ）は止める。
+      # 実時間で動くと、テストの途中でキャラの投稿・自発メッセージが増え、フィードの並び・DM の件数を見る
+      # テストが不安定になる（エンジンの定期処理は API の pytest と評価ハーネスが ManualClock で検証する）。
+      # 返答の後のジョブ（post_turn: 記憶・約束・好感度）はワーカーで動かし、待ち時間を 1 秒に縮める
+      # （「覚えました」の通知・メモリパネルの E2E が既定の 20 秒を待たないように）。
+      - name: API 起動（モック LLM / ハッシュ埋め込み / スケジューラ停止）
         working-directory: apps/api
+        env:
+          ENGINE_SCHEDULER_ENABLED: "false"
+          ENGINE_WORKER_ENABLED: "true"
+          ENGINE_POST_TURN_DELAY_SECONDS: "1"
         run: |
           nohup uv run uvicorn app.main:app --port 8000 > /tmp/api.log 2>&1 &
           for _ in $(seq 1 60); do curl -fsS http://localhost:8000/health && break; sleep 1; done

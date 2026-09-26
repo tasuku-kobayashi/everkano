@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { AI_BADGE_LABEL, AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStories, type StoryItem } from "@/lib/queries/feed";
@@ -98,16 +99,23 @@ function StoryBubble({
     <Link
       href={href}
       onClick={onOpen}
-      className="flex w-[76px] flex-col items-center gap-1 pressable"
-      aria-label={`${item.character.name}の${item.latestPost ? "最新の投稿" : "プロフィール"}`}
+      className="flex w-[76px] flex-col items-center gap-1.5 pressable"
+      aria-label={`${item.character.name}（${AI_BADGE_LABEL}）の${item.latestPost ? "最新の投稿" : "プロフィール"}`}
       data-testid="story"
     >
-      <Avatar
-        src={item.character.avatar_url}
-        alt={item.character.name}
-        size={62}
-        ring={active ? "story" : "seen"}
-      />
+      {/* Instagram の「LIVE」と同じく、アバターの下端に小さな「AI」を重ねる（E3） */}
+      <span className="relative inline-flex">
+        <Avatar
+          src={item.character.avatar_url}
+          alt={item.character.name}
+          size={62}
+          ring={active ? "story" : "seen"}
+        />
+        <AiBadge
+          variant="compact"
+          className="absolute -bottom-1 left-1/2 -translate-x-1/2 ring-2 ring-ig-bg"
+        />
+      </span>
       <span
         className={
           active
@@ -121,11 +129,19 @@ function StoryBubble({
   );
 }
 
+/**
+ * 読み込み中の 1 件。読み込み後の StoryBubble と同じ寸法にする（幅 76px、アバター 73px = 62px + リング・隙間 各 5.5px、
+ * 間隔 6px、ハンドル 1 行 = 16px）。高さが違うと、読み込みが終わった時点でその下のフィード全体がずれる
+ * （スクロール中ならブラウザのスクロールアンカリングで scrollY も変わり、読んでいた位置の復元がずれる）。
+ * ハンドルの行は Skeleton の高さ（h-3）を上書きせず、16px の行の中に置く（cn は同じ種類のクラスの衝突を解決しない）。
+ */
 function StorySkeleton() {
   return (
     <li className="flex w-[76px] shrink-0 flex-col items-center gap-1.5" aria-hidden="true">
       <Skeleton shape="circle" className="size-[73px]" />
-      <Skeleton shape="text" className="h-2.5 w-12" />
+      <span className="flex h-4 w-full items-center justify-center">
+        <Skeleton shape="text" className="w-12" />
+      </span>
     </li>
   );
 }

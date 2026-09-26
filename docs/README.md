@@ -20,7 +20,7 @@ everkano（Project P MVP）のドキュメント一覧。環境構築・テス�
 | [acceptance/e2e-results.md](acceptance/e2e-results.md) | E2E（Playwright）の実行結果の詳細                                                               | E2E を実行したとき                                  |
 | [acceptance/inspection-report.md](acceptance/inspection-report.md) | 納品前の検査の報告（観点別・重大度別の件数、修正前後の計測値、修正した項目、未対応の項目と推奨する対応） | 検査・再検査をしたとき                              |
 | [acceptance/raw/](acceptance/raw/)              | 各テストの生の出力（Playwright・pgTAP・pytest・監査ログのサンプル・会話ログ）                           |                                                     |
-| [acceptance/screenshots/](acceptance/screenshots/) | 全 22 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー）                 | `apps/web/e2e/screenshots.spec.ts` で再生成          |
+| [acceptance/screenshots/](acceptance/screenshots/) | 全 26 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー。23〜26 はエンジン v1.0 の画面） | `apps/web/e2e/screenshots.spec.ts` で再生成          |
 
 各パッケージの README: [apps/web](../apps/web/README.md) / [apps/web/e2e](../apps/web/e2e/README.md) / [apps/api](../apps/api/README.md) /
 [packages/personas](../packages/personas/README.md) / [packages/prompts](../packages/prompts/README.md) /

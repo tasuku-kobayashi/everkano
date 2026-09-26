@@ -1,6 +1,6 @@
 # ADR-0028: LLM 呼び出しの上限（DM 履歴の文字数・中期要約のチャンク化と失敗時のバックオフ・外部 HTTP の接続数）
 
-- ステータス: 採用
+- ステータス: 採用（DM の履歴の上限の値は [ADR-0035](0035-character-engine-architecture.md) により置き換え（Context Assembler の予算）。中期要約をジョブで実行することを [ADR-0038](0038-memory-engine-v2.md) で追補）
 - 日付: 2026-09-26
 - 関連: 仕様書 §7・§9.1 / [ADR-0009](0009-memory-engine.md)（本 ADR で追補）・[ADR-0019](0019-chat-deadline.md)・[ADR-0022](0022-embedding-failures-and-audit-additions.md) /
   実装: `apps/api/app/services/prompt.py`（`HISTORY_MAX_CHARS` / `fit_chat_history` / `TRANSCRIPT_MAX_CHARS` / `fit_transcript_prefix`）,

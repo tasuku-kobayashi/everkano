@@ -293,10 +293,17 @@ def test_paths(schema: dict[str, Any]) -> None:
         ("/health", "get"),
         ("/conversations", "post"),
         ("/chat", "post"),
+        ("/chat/stream", "post"),
         ("/memories", "get"),
         ("/memories", "post"),
         ("/memories/{memory_id}", "patch"),
         ("/memories/{memory_id}", "delete"),
+        ("/promises", "get"),
+        ("/promises/{promise_id}", "patch"),
+        ("/proactive/settings", "get"),
+        ("/proactive/settings", "put"),
+        ("/proactive/settings/{character_id}", "put"),
+        ("/safety/resources", "get"),
         ("/comments", "post"),
         ("/comments/generate", "post"),
     }
@@ -306,3 +313,8 @@ def test_paths(schema: dict[str, Any]) -> None:
     for path, method in expected - {("/health", "get")}:
         assert paths[path][method].get("security"), f"{method} {path} must require auth"
     assert not paths["/health"]["get"].get("security")
+    # /chat/stream は Server-Sent Events を返す
+    assert "text/event-stream" in paths["/chat/stream"]["post"]["responses"]["200"]["content"]
+    # E6 の相談窓口の一覧
+    resources = paths["/safety/resources"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert resources["$ref"].endswith("/SafetyResourcesResponse")

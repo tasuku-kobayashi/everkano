@@ -1,0 +1,35 @@
+# =============================================================================
+# scripts/check-scope-allowlist.txt — check-scope.sh のコンプライアンス上の例外（payment の文言ルールだけ）
+#
+# ここに載せるのは「E1 / E2（課金・購入と好感度・関係の結びつけの禁止）を実装・検査するためにだけ、
+# 購入・課金の語を含むファイル」に限る。禁止する言い回しを検出するには、その語をコードに書くしかないため。
+#
+# - 効くのは check-scope.sh の payment「購入・課金の文言」ルールだけ。決済 SDK・決済処理のコード
+#   （checkout / payment_intent …）・カード入力のルールや、他のカテゴリ（画像生成・TTS …）は、
+#   ここに載せたファイルでも検出される（本物の決済コードが紛れ込めば失敗する）。
+# - 書式: `<パスのパターン>  # <理由>`（1 行 1 項目。理由は必須。パターンは bash のパターンで * は / にも一致）。
+# - どのファイルにも一致しない項目があると check-scope.sh は失敗する（ファイルを消したら項目も消す）。
+# - 載せるのは最小限。説明コメントやプロンプトの禁止の指示（「〜と結びつけない」）は、許可リストではなく
+#   「禁止を述べる行」の例外で通す（scripts/README.md の check-scope.sh の節を参照）。
+# =============================================================================
+
+# ---- 禁止の実装（検出語のリスト）
+apps/api/app/engine/safety/output_guard.py  # E2 の OutputGuard（commerce_coupling）。購入・課金の語と関係の語が同じ文にある発言を検出する語のリスト
+packages/personas/scripts/engine_checks.py  # E2 のペルソナ文言検査。YAML の engine セクションに購入・課金の語が無いことを検出する語のリスト
+
+# ---- 禁止の回帰テスト（違反する文の例・「含まないこと」を確かめる語のリスト）
+apps/api/tests/engine/core/test_output_guard.py  # E2 の OutputGuard の回帰テスト（検出すべき違反文・検出してはいけない文の例）
+apps/api/tests/engine/core/test_flush.py  # E2 違反の返答をストリーミングの途中で差し止める回帰テスト
+apps/api/tests/engine/core/test_chat_stream_api.py  # E2 違反の返答が API で置き換わる回帰テスト（違反文の例）
+apps/api/tests/engine/core/test_safety.py  # E6 の安全対応の返答に課金の話が含まれないことの検査
+apps/api/tests/engine/affinity/test_e1_structure.py  # E1 / A9 の構造テスト（好感度のパッケージが課金・購入のデータを読まない）
+apps/api/tests/engine/affinity/test_evaluator.py  # E1: 好感度の評価プロンプトが「お金の情報を使わない」と明記していることの検査
+apps/api/tests/engine/affinity/test_guidance.py  # E2 / A12: 関係の指針に購入・課金の語が入らないことの検査（禁止語のリスト）
+apps/api/tests/engine/proactive/test_message.py  # E2: 自発メッセージに購入・課金の語が入らないことの検査（禁止語のリスト）
+
+# ---- 評価ハーネス（本番のイメージに含まれない: apps/api/Dockerfile は apps/api/app だけをコピーする）
+# 仕様 §9.2 の「操作への耐性」「E1」「E2」を測るため、課金と関係を結びつける誘い文（操作しようとするユーザーの台本）・
+# 違反文の判定の例・E1 の import / SQL 走査の禁止語を持つ。ディレクトリ単位で許可する（文言ルールだけ。決済 SDK・
+# 決済処理のコードは検出される）。
+apps/api/evals/*  # 評価ハーネス: 操作しようとするユーザーの課金の誘い文・E2 の判定・E1 の走査の禁止語（本番に含まれない）
+apps/api/tests/evals/*  # 評価ハーネスのテスト: E2 の判定・指標の計算の違反文の例（本番に含まれない）

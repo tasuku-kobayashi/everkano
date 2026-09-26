@@ -33,8 +33,13 @@ import type { TypedSupabaseClient } from "@/lib/supabase/types";
 /** 1 ページの件数（仕様: 30 件ずつ遡る） */
 export const MESSAGES_PAGE_SIZE = 30;
 
-/** messages の select 列 */
-export const MESSAGE_COLUMNS = "id, conversation_id, sender_type, body, created_at" as const;
+/**
+ * messages の select 列。
+ * - is_proactive: キャラからの自発メッセージ（表示は通常の吹き出しと同じ）
+ * - safety_triggered: E6 の安全対応をした返答（下に相談窓口のカードを出す。どの端末でも同じ）
+ */
+export const MESSAGE_COLUMNS =
+  "id, conversation_id, sender_type, body, created_at, is_proactive, safety_triggered" as const;
 
 /**
  * 差分取得（resyncMessages）で一度に取る最大件数。これ以上取りこぼしていたら差分では埋めず、
@@ -139,6 +144,8 @@ export function parseMessageRow(row: unknown): MessageDTO | null {
     sender_type: r.sender_type,
     body: r.body,
     created_at: r.created_at,
+    is_proactive: r.is_proactive === true,
+    safety_triggered: r.safety_triggered === true && r.sender_type === "character",
   };
 }
 
@@ -214,7 +221,8 @@ export interface LocalMessage {
   error?: string;
 }
 
-export type TimelineStatus = "sent" | LocalMessageStatus;
+/** sent = 保存済み / sending・failed = 自分の送信中・送信失敗 / streaming = 受信中のキャラの返答（未保存） */
+export type TimelineStatus = "sent" | LocalMessageStatus | "streaming";
 
 /** 画面に並べるメッセージ（サーバー保存済み + ローカル） */
 export interface TimelineMessage {
@@ -229,6 +237,8 @@ export interface TimelineMessage {
   /** ローカルメッセージの場合のみ */
   localId?: string;
   error?: string;
+  /** E6: 安全対応をしたキャラの返答（下に相談窓口のカードを出す） */
+  safetyTriggered?: boolean;
 }
 
 export interface ConfirmedLocal {
@@ -328,6 +338,9 @@ export function mergeTimeline(
       body: message.body,
       createdAt: message.created_at,
       status: "sent",
+      ...(message.safety_triggered && message.sender_type === "character"
+        ? { safetyTriggered: true }
+        : {}),
     });
   }
   while (index < pending.length) {
@@ -371,15 +384,22 @@ export async function fetchMessagesPage(
   return toMessagesPage(data ?? []);
 }
 
-type MessageRowLike = Omit<MessageDTO, "sender_type"> & { sender_type: string };
+type MessageRowLike = Omit<MessageDTO, "sender_type" | "is_proactive" | "safety_triggered"> & {
+  sender_type: string;
+  is_proactive?: boolean | null;
+  safety_triggered?: boolean | null;
+};
 
 function toMessageDTO(row: MessageRowLike): MessageDTO {
+  const senderType = toSenderType(row.sender_type);
   return {
     id: row.id,
     conversation_id: row.conversation_id,
-    sender_type: toSenderType(row.sender_type),
+    sender_type: senderType,
     body: row.body,
     created_at: row.created_at,
+    is_proactive: row.is_proactive === true,
+    safety_triggered: row.safety_triggered === true && senderType === "character",
   };
 }
 
