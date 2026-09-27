@@ -314,3 +314,24 @@ def test_guilt_trip_is_detected(text: str) -> None:
 )
 def test_kind_messages_pass(text: str) -> None:
     assert guilt_trip_phrases(text) == []
+
+
+# ---------------------------------------------------------------------------
+# E6: 安全対応（messages.safety_triggered）の後は送らない
+# ---------------------------------------------------------------------------
+
+
+def test_safety_triggered_conversations_are_skipped() -> None:
+    now = jst(2026, 10, 2, 9)
+    assert user_blocked_reason(pair(), now, CONFIG) is None
+    # 会話の最後が安全対応の返答（相手がまだ話していない）→ 時間に関係なく送らない
+    assert user_blocked_reason(pair(last_message_is_safety=True), now, CONFIG) == "safety_triggered"
+    assert (
+        user_blocked_reason(pair(last_message_is_safety=True, last_safety_at=now - timedelta(days=10)), now, CONFIG)
+        == "safety_triggered"
+    )
+    # 相手がその後に話していても、安全対応から safety_cooldown（24 時間）は送らない
+    assert user_blocked_reason(pair(last_safety_at=now - timedelta(hours=1)), now, CONFIG) == "safety_triggered"
+    assert user_blocked_reason(pair(last_safety_at=now - CONFIG.safety_cooldown), now, CONFIG) is None
+    # 送らない時間帯・上限より先に判定する（理由が safety_triggered として残る）
+    assert user_blocked_reason(pair(last_message_is_safety=True), jst(2026, 10, 2, 3), CONFIG) == "safety_triggered"

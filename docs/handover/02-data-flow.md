@@ -388,6 +388,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `affinity.daily` | 毎日 4 時（`ENGINE_AFFINITY_DAILY_HOUR_JST`） | 気まずさ・不満・独占欲の減衰（audit `affinity.decay`）、日数の経過による段階の遷移（`affinity.stage_change`）。好意の軸は減らさない |
 | `jobs.cleanup` | 毎日 3 時 | `running` のまま止まったジョブを戻す（上限なら `dead`）、完了から `ENGINE_JOB_RETENTION_DAYS` たったジョブを削除 |
+| `audit.cleanup` | 毎日 3 時（`AUDIT_LOG_RETENTION_DAYS` が 0 より大きいときだけ登録） | `audit_logs` の `created_at` が保持期間より古い行を 1 万件ずつ（1 回に最大 100 万件）削除。既定（0）は消さない |
 
 ## 12. 退会
 

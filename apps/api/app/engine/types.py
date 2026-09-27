@@ -404,7 +404,9 @@ class MemoryService(Protocol):
         self, text: str, *, user_id: UUID, character_id: UUID, conversation_id: UUID
     ) -> list[float] | None: ...
 
-    async def mark_referenced(self, *, memory_ids: Sequence[UUID], now: datetime) -> None: ...
+    async def mark_referenced(
+        self, *, memory_ids: Sequence[UUID], user_id: UUID, character_id: UUID, now: datetime
+    ) -> None: ...
 
     async def process_turns(
         self,

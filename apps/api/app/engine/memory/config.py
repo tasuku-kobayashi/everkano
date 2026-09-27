@@ -105,6 +105,10 @@ class MemoryConfig:
     short_term_message_limit: int = 60  # 短期ウィンドウ（MEMORY_SHORT_TERM_TURNS × 2）
     summary_trigger_message_count: int = 100  # 未要約がこれを超えたら要約（MEMORY_SUMMARY_TRIGGER_TURNS × 2）
     summary_model: str | None = None
+    # 有効な要約はペアあたりこの件数まで（新しい順。超えた分は履歴 superseded にする）。要約は上限の入れ替えの対象外
+    # （capacity.py）なので、ここで抑えないと会話が続く限り増え続ける。常に入れるのは最新 always_summaries 件だけで、
+    # それより古い要約は意味検索の候補として残す
+    max_summaries_per_pair: int = 30
 
     # --- 監査 ---------------------------------------------------------------------
     audit_log_prompts: bool = True  # memory.analysis / memory.summary に入力と生出力を残す（AUDIT_LOG_PROMPTS）

@@ -5,6 +5,8 @@
   （切り捨て。ただし友達以上で頻度 > 0 なら最低 1）。
   送らない時間帯の既定は 0〜7 時（JST。ユーザーが全体設定で変更でき、開始 == 終了なら制限なし）。
 - P4: 返信のない自発メッセージが会話の最後にあるあいだは送らない（連投しない）。返信がないことを責めない。
+- E6: 安全対応（相談窓口の案内）をした会話には、相手がその後に話し始めるまで・安全対応から safety_cooldown のあいだは
+  送らない（投稿の告知や「しばらく話してないね」で割り込まない）。
 - M6 と P2 / E4 の衝突の解消: 約束の期日（promise_due）は段階ごとのペアの上限（知り合い 0 通）と段階の頻度の対象外。
   ユーザー自身が話した期日の予定を、当日に 1 回だけ話題にする（1 ユーザーの 1 日の上限・送らない時間帯・停止設定・
   P4・送信の間隔は適用する）。知り合いの段階で来なくなったユーザーの約束を回収できなかった（2026-09-26 の評価）。
@@ -68,6 +70,9 @@ class ProactiveConfig:
     # 会話が続いている最中（最後のメッセージからこの時間以内）は割り込まない
     active_conversation_gap: timedelta = timedelta(minutes=30)
     pair_min_gap: timedelta = timedelta(hours=3)
+    # E6: 安全対応（messages.safety_triggered）からこの時間は送らない
+    # （会話の最後が安全対応の返答のあいだは、時間に関係なく送らない）
+    safety_cooldown: timedelta = timedelta(hours=24)
 
     # --- 判定（P2） -----------------------------------------------------------------------
     trigger_priority: Mapping[str, float] = field(default_factory=lambda: DEFAULT_TRIGGER_PRIORITY)

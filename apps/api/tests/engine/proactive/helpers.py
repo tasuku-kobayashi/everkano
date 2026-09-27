@@ -132,7 +132,9 @@ class FakeMemory:
     ) -> list[float] | None:
         return None
 
-    async def mark_referenced(self, *, memory_ids: Sequence[uuid.UUID], now: datetime) -> None:
+    async def mark_referenced(
+        self, *, memory_ids: Sequence[uuid.UUID], user_id: uuid.UUID, character_id: uuid.UUID, now: datetime
+    ) -> None:
         return None
 
     async def process_turns(self, **_: object) -> object:  # pragma: no cover - 使わない

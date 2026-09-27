@@ -66,12 +66,12 @@ uv run python scripts/validate_personas.py             # packages/personas/*.yam
 | GET | `/memories?character_id=&include_superseded=` | 要 | 自分の記憶一覧（有効なもの → 重要度降順。`include_superseded=true` で置き換えられた履歴も） |
 | POST | `/memories` | 要 | 記憶を追加（`is_user_edited=true`・種類 `kind`）。上限到達で 422、`summary` のタグ・種類は指定不可。レート制限 `RATE_LIMIT_MEMORIES_PER_MINUTE` |
 | PATCH | `/memories/{id}` | 要 | 内容・重要度・タグ・種類を更新（`is_user_edited=true`、内容変更時は再 embedding。以後、自動処理は上書きしない（E5））。レート制限は POST と共通 |
-| DELETE | `/memories/{id}` | 要 | 削除（204）。本文を持たない墓標を残し、自動抽出で作り直さない。この記憶の未達の約束は取り消す |
+| DELETE | `/memories/{id}` | 要 | 削除（204）。本文を持たない墓標を残し、自動抽出で作り直さない。この記憶の未達の約束は取り消す。レート制限は POST と共通 |
 | GET | `/promises?character_id=&include_closed=` | 要 | 自分とそのキャラの約束（既定は未達だけ・期日の近い順） |
-| PATCH | `/promises/{id}` | 要 | `{status: "done" \| "cancelled"}`。取り消すとカレンダーの予定も取り消す |
+| PATCH | `/promises/{id}` | 要 | `{status: "done" \| "cancelled"}`。取り消すとカレンダーの予定も取り消す。レート制限は `/memories` の書き込みと共通 |
 | GET | `/proactive/settings` | 要 | 自発メッセージの設定（全体の有効・送らない時間帯 + キャラ別の有効） |
-| PUT | `/proactive/settings` | 要 | 全体の有効・送らない時間帯（JST の時 0〜23）を変更 |
-| PUT | `/proactive/settings/{character_id}` | 要 | キャラ別の有効 / 無効 |
+| PUT | `/proactive/settings` | 要 | 全体の有効・送らない時間帯（JST の時 0〜23）を変更。レート制限 `RATE_LIMIT_SETTINGS_PER_MINUTE` |
+| PUT | `/proactive/settings/{character_id}` | 要 | キャラ別の有効 / 無効。レート制限は全体設定の PUT と共通 |
 | GET | `/safety/resources` | 要 | E6 の相談窓口の一覧（`packages/prompts/safety/resources.ja.yaml`） |
 | POST | `/comments` | 要 | コメント投稿（Gate #1 で拒否なら 422 `moderation_blocked`）。確率で投稿者キャラが自動返信 |
 | POST | `/comments/generate` | 要 | 投稿者キャラが**自分の**コメントに返信（他人のコメントは 404。返信はコメント1件につき1件まで・既存があればそれを返す。出力が拒否されたら `comment: null`） |
@@ -137,7 +137,7 @@ uv run python -m app.worker --no-scheduler   # ジョブのワーカーだけ（
   `ENGINE_POST_TURN_DELAY_SECONDS` 後に記憶の分析・約束・キャラの発言の記憶・好感度の評価。続けて話すと後ろへずれ、最大 6 倍）を登録する。
   失敗は指数バックオフで再試行し、`ENGINE_JOB_MAX_ATTEMPTS` 回で `dead`（audit `engine.job_dead`）。SIGTERM では新しいジョブを取るのをやめ、実行中の完了を待つ。
 - 定期実行（`engine_schedules` に前回・次回を記録。リーダーは `pg_try_advisory_lock` で 1 台だけ）: `calendar.ensure_schedules`（1 時間ごと。7 日先までの予定）・
-  `calendar.tick`（5 分。状態・予定の完了・予定からの投稿）・`proactive.scan`（10 分。自発メッセージ）・`affinity.daily`（毎日 4 時 JST）・`jobs.cleanup`（毎日 3 時 JST）。
+  `calendar.tick`（5 分。状態・予定の完了・予定からの投稿）・`proactive.scan`（10 分。自発メッセージ）・`affinity.daily`（毎日 4 時 JST）・`jobs.cleanup`（毎日 3 時 JST）・`audit.cleanup`（毎日 3 時 JST。`AUDIT_LOG_RETENTION_DAYS` が 0 より大きいときだけ）。
 - セッション単位の advisory lock を使うので、worker は DB に direct か Supavisor の session mode で接続する（transaction mode（:6543）では正しく動かない）。
 - ジョブ・定期実行の様子を SQL で見る方法・dead のジョブの再実行は [06-operations.md](../../docs/handover/06-operations.md#キャラクターエンジンの状態の調べ方)。
 
@@ -156,6 +156,7 @@ uv run python -m app.worker --no-scheduler   # ジョブのワーカーだけ（
 | `ENGINE_WORKER_CONCURRENCY` / `ENGINE_WORKER_POLL_INTERVAL_SECONDS` | `2` / `1` | 同時に処理するジョブの数 / 空のときの確認間隔（秒） |
 | `ENGINE_JOB_MAX_ATTEMPTS` / `ENGINE_JOB_BACKOFF_BASE_SECONDS` / `ENGINE_JOB_BACKOFF_MAX_SECONDS` | `5` / `30` / `3600` | 再試行の回数と指数バックオフ |
 | `ENGINE_JOB_TIMEOUT_SECONDS` / `ENGINE_JOB_LOCK_TIMEOUT_SECONDS` / `ENGINE_JOB_RETENTION_DAYS` | `300` / `600` / `7` | 1 ジョブの上限 / 止まった running を戻すまで / 完了したジョブを消すまでの日数 |
+| `AUDIT_LOG_RETENTION_DAYS` | `0`（消さない） | 監査ログ（本文・プロンプトなどの個人情報を含む）をこの日数より古いものから消す（`audit.cleanup`。毎日 3 時 JST に 1 万件ずつ最大 100 万件） |
 | `ENGINE_POST_TURN_DELAY_SECONDS` / `ENGINE_POST_TURN_MAX_TURNS` | `180` / `10` | 返答の後の分析の待ち（デバウンス。[ADR-0046](../../docs/adr/0046-engine-cost-and-latency.md)）/ 1 回の最大ターン数 |
 | `ENGINE_SCHEDULER_POLL_INTERVAL_SECONDS` | `30` | 定期実行の期限を確認する間隔 |
 | `ENGINE_CALENDAR_ENSURE_INTERVAL_SECONDS` / `ENGINE_CALENDAR_DAYS_AHEAD` / `ENGINE_CALENDAR_TICK_INTERVAL_SECONDS` | `3600` / `7` / `300` | 予定の生成の間隔と日数 / tick の間隔 |

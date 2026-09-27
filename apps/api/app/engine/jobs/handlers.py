@@ -7,8 +7,9 @@
   3. calendar.sync_promise_events（新しい約束をカレンダーに登録）
   4. affinity.evaluate_turns（Gate #1 で差し止めたターン・E6 の安全対応をしたターンは渡さない）
   5. analyzed_until を処理した最後のキャラ返答の時刻まで進める。残りがあれば続けて実行を依頼する
-  各手順は ENGINE_*_ENABLED で無効にできる（評価ハーネスの素の LLM）。途中で失敗した場合、済んだ手順は
-  ジョブの payload に記録し、再試行では同じターンの残りの手順だけを行う（記憶の二重登録を防ぐ）。
+  各手順は ENGINE_*_ENABLED で無効にできる（評価ハーネスの素の LLM）。扱うターンの範囲は最初の試行の手順 1 の前に
+  ジョブの payload に記録し、途中で失敗した場合は済んだ手順も記録して、再試行では同じターンの残りの手順だけを行う
+  （記憶の二重登録を防ぐ。その間に増えたターンは次のジョブに回す）。
   最後の試行でも失敗した手順は飛ばして先に進む（同じターンで以後のジョブが永久に止まらないように）。
 
 `memory.summarize`（dedupe_key = 会話 ID）: 中期要約（memory.maybe_summarize）。
@@ -169,6 +170,11 @@ class EngineJobHandlers:
         async def mark(step: str) -> None:
             done.append(step)
             checkpoint[_DONE_KEY] = done
+            await self._queue.update_payload(ctx.job, checkpoint)
+
+        if _BATCH_KEY not in payload:
+            # 最初の試行で、このジョブが扱うターンの範囲を先に記録する（手順 1 の途中で落ちても、再試行は同じ範囲を
+            # 扱う。その間に増えたターンは次のジョブに回す）
             await self._queue.update_payload(ctx.job, checkpoint)
 
         # 1. 記憶

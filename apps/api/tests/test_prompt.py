@@ -286,3 +286,12 @@ def test_fit_chat_history_keeps_recent_in_full_and_truncates_older() -> None:
     assert len(tiny) == 1
     assert len(tiny[0].body) == 100
     assert tiny[0].id == history[-1].id
+
+
+def test_dm_system_prompt_has_the_e6_fallback_rule() -> None:
+    """検出器（engine/safety/detector.py）が見逃した危機の発言のためのフォールバック（ADR-0043）。"""
+    text = (PROMPTS_DIR / "dm_system.ja.txt").read_text(encoding="utf-8")
+    rules = text.split("# 守ること", 1)[1].split("=== user ===", 1)[0]
+    assert "死にたい" in rules
+    assert "相談窓口" in rules
+    assert "安全" in rules

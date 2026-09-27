@@ -44,6 +44,10 @@ class PairContext:
     last_sent_user: datetime | None = None
     last_sent_pair: datetime | None = None
     paid_notices_week_user: int = 0
+    # E6: 会話の最後のメッセージが安全対応（messages.safety_triggered）の返答か /
+    # 直近（safety_cooldown 以内）の安全対応の時刻
+    last_message_is_safety: bool = False
+    last_safety_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +128,11 @@ def stage_at_least(stage: str, minimum: str) -> bool:
 def user_blocked_reason(pair: PairContext, now: datetime, config: ProactiveConfig) -> str | None:
     """ユーザー単位で送れない理由（どのきっかけでも送らない）。"""
     hour = to_jst(now).hour
+    if pair.last_message_is_safety or (
+        pair.last_safety_at is not None and now - pair.last_safety_at < config.safety_cooldown
+    ):
+        # E6: 安全対応の後は、相手が話し始めるまで・しばらくのあいだは自発メッセージ（投稿の告知など）で割り込まない
+        return "safety_triggered"
     if in_quiet_hours(hour, pair.quiet_start, pair.quiet_end):
         return "quiet_hours"
     if pair.sent_today_user >= config.per_user_daily_limit:

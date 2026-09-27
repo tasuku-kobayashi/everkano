@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from app.container import ServicesDep
+from app.container import ServicesDep, SettingsWriteRateLimitedUser
 from app.core.security import CurrentUserDep
 from app.engine.proactive.settings import ProactiveSettingsService
 from app.models.common import ERROR_RESPONSES, NOT_FOUND_RESPONSE
@@ -50,11 +50,12 @@ async def get_proactive_settings(user: CurrentUserDep, services: ServicesDep) ->
         "省略した項目（または null）は変更しない。quiet_start / quiet_end は JST の時（0〜23）で、"
         "quiet_start == quiet_end なら送らない時間帯の制限なし。片方だけを指定した場合も、もう片方を今の値で"
         "埋めて両方を保存する（以後サーバーの既定が変わっても変わらない）。応答は更新後の設定全体。"
+        "PUT は RATE_LIMIT_SETTINGS_PER_MINUTE で制限する（超えたら 429）。"
     ),
     responses=ERROR_RESPONSES,
 )
 async def update_proactive_settings(
-    body: UpdateProactiveGlobalSettingsRequest, user: CurrentUserDep, services: ServicesDep
+    body: UpdateProactiveGlobalSettingsRequest, user: SettingsWriteRateLimitedUser, services: ServicesDep
 ) -> ProactiveSettingsResponse:
     return await _service(services).update_global(user.id, body)
 
@@ -62,13 +63,16 @@ async def update_proactive_settings(
 @router.put(
     "/settings/{character_id}",
     summary="キャラ別の自発メッセージのオン・オフ",
-    description="有効なキャラだけ（それ以外は 404）。応答は更新後の設定全体。",
+    description=(
+        "有効なキャラだけ（それ以外は 404）。応答は更新後の設定全体。"
+        "全体設定の PUT と同じ RATE_LIMIT_SETTINGS_PER_MINUTE で制限する（超えたら 429）。"
+    ),
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
 async def update_proactive_character_setting(
     character_id: UUID,
     body: UpdateProactiveCharacterSettingRequest,
-    user: CurrentUserDep,
+    user: SettingsWriteRateLimitedUser,
     services: ServicesDep,
 ) -> ProactiveSettingsResponse:
     return await _service(services).update_character(user.id, character_id, body)

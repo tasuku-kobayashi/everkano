@@ -6,8 +6,12 @@ scan(now)（スケジューラ proactive.scan。10 分ごと）:
   3. きっかけ（約束の期日・予定の終了・季節の行事・しばらく話していない・フィードの投稿）→ スコア → ユーザーごとに 1 件
   4. LLM（proactive_message）で文面 → Gate #1（Moderator）+ OutputGuard（E2 / E3）+ 責める言い方の検査
      → 引っかかったら送らない（そのきっかけは使い切り。監査 moderation.flag / proactive.dropped）
-  5. 1 トランザクションで proactive_messages（unique = 冪等）と messages（is_proactive, created_at = now）を保存
-     → 監査 proactive.send → 約束なら MemoryService.mark_promise_mentioned
+  5. 1 トランザクションで proactive_messages（unique = 冪等）と messages（is_proactive, created_at = now。ただし同じ
+     会話の直前のメッセージより必ず後）を保存 → 監査 proactive.send → 約束なら MemoryService.mark_promise_mentioned
+     走査の後に会話が動いていた（now より新しいメッセージがある）ペアには送らない（次の走査で判定し直す）
+
+E6: 安全対応（messages.safety_triggered）をした会話には、相手がその後に話し始めるまで・安全対応から
+safety_cooldown のあいだは自発メッセージを送らない（user_blocked_reason = safety_triggered）。
 
 他のモジュールには types.py の Protocol（CalendarService / MemoryService / AffinityService / OutputGuard）
 だけで依存する。
@@ -88,6 +92,7 @@ select c.id as conversation_id, c.user_id, c.character_id,
        ch.id, ch.handle, ch.name, ch.avatar_url, ch.bio, ch.persona_key, ch.system_prompt, ch.is_active,
        coalesce(a.stage, 'acquaintance') as stage,
        coalesce(lm.is_proactive, false) as last_is_proactive, lm.created_at as last_message_at,
+       coalesce(lm.safety_triggered, false) as last_is_safety, ls.created_at as last_safety_at,
        lu.created_at as last_user_message_at,
        gs.quiet_start, gs.quiet_end
   from public.conversations c
@@ -102,10 +107,16 @@ select c.id as conversation_id, c.user_id, c.character_id,
      order by m.created_at desc limit 1
   ) lu on true
   left join lateral (
-    select m.is_proactive, m.created_at from public.messages m
+    select m.is_proactive, m.safety_triggered, m.created_at from public.messages m
      where m.conversation_id = c.id and m.created_at <= $1
      order by m.created_at desc limit 1
   ) lm on true
+  left join lateral (
+    select m.created_at from public.messages m
+     where m.conversation_id = c.id and m.safety_triggered
+       and m.created_at <= $1 and m.created_at > $1 - $4::interval
+     order by m.created_at desc limit 1
+  ) ls on true
  where coalesce(gs.enabled, true) and coalesce(cs.enabled, true)
    and lu.created_at > $1 - make_interval(days => $2)
    and ($3::uuid[] is null or c.user_id = any($3::uuid[]))
@@ -146,8 +157,9 @@ _LOCK_CONVERSATION_SQL: Final[str] = """
 select id from public.conversations where id = $1 and user_id = $2 and character_id = $3 for update
 """
 
+# 会話の最後のメッセージ（走査の時刻で区切らない。走査の後に増えた分も見る）
 _LAST_MESSAGE_SQL: Final[str] = """
-select is_proactive from public.messages where conversation_id = $1 and created_at <= $2
+select is_proactive, created_at from public.messages where conversation_id = $1
  order by created_at desc limit 1
 """
 
@@ -166,9 +178,18 @@ on conflict (user_id, character_id, trigger, trigger_ref) do nothing
 returning id
 """
 
+# 時計の時刻で保存する。同じ会話の直前のメッセージより必ず後にする（走査の時刻が古くても順序が崩れない。
+# pipeline.py の _INSERT_USER_MESSAGE_SQL と同じ）
 _INSERT_MESSAGE_SQL: Final[str] = """
 insert into public.messages (conversation_id, sender_type, body, is_proactive, created_at)
-values ($1, 'character', $2, true, $3)
+values (
+  $1, 'character', $2, true,
+  greatest(
+    $3::timestamptz,
+    coalesce((select max(created_at) from public.messages where conversation_id = $1), '-infinity'::timestamptz)
+      + interval '1 millisecond'
+  )
+)
 returning id
 """
 
@@ -383,7 +404,11 @@ class ProactiveMessenger:
         week_start = now - timedelta(days=7)
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                _PAIRS_SQL, now, config.dormant_days, list(user_ids) if user_ids is not None else None
+                _PAIRS_SQL,
+                now,
+                config.dormant_days,
+                list(user_ids) if user_ids is not None else None,
+                config.safety_cooldown,
             )
             found = sorted({r["user_id"] for r in rows})
             counts = await conn.fetch(_SENT_COUNTS_SQL, found, day_start, week_start, now) if found else []
@@ -421,6 +446,8 @@ class ProactiveMessenger:
                     last_message_is_proactive=bool(row["last_is_proactive"]),
                     last_message_at=row["last_message_at"],
                     last_user_message_at=row["last_user_message_at"],
+                    last_message_is_safety=bool(row["last_is_safety"]),
+                    last_safety_at=row["last_safety_at"],
                     quiet_start=row["quiet_start"] if row["quiet_start"] is not None else config.quiet_start_default,
                     quiet_end=row["quiet_end"] if row["quiet_end"] is not None else config.quiet_end_default,
                     sent_today_user=user_today.get(row["user_id"], 0),
@@ -668,9 +695,11 @@ class ProactiveMessenger:
             locked = await conn.fetchval(_LOCK_CONVERSATION_SQL, pair.conversation_id, pair.user_id, pair.character_id)
             if locked is None:
                 return "skipped"
-            last_is_proactive = await conn.fetchval(_LAST_MESSAGE_SQL, pair.conversation_id, now)
-            if last_is_proactive:
+            last = await conn.fetchrow(_LAST_MESSAGE_SQL, pair.conversation_id)
+            if last is not None and last["is_proactive"]:
                 return "skipped"  # P4（走査の後に別の経路で送られた）
+            if last is not None and last["created_at"] > now:
+                return "skipped"  # 走査の後に会話が動いた（割り込まない。次の走査で判定し直す）
             counts = await conn.fetchrow(
                 _COUNT_SENT_SQL, pair.user_id, pair.character_id, day_start, now, now - timedelta(days=7)
             )

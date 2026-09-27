@@ -4,8 +4,10 @@
 - 追加・更新した記憶は `is_user_edited = true`（以後、自動処理で上書き・置き換えしない。E5）。
 - 削除した記憶は内容を持たない「墓標」（memory_tombstones: 本文のハッシュと埋め込み）を残して行を消す。
   自動抽出は墓標と同じ・よく似た記憶を作らない（E5）。ユーザー自身が追加し直すのは可。
+  墓標はペアあたり MAX_TOMBSTONES_PER_PAIR 件まで（古いものから消す。削除の連打で際限なく増やさない）。
   削除した記憶から作られた未達の約束は取り消す（キャラが消した話題を持ち出さない）。
-- 記憶の本文はプロンプトに入るため Gate #1（入力）を通す。
+- 記憶の本文はプロンプトに入るため Gate #1（入力）と、記憶経由の注入の防止（guard.py: 設定・関係・評価を
+  書き換えようとする本文）のふるい分けを通す（自動抽出と同じ規則。引っかかれば 422 moderation_blocked）。
 - ユーザー × キャラの記憶は `MEMORY_MAX_PER_CHARACTER` 件まで（超える追加は 422。capacity.py）。
 - `summary`（自動要約専用）のタグ・種類は新たに付けられない。
 - 埋め込みは `USER_MEMORY_EMBED_DEADLINE_SECONDS` で打ち切り 503（Web の 15 秒のタイムアウトより前に返し、
@@ -26,6 +28,7 @@ from app.core.logging import get_logger
 from app.core.security import CurrentUser
 from app.engine.memory.capacity import count_pair, lock_pair
 from app.engine.memory.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
+from app.engine.memory.guard import injection_labels
 from app.engine.memory.promises import OPEN_STATUSES, PROMISE_COLUMNS, change_status
 from app.engine.memory.text import content_hash
 from app.engine.types import Clock, SystemClock
@@ -49,6 +52,17 @@ logger = get_logger("memory.panel")
 # Web の既定タイムアウト（DEFAULT_TIMEOUT_MS = 15 秒）より短くする
 USER_MEMORY_EMBED_DEADLINE_SECONDS: Final[float] = 10.0
 PROMISES_LIST_LIMIT: Final[int] = 200
+# ペアあたりに残す墓標の上限（新しい順。超えた分は削除のトランザクションの中で消す）
+MAX_TOMBSTONES_PER_PAIR: Final[int] = 200
+_TRIM_TOMBSTONES_SQL: Final[str] = """
+delete from public.memory_tombstones
+ where id in (
+   select id from public.memory_tombstones
+    where user_id = $1 and character_id = $2
+    order by deleted_at desc, id desc
+    offset $3
+ )
+"""
 _EMBEDDING_FAILED_MESSAGE: Final[str] = "記憶を保存できませんでした。しばらくしてから再度お試しください。"
 _MEMORY_BLOCKED_MESSAGE: Final[str] = "この内容は記憶として保存できません。表現を変えて再度お試しください。"
 _SUMMARY_KIND_LOCKED_MESSAGE: Final[str] = "会話の要約の種類は変更できません"
@@ -115,7 +129,7 @@ class UserMemoryService:
             # 上限に達しているなら、埋め込み（有料 API）を呼ぶ前に断る
             if await count_pair(conn, user.id, request.character_id) >= capacity:
                 raise _capacity_error(capacity)
-        await self._moderate(user, request.character_id, request.content)
+        await self._moderate(user, request.character_id, request.content, action="create")
         embedding = await self._embed(request.content, user=user, character_id=request.character_id, action="create")
         importance = request.importance if request.importance is not None else DEFAULT_USER_MEMORY_IMPORTANCE
         kind = request.kind or DEFAULT_USER_MEMORY_KIND
@@ -182,7 +196,7 @@ class UserMemoryService:
         embedding_literal: str | None = None
         content_changed = request.content is not None and request.content != before["content"]
         if content_changed and request.content is not None:
-            await self._moderate(user, before["character_id"], request.content)
+            await self._moderate(user, before["character_id"], request.content, action="update", memory_id=memory_id)
             vector = await self._embed(
                 request.content, user=user, character_id=before["character_id"], action="update", memory_id=memory_id
             )
@@ -276,6 +290,8 @@ class UserMemoryService:
                 row["embedding"],
                 now,
             )
+            # 墓標はペアあたり MAX_TOMBSTONES_PER_PAIR 件まで（古いものから消す）
+            await conn.execute(_TRIM_TOMBSTONES_SQL, user.id, row["character_id"], MAX_TOMBSTONES_PER_PAIR)
             await conn.execute("delete from public.memories where id = $1 and user_id = $2", memory_id, user.id)
         await self._audit.log(
             "memory.delete",
@@ -355,24 +371,49 @@ class UserMemoryService:
         return promise_dto(change.row)
 
     # ================================================================== 内部
-    async def _moderate(self, user: CurrentUser, character_id: UUID, text: str) -> None:
+    async def _moderate(
+        self,
+        user: CurrentUser,
+        character_id: UUID,
+        text: str,
+        *,
+        action: Literal["create", "update"],
+        memory_id: UUID | None = None,
+    ) -> None:
+        """Gate #1（入力）→ 記憶経由の注入の防止（guard.py）の順に確かめ、引っかかれば 422 moderation_blocked。"""
         result = self._moderator.check(text)
-        if not result.flagged:
-            return
-        await self._audit.log(
-            "moderation.flag",
-            user_id=user.id,
-            character_id=character_id,
-            payload={
-                "stage": "input",
-                "context": "memory",
-                "categories": result.categories,
-                "matched_terms": result.matched_terms,
-                "text": text,
-            },
-            at=self._clock.now(),
-        )
-        raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
+        if result.flagged:
+            await self._audit.log(
+                "moderation.flag",
+                user_id=user.id,
+                character_id=character_id,
+                payload={
+                    "stage": "input",
+                    "context": "memory",
+                    "categories": result.categories,
+                    "matched_terms": result.matched_terms,
+                    "text": text,
+                },
+                at=self._clock.now(),
+            )
+            raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
+        labels = injection_labels(text)
+        if labels:
+            # 自動抽出と同じ規則で、設定・関係・評価を書き換えようとする本文は記憶にしない（本文は残さない）
+            await self._audit.log(
+                "memory.injection_skipped",
+                user_id=user.id,
+                character_id=character_id,
+                payload={
+                    "source": "user",
+                    "action": action,
+                    "memory_id": memory_id,
+                    "labels": list(labels),
+                    "content_hash": content_hash(text),
+                },
+                at=self._clock.now(),
+            )
+            raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
 
     async def _embed(
         self,

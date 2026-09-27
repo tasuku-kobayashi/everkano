@@ -5,6 +5,7 @@
 - `Worker`:
   - `start()` / `stop()`: API プロセス内（ENGINE_WORKER_ENABLED）または `python -m app.worker` で動く常駐ループ。
     `ENGINE_WORKER_CONCURRENCY` 本のループが、それぞれ `FOR UPDATE SKIP LOCKED` でジョブを取り合う。
+    ループはどんな例外でも止めない（ログに残してポーリングの間隔だけ待つ。黙って止まるとジョブが処理されなくなる）。
   - `run_until_idle(now=...)`: テスト・評価ハーネス用の決定的な実行。run_at <= now のジョブが無くなるまで
     1件ずつ順に処理する（ハンドラに渡す now も固定）。`dedupe_keys` / `kinds` で対象を絞れる
     （同じ DB を他のテストが同時に使うため）。
@@ -21,8 +22,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
-
-import asyncpg
 
 from app.core.logging import get_logger
 from app.engine.jobs.queue import Job, PgJobQueue
@@ -155,6 +154,8 @@ class Worker:
         self._tasks = [
             asyncio.create_task(self._loop(index), name=f"engine-worker-{index}") for index in range(self._concurrency)
         ]
+        for task in self._tasks:
+            task.add_done_callback(self._on_loop_done)
         logger.info(
             "engine worker started",
             extra={"fields": {"worker_id": self.worker_id, "concurrency": self._concurrency}},
@@ -187,14 +188,31 @@ class Worker:
                     last_reclaim = time.monotonic()
                     await self._queue.reclaim_stale(now=self._clock.now(), lock_timeout=self._lock_timeout)
                 job = await self.run_once()
-            except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
-                logger.error("engine worker poll failed", extra={"fields": {"error": repr(exc)}})
+            except Exception as exc:
+                # DB の障害に限らず、どんな例外でもループを止めない（ポーリングの間隔だけ待ってから再試行する）
+                logger.exception("engine worker poll failed", extra={"fields": {"error": repr(exc)}})
                 job = None
             if job is not None:
                 continue
             self._wakeup.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wakeup.wait(), timeout=self._poll_interval)
+
+    def _on_loop_done(self, task: asyncio.Task[None]) -> None:
+        """stop() 以外でループが終わったらエラーログに残す（黙って止まるとジョブが処理されなくなる）。"""
+        if task.cancelled() or self._stopping.is_set():
+            return
+        exc = task.exception()
+        logger.error(
+            "engine worker loop ended unexpectedly",
+            extra={
+                "fields": {
+                    "worker_id": self.worker_id,
+                    "task": task.get_name(),
+                    "error": repr(exc) if exc is not None else None,
+                }
+            },
+        )
 
     # ------------------------------------------------------------------ 実行
     async def _execute(self, job: Job, now: datetime) -> None:

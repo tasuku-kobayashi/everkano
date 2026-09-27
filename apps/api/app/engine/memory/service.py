@@ -33,7 +33,7 @@ from app.engine.memory.analysis import (
     mock_context,
     parse_analysis,
 )
-from app.engine.memory.capacity import EvictedMemory, lock_pair, log_evictions, make_room
+from app.engine.memory.capacity import EvictedMemory, lock_pair, log_evictions, make_room, trim_superseded
 from app.engine.memory.config import MemoryConfig
 from app.engine.memory.dates import DAY_DUE_TIME, due_at, normalize, today_jst
 from app.engine.memory.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
@@ -147,6 +147,7 @@ class _Applier:
     promise_status_changes: int = 0
     statements_created: list[UUID] = field(default_factory=list)
     evicted: list[EvictedMemory] = field(default_factory=list)
+    trimmed_history: list[EvictedMemory] = field(default_factory=list)  # 履歴の上限で消した superseded
     events: list[_Event] = field(default_factory=list)
     handled_targets: set[str] = field(default_factory=set)
 
@@ -450,6 +451,8 @@ class _Applier:
         )
         self.created.append(new_id)
         self.superseded.append(target.id)
+        # 履歴（superseded）はペアあたりの上限まで（古いものから消す。capacity.py）
+        self.trimmed_history.extend(await trim_superseded(conn, user_id=self.user_id, character_id=self.character_id))
         self._event(
             "memory.create",
             memory_id=new_id,
@@ -775,9 +778,12 @@ class MemoryEngineService:
         items.sort(key=lambda i: i.occurred_at or datetime.min.replace(tzinfo=UTC))
         return tuple(items)
 
-    async def mark_referenced(self, *, memory_ids: Sequence[UUID], now: datetime) -> None:
+    async def mark_referenced(
+        self, *, memory_ids: Sequence[UUID], user_id: UUID, character_id: UUID, now: datetime
+    ) -> None:
         """プロンプトに入れた記憶の最終参照日時・参照回数を更新する（返答の後にバックグラウンドで呼ばれる）。
 
+        所有者のペア（user_id × character_id）の記憶だけを更新する（他のペアの ID が混ざっても触らない）。
         updated_at は変えない（参照の記録は記憶の内容の変更ではない。マイグレーション 20260926100000_memory.sql）。
         """
         ids = list(dict.fromkeys(memory_ids))
@@ -788,10 +794,12 @@ class MemoryEngineService:
             update public.memories
                set last_referenced_at = greatest(coalesce(last_referenced_at, $2), $2),
                    reference_count = reference_count + 1
-             where id = any($1::uuid[])
+             where id = any($1::uuid[]) and user_id = $3 and character_id = $4
             """,
             ids,
             now,
+            user_id,
+            character_id,
         )
 
     # ================================================================== 約束（M6）
@@ -1040,6 +1048,15 @@ class MemoryEngineService:
             character_id=character_id,
             capacity=config.max_per_character,
             now=now,
+        )
+        await log_evictions(
+            self._audit,
+            applier.trimmed_history,
+            user_id=user_id,
+            character_id=character_id,
+            capacity=config.max_per_character,
+            now=now,
+            source="history_trim",
         )
         result = MemoryProcessResult(
             created=tuple(applier.created),

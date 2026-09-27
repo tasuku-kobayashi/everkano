@@ -4,13 +4,17 @@
 - リーダー選出: 実行の度に `pg_try_advisory_lock` を取れたプロセスだけが期限の来たタスクを実行する
   （API プロセス内と worker プロセスの両方で有効にしても二重に実行されない）。ロックは接続単位なので、
   実行が終わったら必ず解放する（プールに戻した接続にロックが残らないように）。
-- 時刻は時計（Clock）から。`run_due(now=...)` はテスト・評価ハーネス用の決定的な実行（期限の来たタスクを
-  1回ずつ実行する。取りこぼした回をさかのぼって実行はしない — 各タスクは「今の時刻」で必要な処理をする）。
+- 時刻は時計（Clock）から。各タスクには実行の直前に取り直した時刻を渡す（前のタスクに時間がかかっても、後のタスクが
+  古い時刻で判定・保存しない）。`run_due(now=...)` はテスト・評価ハーネス用の決定的な実行（全タスクにその時刻を
+  渡し、期限の来たタスクを 1回ずつ実行する。取りこぼした回をさかのぼって実行はしない — 各タスクは「今の時刻」で
+  必要な処理をする）。
+- 常駐ループはどんな例外でも止めない（ログに残して次の周期に再試行する。黙って止まると定期実行が全部止まる）。
 
 タスク（ENGINE_BRIEF §2.3）:
   calendar.ensure_schedules（1時間ごと。7日先まで予定を生成）/ calendar.tick（5分ごと。状態・予定の完了・投稿）/
   proactive.scan（10分ごと。自発メッセージ）/ affinity.daily（毎日 04:00 JST。気まずさ・不満の減衰）/
-  jobs.cleanup（毎日。古いジョブの削除・止まったジョブの回収）
+  jobs.cleanup（毎日。古いジョブの削除・止まったジョブの回収）/
+  audit.cleanup（毎日。AUDIT_LOG_RETENTION_DAYS より古い監査ログの削除。0 = 登録しない）
 """
 
 from __future__ import annotations
@@ -24,8 +28,6 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
-
-import asyncpg
 
 from app.core.db import Connection, Pool
 from app.core.logging import get_logger
@@ -141,14 +143,16 @@ class Scheduler:
 
     # ------------------------------------------------------------------ 決定的な実行（テスト・評価）
     async def run_due(self, *, now: datetime | None = None, only: Sequence[str] | None = None) -> RunDueResult:
-        """リーダーのロックを取れたら、期限の来たタスクを順に実行する。取れなければ何もしない（leader=False）。"""
-        at = now or self._clock.now()
+        """リーダーのロックを取れたら、期限の来たタスクを順に実行する。取れなければ何もしない（leader=False）。
+
+        now を省略すると、各タスクの直前に時計から時刻を取り直す。now を渡すと全タスクにその時刻を渡す（テスト・評価）。
+        """
         async with self._pool.acquire() as conn:
             locked = await conn.fetchval("select pg_try_advisory_lock($1)", self._lock_key)
             if not locked:
                 return RunDueResult(leader=False)
             try:
-                runs = await self._run_due_locked(conn, at, only)
+                runs = await self._run_due_locked(conn, now, only)
             finally:
                 await conn.fetchval("select pg_advisory_unlock($1)", self._lock_key)
         return RunDueResult(leader=True, runs=tuple(runs))
@@ -162,7 +166,9 @@ class Scheduler:
         async with self._pool.acquire() as conn:
             return await self._run_one(conn, task, at)
 
-    async def _run_due_locked(self, conn: Connection, now: datetime, only: Sequence[str] | None) -> list[TaskRun]:
+    async def _run_due_locked(
+        self, conn: Connection, now: datetime | None, only: Sequence[str] | None
+    ) -> list[TaskRun]:
         rows = await conn.fetch(
             "select name, next_run_at from public.engine_schedules where name = any($1)", self.task_names
         )
@@ -171,6 +177,8 @@ class Scheduler:
         for task in self._tasks:
             if only is not None and task.name not in only and task.name.removeprefix(self._namespace) not in only:
                 continue
+            # 前のタスクにかかった時間の分だけ古い時刻を渡さない（自発メッセージの created_at・最後の発言の判定など）
+            at = now or self._clock.now()
             if task.name not in next_runs and not task.run_immediately:
                 # 初回は予定時刻だけ記録する（例: 日次のタスクを起動直後に走らせない）
                 await conn.execute(
@@ -179,14 +187,14 @@ class Scheduler:
                     on conflict (name) do nothing
                     """,
                     task.name,
-                    task.next_run(now),
-                    now,
+                    task.next_run(at),
+                    at,
                 )
                 continue
             due_at = next_runs.get(task.name)
-            if due_at is not None and due_at > now:
+            if due_at is not None and due_at > at:
                 continue
-            runs.append(await self._run_one(conn, task, now))
+            runs.append(await self._run_one(conn, task, at))
         return runs
 
     async def _run_one(self, conn: Connection, task: PeriodicTask, now: datetime) -> TaskRun:
@@ -239,6 +247,7 @@ class Scheduler:
             return
         self._stopping.clear()
         self._loop_task = asyncio.create_task(self._loop(), name="engine-scheduler")
+        self._loop_task.add_done_callback(self._on_loop_done)
         logger.info("engine scheduler started", extra={"fields": {"tasks": self.task_names}})
 
     async def stop(self, timeout_seconds: float = 20.0) -> None:
@@ -258,7 +267,18 @@ class Scheduler:
         while not self._stopping.is_set():
             try:
                 await self.run_due()
-            except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
-                logger.error("scheduler poll failed", extra={"fields": {"error": repr(exc)}})
+            except Exception as exc:
+                # DB の障害に限らず、どんな例外でもループを止めない（次の周期まで待ってから再試行する）
+                logger.exception("scheduler poll failed", extra={"fields": {"error": repr(exc)}})
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=self._poll_interval)
+
+    def _on_loop_done(self, task: asyncio.Task[None]) -> None:
+        """stop() 以外でループが終わったらエラーログに残す（黙って止まると定期実行が全部止まる）。"""
+        if task.cancelled() or self._stopping.is_set():
+            return
+        exc = task.exception()
+        logger.error(
+            "engine scheduler loop ended unexpectedly",
+            extra={"fields": {"error": repr(exc) if exc is not None else None}},
+        )

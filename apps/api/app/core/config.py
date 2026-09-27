@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     embedding_dimensions: int = DB_EMBEDDING_DIMENSIONS
     # [追加・任意] 埋め込み API の1回あたりのタイムアウトとリトライ回数（LLM とは別。長期記憶の検索は
     # 任意の機能なので、埋め込みが遅いときはチャット全体を待たせずに検索を省略する）
+    # /chat の検索用の埋め込みは Context Assembler の締め切り ENGINE_CONTEXT_TIMEOUT_SECONDS（既定 1.5 秒）の
+    # 中で動くため、実質の上限は短い方（既定では 1.5 秒。締め切りで記憶の部分だけ省いて返答する）。
+    # この値は記憶の分析・要約・メモリパネル（POST / PATCH /memories）の埋め込みに効く
     embedding_timeout_seconds: float = Field(default=5.0, gt=0, le=120)
     embedding_max_retries: int = Field(default=1, ge=0, le=10)
 
@@ -131,14 +134,20 @@ class Settings(BaseSettings):
     # --- レート制限 -------------------------------------------------------------
     rate_limit_chat_per_minute: int = Field(default=20, ge=1)
     rate_limit_comments_per_minute: int = Field(default=10, ge=1)
-    # [追加・任意] POST / PATCH /memories（埋め込み API を呼ぶ）の上限
+    # [追加・任意] メモリパネルの書き込み（POST / PATCH /memories は埋め込み API を呼ぶ。DELETE /memories は墓標を残す。
+    # PATCH /promises）の上限
     rate_limit_memories_per_minute: int = Field(default=30, ge=1)
+    # [追加・任意] 自発メッセージの設定の更新（PUT /proactive/settings, PUT /proactive/settings/{character_id}）の上限
+    rate_limit_settings_per_minute: int = Field(default=30, ge=1)
 
     # --- コメント自動返信 -------------------------------------------------------
     comment_auto_reply_probability: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # --- 監査ログ ---------------------------------------------------------------
     audit_log_prompts: bool = True
+    # [追加・任意] 監査ログ（audit_logs。本文・プロンプトなどの個人情報を含む）をこの日数より古いものから削除する
+    # （定期実行 audit.cleanup。毎日 JOBS_CLEANUP_HOUR_JST 時に少しずつ）。0 = 削除しない（既定）
+    audit_log_retention_days: int = Field(default=0, ge=0, le=3650)
 
     # --- キャラクターエンジン v1.0（ENGINE_BRIEF §2.3〜2.5・2.11） ------------------------------
     # 用途ごとのモデル（未設定なら LLM_MODEL）。分析系（記憶の抽出・要約・好感度の評価）は安いモデルに分けられる
@@ -192,7 +201,10 @@ class Settings(BaseSettings):
     engine_proactive_quiet_start: int = Field(default=0, ge=0, le=23)
     engine_proactive_quiet_end: int = Field(default=7, ge=0, le=23)
 
-    # Context Assembler の全体の締め切り（秒）。超えた要素は省略して返答を続ける（E8）
+    # Context Assembler の全体の締め切り（秒）。超えた要素は省略して返答を続ける（E8）。
+    # 記憶の部分（検索用の埋め込み + 検索）もこの締め切りの中で動くので、EMBEDDING_TIMEOUT_SECONDS（既定 5 秒）より
+    # 短ければこちらが先に効く（埋め込みが 1.5 秒で返らなければ、その返答は記憶なしで続ける。
+    # audit engine.context_degraded）。埋め込みの側の値は変えない（分析・要約・メモリパネルでは 5 秒まで待ってよい）
     engine_context_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
     # POST /chat/stream の keep-alive コメントの間隔（秒）
     chat_stream_heartbeat_seconds: float = Field(default=10.0, gt=0, le=60)

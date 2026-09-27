@@ -353,7 +353,7 @@ class ChatPipeline:
         recorder.emit(DoneEvent(response))
         # 11. 返答の後
         if self._memory is not None and memories_used:
-            self._spawn(self._mark_referenced(self._memory, memories_used, turn.now))
+            self._spawn(self._mark_referenced(self._memory, memories_used, turn))
 
     async def _respond_without_llm(
         self,
@@ -513,9 +513,11 @@ class ChatPipeline:
             self._on_job_enqueued()
         return job_id
 
-    async def _mark_referenced(self, memory: MemoryService, memory_ids: list[UUID], now: datetime) -> None:
+    async def _mark_referenced(self, memory: MemoryService, memory_ids: list[UUID], turn: ChatTurn) -> None:
         try:
-            await memory.mark_referenced(memory_ids=memory_ids, now=now)
+            await memory.mark_referenced(
+                memory_ids=memory_ids, user_id=turn.user_id, character_id=turn.character.id, now=turn.now
+            )
         except Exception as exc:
             logger.error("mark_referenced failed", extra={"fields": {"error": repr(exc)}})
 

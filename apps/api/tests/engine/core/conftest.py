@@ -55,6 +55,7 @@ class FakeMemory:
     promises: tuple[UUID, ...] = ()
     summarized: list[UUID] = field(default_factory=list)
     referenced: list[tuple[UUID, ...]] = field(default_factory=list)
+    referenced_owners: list[tuple[UUID, UUID]] = field(default_factory=list)
 
     async def retrieve_context(
         self,
@@ -76,8 +77,11 @@ class FakeMemory:
     ) -> list[float] | None:
         return [0.0] * 3
 
-    async def mark_referenced(self, *, memory_ids: Sequence[UUID], now: datetime) -> None:
+    async def mark_referenced(
+        self, *, memory_ids: Sequence[UUID], user_id: UUID, character_id: UUID, now: datetime
+    ) -> None:
         self.referenced.append(tuple(memory_ids))
+        self.referenced_owners.append((user_id, character_id))
 
     async def process_turns(
         self,

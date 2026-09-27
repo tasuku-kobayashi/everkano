@@ -212,15 +212,20 @@ async def test_mark_referenced_updates_counters_without_touching_updated_at(pool
     memory_id = await _insert(pair, "ユーザーは猫を飼っている")
     before = await pair.world.conn.fetchrow("select updated_at from public.memories where id = $1", memory_id)
     later = NOW + timedelta(days=3)
-    await service.mark_referenced(memory_ids=[memory_id, memory_id], now=later)
-    await service.mark_referenced(memory_ids=[memory_id], now=NOW)  # 古い時刻では巻き戻さない
+    owner = {"user_id": pair.user_id, "character_id": pair.character_id}
+    await service.mark_referenced(memory_ids=[memory_id, memory_id], now=later, **owner)
+    await service.mark_referenced(memory_ids=[memory_id], now=NOW, **owner)  # 古い時刻では巻き戻さない
+    # 他のペアの ID として渡しても触らない（所有者のスコープ）
+    await service.mark_referenced(
+        memory_ids=[memory_id], now=later, user_id=uuid.uuid4(), character_id=pair.character_id
+    )
     row = await pair.world.conn.fetchrow(
         "select updated_at, last_referenced_at, reference_count from public.memories where id = $1", memory_id
     )
     assert row["reference_count"] == 2
     assert row["last_referenced_at"] == later
     assert row["updated_at"] == before["updated_at"]
-    await service.mark_referenced(memory_ids=[], now=later)  # 空でも失敗しない
+    await service.mark_referenced(memory_ids=[], now=later, **owner)  # 空でも失敗しない
 
 
 async def test_recall_of_a_due_soon_promise_memory_by_place_name(pool: Any, pair: Pair) -> None:

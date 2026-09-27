@@ -22,6 +22,7 @@ import contextlib
 import re
 import time
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -370,14 +371,59 @@ def stabilize_history_start(
     return list(fitted)
 
 
-def sanitize_history(items: Sequence[HistoryItem], moderator: Moderator) -> list[HistoryItem]:
-    """Gate #1（入力）で差し止めたユーザー発言の本文を、LLM に渡す履歴から取り除く（直後の定型返答は残す）。"""
-    return [
-        replace(item, body=MODERATED_PLACEHOLDER)
-        if item.sender_type == "user" and moderator.check(item.body).flagged
-        else item
-        for item in items
-    ]
+class ModerationVerdictCache:
+    """履歴の Gate #1 の判定の記憶（メッセージ ID + 本文のハッシュ → 差し止めたか）。
+
+    /chat のたびに同じ履歴（最大 history_limit 件）を判定し直すと数十 ms かかるため、判定は 1 度だけ行い、
+    新しい行だけを判定する。本文は変わらないが、念のためハッシュも鍵に入れる（変われば判定し直す）。
+    上限を超えたら使われていないものから消す（LRU。プロセス内。再起動で消えても判定し直すだけ）。
+    """
+
+    def __init__(self, max_entries: int = 4096) -> None:
+        self._max_entries = max(max_entries, 1)
+        self._entries: OrderedDict[tuple[UUID, int], bool] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    @staticmethod
+    def key(item: HistoryItem) -> tuple[UUID, int]:
+        return item.id, hash(item.body)
+
+    def get(self, item: HistoryItem) -> bool | None:
+        key = self.key(item)
+        verdict = self._entries.get(key)
+        if verdict is not None:
+            self._entries.move_to_end(key)
+        return verdict
+
+    def put(self, item: HistoryItem, flagged: bool) -> None:
+        key = self.key(item)
+        self._entries[key] = flagged
+        self._entries.move_to_end(key)
+        while len(self._entries) > self._max_entries:
+            self._entries.popitem(last=False)
+
+
+def sanitize_history(
+    items: Sequence[HistoryItem], moderator: Moderator, cache: ModerationVerdictCache | None = None
+) -> list[HistoryItem]:
+    """Gate #1（入力）で差し止めたユーザー発言の本文を、LLM に渡す履歴から取り除く（直後の定型返答は残す）。
+
+    cache を渡すと、判定済みの発言（同じ ID・同じ本文）は判定し直さない。
+    """
+    result: list[HistoryItem] = []
+    for item in items:
+        if item.sender_type != "user":
+            result.append(item)
+            continue
+        flagged = cache.get(item) if cache is not None else None
+        if flagged is None:
+            flagged = moderator.check(item.body).flagged
+            if cache is not None:
+                cache.put(item, flagged)
+        result.append(replace(item, body=MODERATED_PLACEHOLDER) if flagged else item)
+    return result
 
 
 def persona_static_chars(persona: Persona) -> int:
@@ -424,6 +470,8 @@ class ContextAssembler:
         self._budget = budget
         self._timeout = timeout_seconds
         self._history_limit = history_limit
+        # 履歴の Gate #1 の判定は 1 度だけ（毎ターン同じ履歴を判定し直さない）
+        self._verdicts = ModerationVerdictCache()
 
     @property
     def budget(self) -> ContextBudget:
@@ -593,7 +641,7 @@ class ContextAssembler:
             HistoryItem(id=r["id"], sender_type=r["sender_type"], body=r["body"], created_at=r["created_at"])
             for r in rows
         ]
-        return sanitize_history(items, self._moderator)
+        return sanitize_history(items, self._moderator, self._verdicts)
 
     @staticmethod
     async def _memory_context(
@@ -656,6 +704,7 @@ __all__ = [
     "CharacterMemoryItem",
     "ContextAssembler",
     "ContextBudget",
+    "ModerationVerdictCache",
     "ModuleFlags",
     "PromiseItem",
     "basic_world_state",

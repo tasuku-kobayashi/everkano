@@ -8,6 +8,9 @@
   同じチャンクで失敗が続く・内容で拒否される（4xx）場合はそのチャンクを飛ばしてカーソルを進める。
 - Gate #1 で差し止めたターンは要約に入れない（sanitize_history(drop=True)）。設定・関係・評価を書き換えようとする
   発言（記憶経由の注入, guard.py）も入れない。
+- 有効な要約はペアあたり `max_summaries_per_pair` 件まで。新しい要約を保存したら、それより古い自動の要約は履歴
+  （status = superseded。監査 memory.supersede, reason = summary_limit）にする。要約は上限の入れ替え（capacity.py）の
+  対象外なので、ここで抑えないと会話が続く限り増え続ける。ユーザーが編集した要約は残す（E5）。
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import asyncpg
 from app.core.db import Pool, vector_literal
 from app.core.logging import get_logger
 from app.engine.memory.analysis import AnalysisOutputError, load_json_object
-from app.engine.memory.capacity import EvictedMemory, log_evictions, make_room
+from app.engine.memory.capacity import EvictedMemory, log_evictions, make_room, trim_superseded
 from app.engine.memory.config import MemoryConfig
 from app.engine.memory.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
 from app.engine.memory.guard import drop_injection_history
@@ -56,6 +59,19 @@ SUMMARY_RETRY_MAX_SECONDS: Final[float] = 3600.0
 # 内容が原因で拒否されたとみなす LLM の HTTP ステータス（同じ内容で再試行しても通らない）
 _CONTENT_REJECTION_STATUS: Final[frozenset[int]] = frozenset({400, 413, 422})
 _SUMMARY_FAILURE_STATE_MAX: Final[int] = 10_000
+# 新しい要約を保存したら、それより古い自動の要約（新しい順に $3 件より後）を履歴にする
+# （ユーザーが編集した要約は残す, E5）
+_RETIRE_OLD_SUMMARIES_SQL: Final[str] = """
+update public.memories
+   set status = 'superseded', superseded_at = $4, updated_at = $4
+ where id in (
+   select id from public.memories
+    where user_id = $1 and character_id = $2 and kind = 'summary' and status = 'active' and not is_user_edited
+    order by created_at desc, id desc
+    offset $3
+ )
+returning id
+"""
 
 
 def parse_summary(text: str) -> str:
@@ -324,6 +340,8 @@ class MemorySummarizer:
             )
             vector = None
         evicted: list[EvictedMemory] = []
+        trimmed: list[EvictedMemory] = []
+        retired: list[UUID] = []
         async with self._pool.acquire() as conn, conn.transaction():
             current = await conn.fetchrow(
                 "select summary_cursor from public.conversations where id = $1 and user_id = $2 for update",
@@ -359,6 +377,15 @@ class MemorySummarizer:
                 conversation_id,
                 user_id,
             )
+            # 有効な要約は max_summaries_per_pair 件まで（古いものは履歴にし、履歴も上限まで整理する）
+            retired = [
+                r["id"]
+                for r in await conn.fetch(
+                    _RETIRE_OLD_SUMMARIES_SQL, user_id, character_id, self._config.max_summaries_per_pair, now
+                )
+            ]
+            if retired:
+                trimmed = await trim_superseded(conn, user_id=user_id, character_id=character_id)
         await log_evictions(
             self._audit,
             evicted,
@@ -366,6 +393,30 @@ class MemorySummarizer:
             character_id=character_id,
             capacity=self._config.max_per_character,
             now=now,
+        )
+        for old_id in retired:
+            await self._audit.log(
+                "memory.supersede",
+                user_id=user_id,
+                character_id=character_id,
+                payload={
+                    "old_memory_id": old_id,
+                    "new_memory_id": memory_id,
+                    "reason": "summary_limit",
+                    "kind": "summary",
+                    "conversation_id": conversation_id,
+                    "max_summaries_per_pair": self._config.max_summaries_per_pair,
+                },
+                at=now,
+            )
+        await log_evictions(
+            self._audit,
+            trimmed,
+            user_id=user_id,
+            character_id=character_id,
+            capacity=self._config.max_per_character,
+            now=now,
+            source="history_trim",
         )
         if embedding_failure is not None:
             await self._audit.log(
@@ -393,6 +444,7 @@ class MemorySummarizer:
             "latency_ms": result.latency_ms,
             "usage": result.usage,
             "embedded": vector is not None,
+            "retired_summaries": len(retired),
         }
         if self._config.audit_log_prompts:
             payload["prompt_messages"] = messages

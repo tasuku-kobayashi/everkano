@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
-from app.container import ServicesDep
+from app.container import MemoryWriteRateLimitedUser, ServicesDep
 from app.core.security import CurrentUserDep
 from app.models.common import ERROR_RESPONSES, NOT_FOUND_RESPONSE
 from app.models.promises import ListPromisesResponse, PromiseDTO, UpdatePromiseRequest
@@ -37,10 +37,11 @@ async def list_promises(
     description=(
         "status は done（完了）/ cancelled（取り消し）。同じ状態への変更は何もせずに現在の約束を返す。"
         "取り消した約束のカレンダーの予定も取り消す。状態の変化は監査ログ promise.status_change に残す。"
+        "メモリパネルの書き込みとして RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。"
     ),
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
 async def update_promise(
-    promise_id: UUID, body: UpdatePromiseRequest, user: CurrentUserDep, services: ServicesDep
+    promise_id: UUID, body: UpdatePromiseRequest, user: MemoryWriteRateLimitedUser, services: ServicesDep
 ) -> PromiseDTO:
     return await services.user_memories.update_promise(user, promise_id, body)

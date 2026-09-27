@@ -214,6 +214,16 @@ def _build_proactive(
     )
 
 
+def rate_limit_buckets(settings: Settings) -> dict[str, int]:
+    """レート制限のバケット（ユーザー単位 / 分）。ルーターの RateLimit(...) の名前はここに無いといけない。"""
+    return {
+        "chat": settings.rate_limit_chat_per_minute,
+        "comments": settings.rate_limit_comments_per_minute,
+        "memories": settings.rate_limit_memories_per_minute,
+        "settings": settings.rate_limit_settings_per_minute,
+    }
+
+
 def periodic_tasks(
     settings: Settings,
     *,
@@ -222,11 +232,13 @@ def periodic_tasks(
     affinity: AffinityService | None,
     proactive: ProactiveService | None,
     scope: EngineScope | None = None,
+    audit: AuditLogger | None = None,
 ) -> list[PeriodicTask]:
     """スケジューラのタスク（ENGINE_BRIEF §2.3）。無効なモジュールのタスクは登録しない。
 
     scope（評価ハーネス・テスト用）に対象のキャラ・ユーザーが入っていれば、各モジュールの絞り込み付きのメソッドを使う
     （Protocol に無い引数なので、実装クラスの場合だけ渡す。フェイクのモジュールでは全体の処理を呼ぶ）。
+    audit を渡し、AUDIT_LOG_RETENTION_DAYS が 0 より大きいときだけ audit.cleanup（古い監査ログの削除）を登録する。
     """
     scope = scope or EngineScope()
     tasks: list[PeriodicTask] = []
@@ -292,6 +304,16 @@ def periodic_tasks(
         return {"reclaimed": reclaimed, "deleted": deleted}
 
     tasks.append(PeriodicTask("jobs.cleanup", cleanup, daily_at_jst(JOBS_CLEANUP_HOUR_JST), run_immediately=False))
+    if audit is not None and settings.audit_log_retention_days > 0:
+        audit_logger = audit
+        audit_retention = timedelta(days=settings.audit_log_retention_days)
+
+        async def audit_cleanup(now: datetime) -> int:
+            return await audit_logger.purge_older_than(now=now, retention=audit_retention)
+
+        tasks.append(
+            PeriodicTask("audit.cleanup", audit_cleanup, daily_at_jst(JOBS_CLEANUP_HOUR_JST), run_immediately=False)
+        )
     return tasks
 
 
@@ -397,6 +419,7 @@ def build_services(
             affinity=enabled_affinity,
             proactive=enabled_proactive,
             scope=scope,
+            audit=audit,
         ),
         poll_interval_seconds=settings.engine_scheduler_poll_interval_seconds,
         namespace=settings.engine_schedule_namespace,
@@ -464,13 +487,7 @@ def build_services(
         embedder=embedder,
         moderator=moderator,
         audit=audit,
-        rate_limiter=SlidingWindowRateLimiter(
-            {
-                "chat": settings.rate_limit_chat_per_minute,
-                "comments": settings.rate_limit_comments_per_minute,
-                "memories": settings.rate_limit_memories_per_minute,
-            }
-        ),
+        rate_limiter=SlidingWindowRateLimiter(rate_limit_buckets(settings)),
         clock=clock,
         engine=engine,
         chat=ChatService(pipeline=pipeline),
@@ -524,3 +541,4 @@ class RateLimit:
 ChatRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("chat"))]
 CommentRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("comments"))]
 MemoryWriteRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("memories"))]
+SettingsWriteRateLimitedUser = Annotated[CurrentUser, Depends(RateLimit("settings"))]

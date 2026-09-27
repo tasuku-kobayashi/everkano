@@ -1851,7 +1851,7 @@
         ]
       },
       "post": {
-        "description": "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。`summary` タグ・種類（自動要約専用）は指定できない。kind の省略時は fact。POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。",
+        "description": "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。`summary` タグ・種類（自動要約専用）は指定できない。kind の省略時は fact。POST / PATCH / DELETE は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。",
         "operationId": "create_memory_memories_post",
         "requestBody": {
           "content": {
@@ -1968,7 +1968,7 @@
     },
     "/memories/{memory_id}": {
       "delete": {
-        "description": "記憶の行を削除し、本文を持たない墓標（本文のハッシュと埋め込み）を残す。自動抽出は同じ・よく似た記憶を作り直さない（E5）。この記憶から作られた未達の約束は取り消す。",
+        "description": "記憶の行を削除し、本文を持たない墓標（本文のハッシュと埋め込み）を残す。自動抽出は同じ・よく似た記憶を作り直さない（E5）。この記憶から作られた未達の約束は取り消す。POST / PATCH と同じ RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。",
         "operationId": "delete_memory_memories__memory_id__delete",
         "parameters": [
           {
@@ -2302,7 +2302,7 @@
         ]
       },
       "put": {
-        "description": "省略した項目（または null）は変更しない。quiet_start / quiet_end は JST の時（0〜23）で、quiet_start == quiet_end なら送らない時間帯の制限なし。片方だけを指定した場合も、もう片方を今の値で埋めて両方を保存する（以後サーバーの既定が変わっても変わらない）。応答は更新後の設定全体。",
+        "description": "省略した項目（または null）は変更しない。quiet_start / quiet_end は JST の時（0〜23）で、quiet_start == quiet_end なら送らない時間帯の制限なし。片方だけを指定した場合も、もう片方を今の値で埋めて両方を保存する（以後サーバーの既定が変わっても変わらない）。応答は更新後の設定全体。PUT は RATE_LIMIT_SETTINGS_PER_MINUTE で制限する（超えたら 429）。",
         "operationId": "update_proactive_settings_proactive_settings_put",
         "requestBody": {
           "content": {
@@ -2409,7 +2409,7 @@
     },
     "/proactive/settings/{character_id}": {
       "put": {
-        "description": "有効なキャラだけ（それ以外は 404）。応答は更新後の設定全体。",
+        "description": "有効なキャラだけ（それ以外は 404）。応答は更新後の設定全体。全体設定の PUT と同じ RATE_LIMIT_SETTINGS_PER_MINUTE で制限する（超えたら 429）。",
         "operationId": "update_proactive_character_setting_proactive_settings__character_id__put",
         "parameters": [
           {
@@ -2661,7 +2661,7 @@
     },
     "/promises/{promise_id}": {
       "patch": {
-        "description": "status は done（完了）/ cancelled（取り消し）。同じ状態への変更は何もせずに現在の約束を返す。取り消した約束のカレンダーの予定も取り消す。状態の変化は監査ログ promise.status_change に残す。",
+        "description": "status は done（完了）/ cancelled（取り消し）。同じ状態への変更は何もせずに現在の約束を返す。取り消した約束のカレンダーの予定も取り消す。状態の変化は監査ログ promise.status_change に残す。メモリパネルの書き込みとして RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。",
         "operationId": "update_promise_promises__promise_id__patch",
         "parameters": [
           {

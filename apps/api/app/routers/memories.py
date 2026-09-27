@@ -36,7 +36,7 @@ async def list_memories(
     description=(
         "ユーザー × キャラの記憶が MEMORY_MAX_PER_CHARACTER 件に達している場合は 422 validation_error。"
         "`summary` タグ・種類（自動要約専用）は指定できない。kind の省略時は fact。"
-        "POST / PATCH は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する。"
+        "POST / PATCH / DELETE は RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。"
     ),
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
@@ -69,10 +69,11 @@ async def update_memory(
     description=(
         "記憶の行を削除し、本文を持たない墓標（本文のハッシュと埋め込み）を残す。自動抽出は同じ・よく似た記憶を"
         "作り直さない（E5）。この記憶から作られた未達の約束は取り消す。"
+        "POST / PATCH と同じ RATE_LIMIT_MEMORIES_PER_MINUTE で制限する（超えたら 429）。"
     ),
     response_class=Response,
     responses={**ERROR_RESPONSES, **NOT_FOUND_RESPONSE},
 )
-async def delete_memory(memory_id: UUID, user: CurrentUserDep, services: ServicesDep) -> Response:
+async def delete_memory(memory_id: UUID, user: MemoryWriteRateLimitedUser, services: ServicesDep) -> Response:
     await services.user_memories.delete(user, memory_id)
     return Response(status_code=204)
