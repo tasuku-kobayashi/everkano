@@ -1,0 +1,39 @@
+# repository guard scripts, final run after all repairs (HEAD 21990dd), 2026-09-27T18:51Z
+$ bash scripts/check-secrets.sh
+シークレットチェック: 888 ファイルを走査します
+
+OK: シークレットは見つかりませんでした
+rc=0
+$ bash scripts/check-scope.sh
+
+101 行を許可しました（scope-check: allow / 許可リスト / 禁止を述べる行。理由をレビューで確認すること）
+OK: スコープ外機能は見つかりませんでした
+rc=0
+$ bash scripts/tests/check-secrets.test.sh
+
+34 passed, 0 failed
+rc=0
+$ bash scripts/tests/check-scope.test.sh
+
+46 passed, 0 failed
+rc=0
+
+# dependency audits (final run; react-router-dom upgraded to 7.18.4 afterwards -> portrait-studio/web re-audit: No known vulnerabilities found)
+# dependency audits, final run 2026-09-27T18:34Z
+$ pip-audit (apps/api, uv export --frozen)
+No known vulnerabilities found
+exit=0
+$ pip-audit (portrait-studio/api, uv export --frozen)
+No known vulnerabilities found
+exit=0
+$ pnpm audit --audit-level high (workspace)
+No known vulnerabilities found
+exit=0
+$ pnpm audit --prod (workspace)
+No known vulnerabilities found
+exit=0
+$ pnpm audit (portrait-studio/web)
+└─────────────────────┴────────────────────────────────────────────────────────┘
+2 vulnerabilities found
+Severity: 2 moderate
+exit=0

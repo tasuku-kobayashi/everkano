@@ -21,6 +21,8 @@ everkano（Project P MVP）のドキュメント一覧。環境構築・テス�
 | [acceptance/report.md](acceptance/report.md)    | 受け入れ基準 A1〜A16 の検証結果、実機・第三者の確認手順、提出物（§16）の状況                            | 受け入れ確認をしたとき                              |
 | [acceptance/e2e-results.md](acceptance/e2e-results.md) | E2E（Playwright）の実行結果の詳細                                                               | E2E を実行したとき                                  |
 | [acceptance/inspection-report.md](acceptance/inspection-report.md) | 納品前の検査の報告（観点別・重大度別の件数、修正前後の計測値、修正した項目、未対応の項目と推奨する対応） | 検査・再検査をしたとき                              |
+| [acceptance/inspection-report-2026-09-27.md](acceptance/inspection-report-2026-09-27.md) | リポジトリ全体の検収レビュー（2026-09-27。portrait-studio を含む 55 件の指摘と対応、修正前後の計測値、この環境で実行できなかった検証） | 検査・再検査をしたとき |
+| [acceptance/db-followups-2026-09-27.md](acceptance/db-followups-2026-09-27.md) | DB の申し送り（マイグレーションが必要な指摘の事実・影響・適用する SQL / pgTAP・確認方法） | 次のマイグレーションを書くとき |
 | [acceptance/raw/](acceptance/raw/)              | 各テストの生の出力（Playwright・pgTAP・pytest・監査ログのサンプル・会話ログ）                           |                                                     |
 | [../portrait-studio/](../portrait-studio/README.md) | 同一キャラクター画像生成のローカルツール（ComfyUI + FastAPI + React。MVP の外。[ADR-0050](adr/0050-portrait-studio-local-image-tool.md)） | ツールを変えたとき |
 | [acceptance/screenshots/](acceptance/screenshots/) | 全 26 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー。23〜26 はエンジン v1.0 の画面） | `apps/web/e2e/screenshots.spec.ts` で再生成          |
