@@ -108,7 +108,7 @@ everkano リポジトリ全体（`apps/web`・`apps/api`・`infra/supabase`・`s
 ゲート: `ruff check` / `ruff format --check` / `mypy app evals`（135 ファイル）/ `export_openapi.py --check` / `pytest` **1340 成功・214 skip**（修正前 1326。skip はすべて Postgres が必要な統合テスト）。
 **この環境では実行できなかった検証**: F1 の INSERT ガードと `_PAIRS_SQL`、F2 / F6 / F7 のトリム、F9 の所有者で絞る UPDATE、拡張した `test_retrieval.py` は SQL の変更であり、ローカル Supabase で `pytest -m integration` と pgTAP を回して確認すること（5 章）。
 
-### 3.4 infra / scripts / CI（12 件: 確認 8・一部反証 3・反証 1。修正 5、文書化 7）
+### 3.4 infra / scripts / CI（12 件: 確認 9・一部反証 3・反証 0。修正 5、文書化 7）
 
 | # | 重大度 | 指摘 | 判定 | 対応 |
 | --- | --- | --- | --- | --- |
