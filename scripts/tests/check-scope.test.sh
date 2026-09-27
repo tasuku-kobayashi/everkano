@@ -10,6 +10,12 @@
 #     - 条件の「しない」（「課金しないと見られません」）は禁止を述べる行とみなさない
 #     - 本物の課金 UI の文言は検出される。仕様のプレースホルダと `scope-check: allow` は従来どおり許可
 #     - 理由の無い項目は書式エラー（2）、どのファイルにも一致しない項目は失敗（1）
+#     - 走査対象: docs/ 配下でも Markdown でないファイルと、docs/ 外の MDX は検出する（Markdown と docs/ 配下の MDX は除外）。
+#       infra/ も走査し、SQL のコメントの「スコープ外」は禁止を述べる行として許可、本物の決済の列・SDK 名は検出する
+#     - PayPay（paypayopa）を決済 SDK として検出する
+#     - 「禁止」は述語の形（〜は禁止 / 〜を禁止する / 禁止（E2））だけ。「禁止語」のような複合語は禁止を述べる行とみなさない
+#     - 「〜の話をしない」は文末の形だけ許可し、「話をしないと見られない」のような条件形は検出する
+#     - bash の版の検査（4.4 以上）の判定
 #
 # 使い方: bash scripts/tests/check-scope.test.sh
 # =============================================================================
@@ -125,6 +131,68 @@ run
 expect_rc "禁止の言い回しが前にあるだけの行は検出する" 1
 expect_out "語順を見て判定する" "✗ apps/api/app/order\\.py:1  \\[payment\\]"
 rm "$REPO/apps/api/app/order.py"
+
+# docs/ 配下でも Markdown でないファイルは走査する。Markdown（*.md）と docs/ 配下の MDX は除外、それ以外の MDX は走査する
+mkdir -p "$REPO/apps/web/docs" "$REPO/apps/web/app/pricing"
+printf '%s\n' 'import stripe from "stripe";' >"$REPO/apps/web/docs/pricing.ts"
+printf '%s\n' '課金の説明（ドキュメント）' >"$REPO/apps/web/docs/guide.md"
+printf '%s\n' '課金の説明（ドキュメント）' >"$REPO/apps/web/docs/guide.mdx"
+printf '%s\n' '# 課金の説明（README）' >"$REPO/apps/web/README.md"
+printf '%s\n' '<button>課金する</button>' >"$REPO/apps/web/app/pricing/page.mdx"
+run
+expect_rc "docs/ 配下のコードと docs/ 外の MDX は検出する" 1
+expect_out "docs/ 配下の .ts の決済 SDK を検出する" "✗ apps/web/docs/pricing\\.ts:1  \\[payment\\] 決済 SDK"
+expect_out "ページとして描画され得る MDX の課金の文言を検出する" "✗ apps/web/app/pricing/page\\.mdx:1  \\[payment\\]"
+expect_no_out "docs/ 配下の Markdown / MDX は走査しない" "apps/web/docs/guide\\."
+expect_no_out "Markdown はどこにあっても走査しない" "apps/web/README\\.md"
+rm -r "$REPO/apps/web/docs" "$REPO/apps/web/app/pricing" "$REPO/apps/web/README.md"
+
+# infra/ も走査する。SQL のコメントの「スコープ外」は禁止を述べる行として許可、「画像生成は次フェーズ」の定型句は除外、
+# 本物の決済の列（SDK 名）・画像生成の文言は検出する
+mkdir -p "$REPO/infra/supabase/migrations"
+printf '%s\n' '-- 決済は本MVPスコープ外（H3）' '-- 画像生成は次フェーズ' 'create table public.payments (stripe_customer_id text);' '-- 画像生成を行う' \
+  >"$REPO/infra/supabase/migrations/20990101000000_payments.sql"
+run
+expect_rc "infra/ の決済の列・画像生成の文言を検出する" 1
+expect_out "infra/ の決済 SDK 名を検出する" "✗ infra/supabase/migrations/20990101000000_payments\\.sql:3  \\[payment\\] 決済 SDK"
+expect_out "infra/ の画像生成の文言を検出する" "✗ infra/supabase/migrations/20990101000000_payments\\.sql:4  \\[image-gen\\]"
+expect_out "infra/ の SQL のコメントの「スコープ外」は禁止を述べる行として許可する" "allow infra/supabase/migrations/20990101000000_payments\\.sql:1  \\[payment\\] 禁止を述べる行"
+expect_no_out "「画像生成は次フェーズ」の定型句は検出しない" "payments\\.sql:2"
+rm -r "$REPO/infra"
+
+# PayPay（SDK は paypayopa）を決済 SDK として検出する
+printf '%s\n' 'import paypayopa' >"$REPO/apps/api/app/pay.py"
+run
+expect_rc "PayPay の SDK を検出する" 1
+expect_out "PayPay を決済 SDK として検出する" "✗ apps/api/app/pay\\.py:1  \\[payment\\] 決済 SDK"
+rm "$REPO/apps/api/app/pay.py"
+
+# 「禁止」は述語として使った形だけ。「禁止語」のような複合語は禁止を述べる行とみなさない
+printf '%s\n' '# 課金の禁止語のリスト' >"$REPO/apps/api/app/words.py"
+printf '%s\n' '# 課金と関係の結びつけは禁止（E2）' '# 課金の話は禁止' '# 課金を禁止する' >"$REPO/apps/api/app/rule.py"
+run
+expect_rc "「禁止語」の複合語は禁止を述べる行とみなさない" 1
+expect_out "「課金の禁止語」を検出する" "✗ apps/api/app/words\\.py:1  \\[payment\\]"
+expect_out "「〜は禁止（E2）」は許可する" "allow apps/api/app/rule\\.py:1  \\[payment\\] 禁止を述べる行"
+expect_out "行末の「〜は禁止」は許可する" "allow apps/api/app/rule\\.py:2  \\[payment\\] 禁止を述べる行"
+expect_out "「〜を禁止する」は許可する" "allow apps/api/app/rule\\.py:3  \\[payment\\] 禁止を述べる行"
+rm "$REPO/apps/api/app/words.py" "$REPO/apps/api/app/rule.py"
+
+# 「〜の話をしない」は文末（句点・行末）の形だけ禁止を述べる行とみなす。「話をしないと」の条件形は検出する
+printf '%s\n' '# そのときは購入・投稿・約束の話をしない' '# 続きは課金の話をしないと見られない' >"$REPO/apps/api/app/talk.py"
+run
+expect_rc "「話をしないと」の条件形は検出する" 1
+expect_out "文末の「〜の話をしない」は許可する" "allow apps/api/app/talk\\.py:1  \\[payment\\] 禁止を述べる行"
+expect_out "「話をしないと見られない」は検出する" "✗ apps/api/app/talk\\.py:2  \\[payment\\]"
+rm "$REPO/apps/api/app/talk.py"
+
+# bash の版の検査（4.4 以上）。判定の関数だけを取り出して検証する（古い bash は用意できないため）
+eval "$(sed -n '/^bash_version_ok()/,/^}/p' "$SCRIPT")"
+if bash_version_ok 4 4 && bash_version_ok 5 2 && ! bash_version_ok 4 3 && ! bash_version_ok 3 2 && ! bash_version_ok x y; then
+  ok "bash の版の判定: 4.4 / 5.2 は可、4.3 / 3.2 / 不正な値は不可"
+else
+  ng "bash の版の判定"
+fi
 
 # 許可リストの古い項目（どのファイルにも一致しない）は失敗
 printf '%s\n' 'apps/api/app/removed.py  # 削除したファイル' >>"$REPO/scripts/check-scope-allowlist.txt"

@@ -10,6 +10,12 @@
 #     - テストコードの `check-secrets: allow` は履歴でも有効
 #     - 出力にシークレットの値を表示しない
 #     - shallow clone・解決できないリビジョンは終了コード 2
+#   作業ツリーの検査では次も検証する:
+#     - Supabase の personal access token（sbp_）/ Fly.io（FlyV1 fm2_）/ Groq（gsk_）/ Hugging Face（hf_）の既知形式
+#     - パスワードの短いリテラル（6〜15 文字）は検出し、プレースホルダ（changeme 等）は報告しない
+#     - テストコードも名前ベースのルールで走査する。許可は既知のダミー値（KNOWN_TEST_DUMMY_VALUES）と allow マーカーだけで、
+#       既知のダミー値もテスト以外のファイルでは報告する
+#     - bash の版の検査（4.4 以上）の判定
 #
 # ダミーのキーは実行時に組み立てる（このファイル自体が check-secrets.sh に検出されないように）。
 # 使い方: bash scripts/tests/check-secrets.test.sh
@@ -130,6 +136,58 @@ expect_rc "作業ツリーの検査: シークレット名の変数への文字�
 expect_out "作業ツリーの検査: secret-literal として報告する" "app/settings\\.py:1  \\[secret-literal\\]"
 expect_no_out "作業ツリーの検査: secret_name の指定は報告しない" "app/fly\\.toml"
 rm "$REPO/app/settings.py"
+
+# 既知形式の追加（Supabase PAT / Fly.io / Groq / Hugging Face）とパスワードの短いリテラル。ダミーの値は実行時に組み立てる。
+# 変数名は名前ベースのルール（secret-literal / secret-assignment）に掛からないものにして、形式のルールだけを検証する
+HEX40="$(printf '0123456789abcdef%.0s' {1..3})"
+HEX40="${HEX40:0:40}"
+ALNUM54="$(printf 'Zx9%.0s' {1..18})"
+FLY_BODY="$(printf 'lJPECAAAAAAAB%.0s' {1..5})"
+printf 'SUPABASE_PAT = "sbp_%s"\n' "$HEX40" >"$REPO/app/supa.py"
+printf 'FLY_DEPLOY = "FlyV1 fm2_%s"\n' "$FLY_BODY" >"$REPO/app/fly.py"
+printf 'GROQ = "gsk_%s"\n' "$ALNUM54" >"$REPO/app/groq.py"
+printf 'HF = "hf_%s"\n' "${ALNUM54:0:34}" >"$REPO/app/hf.py"
+# パスワードの値も引数で渡す（このファイル自体が password-literal に検出されないように）
+printf 'db_password = "%s"\n' 'hunter2xyz' >"$REPO/app/db.py"
+printf 'db_password = "%s"\n' 'changeme123' >"$REPO/app/db_placeholder.py"
+run "$REPO"
+expect_rc "作業ツリーの検査: 既知形式の追加分とパスワードの短いリテラルを検出する" 1
+expect_out "Supabase の personal access token（sbp_）を検出する" "app/supa\\.py:1  \\[supabase-access-token\\]"
+expect_out "Fly.io のトークン（FlyV1 fm2_）を検出する" "app/fly\\.py:1  \\[fly-token\\]"
+expect_out "Groq の API キー（gsk_）を検出する" "app/groq\\.py:1  \\[groq-api-key\\]"
+expect_out "Hugging Face のトークン（hf_）を検出する" "app/hf\\.py:1  \\[huggingface-token\\]"
+expect_out "パスワードの短いリテラル（16 文字未満）を検出する" "app/db\\.py:1  \\[password-literal\\]"
+expect_no_out "プレースホルダ（changeme）のパスワードは報告しない" "app/db_placeholder\\.py"
+expect_no_out "出力にトークンの値を含めない" "$HEX40|$FLY_BODY|$ALNUM54"
+rm "$REPO/app/supa.py" "$REPO/app/fly.py" "$REPO/app/groq.py" "$REPO/app/hf.py" "$REPO/app/db.py" "$REPO/app/db_placeholder.py"
+
+# テストコードも名前ベースのルールで走査する。許可は既知のダミー値（KNOWN_TEST_DUMMY_VALUES）と allow マーカーだけ
+printf 'api_secret = "%s"\n' "$KEY_BODY" >"$REPO/tests/test_settings.py"
+printf 'api_secret = "%s"  # check-secrets: allow（テスト用のダミー）\n' "$KEY_BODY" >"$REPO/tests/test_allowed.py"
+printf 'const env = { bunnyTokenAuthKey: "secret-key-123" };\n' >"$REPO/tests/media.test.ts"
+run "$REPO"
+expect_rc "作業ツリーの検査: テストコードのシークレット名への代入も検出する" 1
+expect_out "テストコードの secret-literal を報告する" "tests/test_settings\\.py:1  \\[secret-literal\\]"
+expect_no_out "テストコードの allow マーカーの行は許可する" "tests/test_allowed\\.py"
+expect_no_out "テストコードの既知のダミー値は許可する" "tests/media\\.test\\.ts"
+rm "$REPO/tests/test_settings.py" "$REPO/tests/test_allowed.py" "$REPO/tests/media.test.ts"
+
+# 既知のダミー値も allow マーカーも、テスト以外のファイルでは無効
+printf 'const env = { bunnyTokenAuthKey: "secret-key-123" };\n' >"$REPO/app/media.ts"
+printf 'api_secret = "%s"  # check-secrets: allow\n' "$KEY_BODY" >"$REPO/app/marker.py"
+run "$REPO"
+expect_rc "作業ツリーの検査: テスト以外のファイルでは既知のダミー値も報告する" 1
+expect_out "テスト以外の既知のダミー値を報告する" "app/media\\.ts:1  \\[bunny-b2-key\\]"
+expect_out "テスト以外の allow マーカーは無効" "app/marker\\.py:1  \\[secret-literal\\]"
+rm "$REPO/app/media.ts" "$REPO/app/marker.py"
+
+# bash の版の検査（4.4 以上）。判定の関数だけを取り出して検証する（古い bash は用意できないため）
+eval "$(sed -n '/^bash_version_ok()/,/^}/p' "$SCRIPT")"
+if bash_version_ok 4 4 && bash_version_ok 5 2 && ! bash_version_ok 4 3 && ! bash_version_ok 3 2 && ! bash_version_ok x y; then
+  ok "bash の版の判定: 4.4 / 5.2 は可、4.3 / 3.2 / 不正な値は不可"
+else
+  ng "bash の版の判定"
+fi
 
 git clone -q --depth 1 "file://$REPO" "$TMP/shallow"
 run "$TMP/shallow" --history

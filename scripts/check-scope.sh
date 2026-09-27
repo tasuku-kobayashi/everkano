@@ -2,11 +2,12 @@
 # =============================================================================
 # scripts/check-scope.sh — スコープ外機能の混入チェック（受け入れ基準 A16 / 開発依頼書 §12・H2・H3）
 #
-#   apps/ と packages/ のうち、コミットされ得るファイル（git ls-files -co --exclude-standard）を走査し、
+#   apps/ packages/ infra/ のうち、コミットされ得るファイル（git ls-files -co --exclude-standard）を走査し、
 #   本 MVP で「絶対に実装しない」機能のコード・依存・画面が見つかれば終了コード 1 で失敗する。
+#   （リポジトリ直下の portrait-studio/ は次フェーズのローカル専用ツールで、意図して走査対象に含めない。ADR-0050）
 #
 #   カテゴリ:
-#     payment       決済 SDK / 決済 API / カード入力 / 購入・課金の UI 文言（H3）
+#     payment       決済 SDK（Stripe / PayPal / PayPay …）/ 決済 API / カード入力 / 購入・課金の UI 文言（H3）
 #     image-gen     画像生成（Stable Diffusion / SDXL / Flux / DALL·E / ComfyUI ...）
 #     tts-voice     音声合成・TTS・音声通話（ElevenLabs / speechSynthesis / getUserMedia ...）
 #     user-posting  ユーザーによる投稿作成（ファイル入力、posts への書き込み、投稿作成ルート）（H2）
@@ -21,10 +22,14 @@
 #       a. 許可リスト scripts/check-scope-allowlist.txt に理由付きで載っているファイル
 #          （禁止を実装・検査するコード: OutputGuard の検出語、E1 の構造テスト、ガードの回帰テスト など）
 #       b. 禁止を述べる行: 購入・課金の語の「後ろ」に同じ行で禁止の言い回し（結びつけない / 勧めない /
-#          触れない / 使わない / 禁止 …。PROHIBITION_RE）がある行。apps/api と packages（プロンプトの
-#          テンプレート・コメント）だけに適用し、利用者に見せる画面の文言（apps/web）には適用しない
+#          触れない / 使わない / 〜は禁止 / 〜を禁止する / スコープ外 / 文末の〜の話をしない …。PROHIBITION_RE）がある行。
+#          「禁止」は述語として使った形だけで、「禁止語」「禁止ワード」のような複合語は禁止の言い回しとみなさない。
+#          apps/api・packages（プロンプトのテンプレート・コメント）・infra（SQL のコメント）だけに適用し、
+#          利用者に見せる画面の文言（apps/web）には適用しない
 #   除外:
-#     - Markdown（ドキュメント）、ロックファイル、モデレーションの禁止語リスト、このスクリプト自身
+#     - Markdown（*.md）と、docs/ ディレクトリ配下の MDX（*.mdx）。それ以外の *.mdx（ページとして描画され得る）と、
+#       docs/ 配下でも Markdown でないファイル（.ts / .py 等）は走査する
+#     - ロックファイル、モデレーションの禁止語リスト、このスクリプト自身
 #
 # 使い方:
 #   scripts/check-scope.sh
@@ -34,19 +39,32 @@
 # =============================================================================
 set -euo pipefail
 
+# bash 4.4 以上が必要（連想配列 declare -A と、空の配列の "${arr[@]}" 展開が set -u で失敗しない版。macOS 付属の /bin/bash は 3.2）
+bash_version_ok() { # major minor
+  [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]] && (($1 > 4 || ($1 == 4 && $2 >= 4)))
+}
+if ! bash_version_ok "${BASH_VERSINFO[0]:-0}" "${BASH_VERSINFO[1]:-0}"; then
+  echo "error: このスクリプトには bash 4.4 以上が必要です（現在: ${BASH_VERSION:-不明}）。macOS では brew install bash で入れた bash で実行してください" >&2
+  exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-SCAN_DIRS=(apps packages)
+# portrait-studio/（リポジトリ直下）は意図して含めない（ADR-0050）
+SCAN_DIRS=(apps packages infra)
 
-# 走査しないファイル（git のパスに対する正規表現）
-EXCLUDE_RE='(\.md$|\.mdx$|(^|/)docs/|(^|/)(uv\.lock|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|^apps/api/app/services/moderation\.py$|^scripts/check-scope\.sh$)'
+# 走査しないファイル（git のパスに対する正規表現）。
+# Markdown（*.md）はどこにあっても除外、MDX（*.mdx）は docs/ ディレクトリ配下だけ除外する。
+# docs/ 配下でも Markdown でないファイル（.ts / .py 等）は走査する（docs/ に置くだけでは検査を逃れられない）
+EXCLUDE_RE='(\.md$|(^|/)docs/.*\.mdx$|(^|/)(uv\.lock|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|^apps/api/app/services/moderation\.py$|^scripts/check-scope\.sh$)'
 
 # 判定前に行から取り除く文字列（許可されたプレースホルダと、既知の誤検知）
 NEUTRALIZE=(
   "購入する（準備中）"
   "課金機能は現在準備中です"
-  "解決済" # 「決済」を部分文字列として含む
+  "解決済"             # 「決済」を部分文字列として含む
+  "画像生成は次フェーズ" # 画像生成を実装しない（次フェーズ）ことを述べる定型句（infra のマイグレーション・seed のコメント）
 )
 
 ALLOW_MARKER='scope-check:[[:space:]]*allow'
@@ -54,10 +72,15 @@ ALLOW_MARKER='scope-check:[[:space:]]*allow'
 # E1 / E2 のコンプライアンス上の例外（payment の「購入・課金の文言」ルールだけ）
 ALLOWLIST_FILE="scripts/check-scope-allowlist.txt"
 # 禁止を述べる行とみなす言い回し（購入・課金の語より後ろにあること）。
-# 「課金しないなら〜」のような条件の「しない」を拾わないよう、単独の「しない」は含めない
-PROHIBITION_RE='(結びつけない|結び付けない|むすびつけない|結びつけず|勧めない|すすめない|促さない|誘導しない|求めない|煽らない|言わない|触れない|触れず|使わない|扱わない|持ち込まない|入れない|含めない|含まない|含まれず|含まれない|受け取らない|参照しない|影響しない|影響させない|作らない|実装しない|禁止|使いません|含まれません|触れません|受け取りません)'
-# 禁止を述べる行の例外を適用する範囲（サーバーのコード・プロンプト。画面の文言 apps/web は対象外）
-PROHIBITION_SCOPE_RE='^(apps/api|packages)/'
+# 「課金しないなら〜」のような条件の「しない」を拾わないよう、単独の「しない」は含めない。
+# 「禁止」は述語として使った形（「〜は禁止」「〜を禁止する」「禁止（E1）」「禁止。」）だけ。「禁止語」「禁止ワード」のような
+# 複合語（禁止する語のリスト等）は禁止の言い回しとみなさない
+PROHIBITION_KINSHI='禁止(する|します|され|とする|とします|です|だ|である|$|。|、|（|）|\(|\)|「|」|『|』|,|\.|:|：|[[:space:]])'
+# 「〜の話をしない」「話題にしない」は文末（句点・行末・閉じ括弧）の形だけ。「話をしないと見られない」のような条件形は含めない
+PROHIBITION_HANASHI='(話(を|は)しない|話題にしない)(。|$|、|）|\)|[[:space:]])'
+PROHIBITION_RE="(結びつけない|結び付けない|むすびつけない|結びつけず|結びつかない|勧めない|すすめない|促さない|誘導しない|求めない|煽らない|言わない|触れない|触れず|使わない|扱わない|持ち込まない|持たない|持たせない|結合しない|入れない|含めない|含まない|含まれず|含まれない|受け取らない|参照しない|影響しない|影響させない|作らない|実装しない|未実装|スコープ外|${PROHIBITION_KINSHI}|${PROHIBITION_HANASHI}|使いません|含まれません|触れません|受け取りません)"
+# 禁止を述べる行の例外を適用する範囲（サーバーのコード・プロンプト・SQL のコメント。画面の文言 apps/web は対象外）
+PROHIBITION_SCOPE_RE='^(apps/api|packages|infra)/'
 PAYMENT_WORDING_RE='決済|課金|購入|投げ銭|チップを送'
 
 if [[ -t 1 ]]; then
@@ -230,7 +253,7 @@ echo "スコープチェック: ${#FILES[@]} ファイルを走査します（${
 
 # ---- 決済（H3: 課金処理・トークン購入・カード入力は一切作らない）
 scan payment "決済 SDK / 決済サービス" \
-  '(^|[^a-z0-9])(stripe|@stripe/|paypal|braintree|adyen|payjp|pay\.jp|komoju|squareup|square-web-payments|lemonsqueezy|paddle\.com|revenuecat|gmo-?pg|paygent|sbpayment)([^a-z0-9]|$)'
+  '(^|[^a-z0-9])(stripe|@stripe/|paypal|paypay(opa)?|braintree|adyen|payjp|pay\.jp|komoju|squareup|square-web-payments|lemonsqueezy|paddle\.com|revenuecat|gmo-?pg|paygent|sbpayment)([^a-z0-9]|$)'
 scan payment "決済処理のコード" \
   '(^|[^a-z0-9])(checkout|payment_?intents?|payment-intents?|create_?payment|process_?payment|payment_?method|payment-request|paymentrequest|charge_?card|purchase_?tokens?|buy_?tokens?|token_?purchase)([^a-z0-9]|$)|/v1/charges'
 scan payment "カード情報の入力" \

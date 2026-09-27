@@ -95,6 +95,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
 
+      # apps/api の外にある Python の ruff（apps/api 自体は api-db ジョブの `ruff check .` がパッケージ全体を対象にする）。
+      # packages/personas/scripts はそのディレクトリの ruff.toml（apps/api と同じ規則）、scripts/*.py は設定が無いので apps/api の設定で検査する。
+      # infra/supabase/tests/auth/signup_hardening.py は apps/api の規則で既存の指摘（S603 / S608 等 11 件）が残るため、直してから加える
+      - name: "ruff（apps/api の外の Python: packages/personas/scripts, scripts）"
+        run: |
+          uv run --frozen --project apps/api ruff check packages/personas/scripts
+          uv run --frozen --project apps/api ruff format --check packages/personas/scripts
+          uv run --frozen --project apps/api ruff check --config apps/api/pyproject.toml scripts
+          uv run --frozen --project apps/api ruff format --check --config apps/api/pyproject.toml scripts
+
       # packages/personas/scripts/validate_personas.py（= pnpm personas:validate）:
       # YAML の必須項目・全キャラ 20 歳以上に加え、YAML / seed/feed.yaml / infra/supabase/seed.sql に
       # 未成年を想起させる表現が無いこと、seed.sql が generate_seed.py の生成結果と一致すること

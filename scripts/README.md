@@ -80,17 +80,19 @@ scripts/check-secrets.sh --history origin/main..HEAD  # このブランチのコ
   検出箇所は `パス @ そのファイル版を最初に含んだコミット:行` で表示する。shallow clone では実行しない（終了コード 2）。
   CI は PR ならその PR のコミット（`base..head`）、main への push なら push されたコミットを走査する。
   履歴に入った本物の鍵は、ファイルを消しても残るので必ず無効化（ローテーション）すること。
-- 検出: 秘密鍵ブロック、`sk-` 形式の API キー、Supabase の `sb_secret_` キーと JWT（service_role / anon。role を表示）、
-  AWS / GitHub / Slack / Google / Stripe の既知形式、Sentry DSN、Bunny.net / Backblaze B2 のキーへの代入、
-  `SECRET` / `PASSWORD` / `API_KEY` 等の名前への文字列リテラル代入、ローカル以外を指すパスワード付き DB 接続文字列、
-  `.env*` ファイル（`.env.example` 以外）や `*.pem` / `*.key` 等のファイルそのもの。
+- 検出: 秘密鍵ブロック、`sk-` 形式の API キー、Groq（`gsk_`）/ Hugging Face（`hf_`）のキー、Supabase の `sb_secret_` キー・
+  personal access token（`sbp_`）と JWT（service_role / anon。role を表示）、AWS / GitHub / Slack / Google / Stripe /
+  Fly.io（`FlyV1 fm2_` / `fo1_`）の既知形式、Sentry DSN、Bunny.net / Backblaze B2 のキーへの代入、
+  `SECRET` / `PASSWORD` / `API_KEY` 等の名前への文字列リテラル代入（`PASSWORD` 系は 6〜15 文字の短いリテラルも）、
+  ローカル以外を指すパスワード付き DB 接続文字列、`.env*` ファイル（`.env.example` 以外）や `*.pem` / `*.key` 等のファイルそのもの。
 - `.env.example` は「キー・シークレット系の変数が空」「URL の認証情報はローカル既定値のみ」であることを検査する。
 - 出力にはシークレットの値を表示しない（CI ログへの二次漏洩防止）。
 - 誤検知の抑制:
-  - 名前ベースのヒューリスティックなルールは、テストコード（`tests/`, `__tests__/`, `fixtures/`, `*.test.*`,
-    `*.spec.*`, `test_*.py`, `conftest.py`）と、`example` / `dummy` / `test` / `env(...)` / `process.env` 等を含む行を対象外にする。
-  - 既知形式のキー（`sk-`・JWT・秘密鍵など）はテストコードでも検出する。テスト用のダミー値であれば、
-    テストファイルの該当行に `check-secrets: allow` と理由を書く（テスト以外のファイルでは無効）。
+  - 名前ベースのヒューリスティックなルールは、`example` / `dummy` / `test` / `env(...)` / `process.env` 等を含む行を対象外にする。
+  - テストコード（`tests/`, `__tests__/`, `fixtures/`, `*.test.*`, `*.spec.*`, `test_*.py`, `conftest.py`）も
+    すべてのルールで走査する（テストに混入した本物の鍵も検出する）。テスト用のダミー値は、テストファイルの該当行に
+    `check-secrets: allow` と理由を書くか、スクリプトの `KNOWN_TEST_DUMMY_VALUES`（値の完全一致。名前ベースのルールだけ）に
+    載せる。どちらもテスト以外のファイルでは無効。
 - 回帰テスト: `bash scripts/tests/check-secrets.test.sh`（使い捨ての git リポジトリで `--history` 等を検証する）。
 
 ## check-scope.sh — スコープ外機能の混入チェック（A16）
@@ -99,9 +101,12 @@ scripts/check-secrets.sh --history origin/main..HEAD  # このブランチのコ
 scripts/check-scope.sh
 ```
 
-- 対象: `apps/` と `packages/` のコミットされ得るファイル。Markdown・ロックファイル・
-  モデレーションの禁止語リスト（`apps/api/app/services/moderation.py`）は除外。
-- カテゴリ: `payment`（決済 SDK / 決済 API / カード入力 / 購入・課金の文言）、`image-gen`、`tts-voice`、
+- 対象: `apps/` `packages/` `infra/` のコミットされ得るファイル。Markdown（`*.md`）、`docs/` ディレクトリ配下の MDX（`*.mdx`）、
+  ロックファイル、モデレーションの禁止語リスト（`apps/api/app/services/moderation.py`）は除外。それ以外の `*.mdx`
+  （ページとして描画され得る）と、`docs/` 配下でも Markdown でないファイル（`.ts` / `.py` 等）は走査する。
+  リポジトリ直下の `portrait-studio/`（次フェーズのローカル専用の画像生成ツール）は意図して対象外
+  （[ADR-0050](../docs/adr/0050-portrait-studio-local-image-tool.md)）。
+- カテゴリ: `payment`（決済 SDK（Stripe / PayPal / PayPay …）/ 決済 API / カード入力 / 購入・課金の文言）、`image-gen`、`tts-voice`、
   `user-posting`（ファイル入力・posts への書き込み・投稿作成ルート / API ルーター）、`notification`（Push API）、`admin-ui`。
 - 仕様で定められたプレースホルダ文言 **「購入する（準備中）」「課金機能は現在準備中です」** は許可。
 - スコープ外であることを説明するコメント等の誤検知は、その行に `scope-check: allow` と理由を書くと許可される
@@ -125,8 +130,9 @@ scripts/check-scope.sh
    そのテスト（本番のイメージに含まれない。操作しようとするユーザーの課金の誘い文・E2 の判定の例を持つため
    ディレクトリ単位））。
 2. **禁止を述べる行**: 購入・課金の語の **後ろ** に、同じ行で禁止の言い回し（`結びつけない` `勧めない` `触れない`
-   `使わない` `含まれず` `受け取らない` `実装しない` `禁止` … スクリプトの `PROHIBITION_RE`）がある行。
-   適用するのは `apps/api/` と `packages/`（プロンプトのテンプレート・コメント・docstring）だけで、
+   `使わない` `含まれず` `受け取らない` `実装しない` `未実装` `スコープ外` `〜は禁止` `〜を禁止する` 文末の `〜の話をしない` … スクリプトの `PROHIBITION_RE`）がある行。
+   「禁止」は述語として使った形だけで、`禁止語` `禁止ワード` のような複合語（禁止する語のリスト等）は禁止の言い回しとみなさない。
+   適用するのは `apps/api/`・`packages/`（プロンプトのテンプレート・コメント・docstring）・`infra/`（SQL のコメント）だけで、
    利用者に見せる画面の文言（`apps/web/`）には適用しない（画面の課金の文言は必ず人が確認する）。
    「課金しないと見られません」のような条件の「しない」を拾わないよう、単独の「しない」は禁止の言い回しに含めない。
    コメントを書くときは、禁止の言い回しを購入・課金の語と同じ行に置く（改行で分けると検出される）。
@@ -154,5 +160,7 @@ scripts/check-scope.sh
 
 ## 動作環境
 
-bash 4.4 以上・GNU grep を想定（Linux / GitHub Actions の ubuntu ランナー）。macOS では `brew install bash grep` を推奨。
+bash 4.4 以上・GNU grep を想定（Linux / GitHub Actions の ubuntu ランナー）。macOS 付属の `/bin/bash` は 3.2 のため
+`brew install bash grep` を推奨。`check-secrets.sh` / `check-scope.sh` は起動時に bash の版を確認し、4.4 未満なら理由を表示して
+終了コード 2 で止まる（連想配列と、空の配列の `"${arr[@]}"` 展開を使うため）。
 `test-db.sh` には psql（PostgreSQL クライアント）が必要。

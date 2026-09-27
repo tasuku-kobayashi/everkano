@@ -20,6 +20,10 @@ supabase test db --workdir infra             # pg_prove コンテナで実行（
 | `07_triggers.test.sql`                | profiles 自動作成、`like_count` / `comment_count`、`last_message_at`、`memories.updated_at`、ユーザー削除の cascade |
 | `08_auth_password_hardening.test.sql` | パスワードを使った乗っ取りの防止: (1) 事前乗っ取り対策 — メールのトークン（確認メール / マジックリンク）で確認済みになるとき、確認前に設定されたパスワードを破棄する（管理 API の `email_confirm: true` で作ったユーザーは対象外）。(2) 盗まれたアクセストークンからの恒久的な乗っ取り対策 — 既存ユーザーの `encrypted_password` を空でない別の値にする UPDATE（`PUT /auth/v1/user {password}`）は元の値に戻る。消去と INSERT は対象外 |
 | `09_foreign_key_indexes.test.sql`     | 外部キーの参照側の索引: `memories.source_message_id` / `comments.author_user_id` の索引、索引の無い外部キーが許可リスト（キャラクターの参照のみ）と一致、外部キーのトリガーと同じ形のクエリで索引が使われる（ユーザーの物理削除が「メッセージ数 × memories 全件」の走査にならない） |
+| `10_engine_memory.test.sql`           | エンジン v1.0 の記憶: `memories` の新しい列（`kind` / `status` / `superseded_*` / 参照の記録）は本人のみ参照、`promises` は本人のみ（`source_message_id` / `event_id` は非公開）、`memory_tombstones` / `character_memories` は不可、anon の `memories.id` は 0 行、`updated_at` のトリガー（参照の記録では変えない・アプリの時計の値を尊重）、`kind` / `status` / `superseded_at` の check 制約 |
+| `11_engine_calendar_affinity.test.sql` | カレンダーと好感度: `character_events` は不可・公開の予定の時間の重複は排他制約で拒否（C11）、`character_states` は表示用の列（`status_label` / `busyness` / `updated_at`）だけ参照可、`affinity_states` / `affinity_history` は不可（A11）、E1: 好感度のテーブルの外部キーは `profiles` / `characters` だけ、`post_image_pool` は不可 |
+| `12_engine_proactive_jobs.test.sql`   | 自発メッセージとジョブ基盤: `proactive_settings` は本人のみ参照（変更は API 経由で監査ログに残す, E4）、`proactive_messages` / `engine_jobs` / `engine_schedules` は不可、一意性（設定は (user, character) ごと 1 行、きっかけは `trigger_ref` で冪等、未処理のジョブは `kind` + `dedupe_key` で 1 件） |
+| `13_safety_flag_quiet_pair.test.sql`  | 統合で追加した制約: `messages.safety_triggered`（E6）は既定 false・キャラの発言だけに付けられ、本人は既存の select 権限で読めるが書き換えられない、`proactive_settings` の送らない時間帯は「両方 null」か「両方が値」でキャラ別の行は持たない |
 
 ## 書き方の約束
 
