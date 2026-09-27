@@ -57,14 +57,21 @@ class Storage:
 
     @staticmethod
     def save_png(data: bytes, dest: Path) -> tuple[int, int]:
-        """Decode, check the pixel budget, and re-encode as PNG (strips ancillary chunks). Returns (width, height)."""
+        """Validate (pixel budget from the header, then a full decode so truncated / corrupt data is rejected) and
+        store as PNG. A PNG is written byte-for-byte (re-encoding an 832×1216 output costs ~300 ms per image, which
+        the generation loop cannot afford); anything else (JPEG / WebP uploads) is converted. Returns (w, h)."""
         with Image.open(io.BytesIO(data)) as im:
             width, height = im.size
             if width * height > MAX_IMAGE_PIXELS:
                 raise ImageTooLargeError(
                     f"画像が大きすぎます（{width}×{height}。上限 {MAX_IMAGE_PIXELS // 1_000_000} メガピクセル）"
                 )
-            im.convert("RGB").save(dest, format="PNG", compress_level=6)
+            is_png = im.format == "PNG"
+            im.load()
+            if not is_png:
+                im.convert("RGB").save(dest, format="PNG", compress_level=1)
+        if is_png:
+            dest.write_bytes(data)
         return width, height
 
     def make_thumbnail(self, src: Path, dest: Path) -> None:
