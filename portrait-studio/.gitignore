@@ -1,5 +1,5 @@
 # portrait-studio local state (models, images, references, SQLite, audit log)
-data/
+/data/
 .env
 !.env.example
 api/.venv/

@@ -1,0 +1,16 @@
+{
+  "parts": [
+    {"id": "quality_raw", "name": "RAW 写真", "category": "quality", "fragment": "RAW photo, photorealistic, 8k, highly detailed"},
+    {"id": "quality_film", "name": "フィルム調", "category": "quality", "fragment": "film photograph, kodak portra 400, film grain"},
+    {"id": "light_soft", "name": "柔らかい光", "category": "lighting", "fragment": "soft diffused lighting"},
+    {"id": "light_golden", "name": "ゴールデンアワー", "category": "lighting", "fragment": "golden hour warm sunlight, rim light"},
+    {"id": "light_studio", "name": "スタジオ光", "category": "lighting", "fragment": "studio softbox lighting, catchlight in eyes"},
+    {"id": "light_night", "name": "夜・ネオン", "category": "lighting", "fragment": "neon lights, cinematic low-key lighting"},
+    {"id": "camera_85", "name": "85mm ポートレート", "category": "camera", "fragment": "85mm f/1.8, shallow depth of field, bokeh"},
+    {"id": "camera_35", "name": "35mm スナップ", "category": "camera", "fragment": "35mm lens, candid snapshot"},
+    {"id": "camera_50", "name": "50mm 標準", "category": "camera", "fragment": "50mm lens, natural perspective"},
+    {"id": "expr_smile", "name": "微笑み", "category": "expression", "fragment": "gentle smile"},
+    {"id": "expr_neutral", "name": "無表情", "category": "expression", "fragment": "neutral expression, calm"},
+    {"id": "expr_laugh", "name": "笑顔", "category": "expression", "fragment": "laughing, joyful expression"}
+  ]
+}

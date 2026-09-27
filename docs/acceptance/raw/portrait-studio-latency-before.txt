@@ -19,3 +19,7 @@ GET /api/images/{id}/similarity (mock engine)           p50    49.5 ms  p95    5
 sqlite size MB: 2.4 | images dir MB: 603.6
 done
 
+
+# N+1 baseline measured separately on 2026-09-27T18:50Z (commit 741718d checked out in a worktree, same mock stack; app/data copied in because it was git-ignored at that commit)
+[baseline 741718d] created 61 characters in 6.3s (analyze + register each)
+[baseline 741718d] GET /api/characters (61 characters)           p50    65.5 ms  p95    73.7 ms  max    80.8 ms

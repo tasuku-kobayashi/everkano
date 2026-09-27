@@ -1,15 +1,9 @@
-$ pnpm typecheck  (portrait-studio/web, 2026-09-27T17:12Z)
-tsc: no errors
+$ pnpm typecheck && pnpm lint && pnpm test  (portrait-studio/web, 2026-09-27T18:32Z, after the acceptance-review repairs)
+> tsc -p tsconfig.json --noEmit
 
-$ pnpm lint
-eslint: no errors
+tsc: exit 0
+> eslint .
 
-$ pnpm test
+eslint: exit 0
  Test Files  2 passed (2)
-      Tests  6 passed (6)
-
-$ pnpm build  (2026-09-27T17:17Z)
-dist/index.html                   0.49 kB │ gzip:   0.31 kB
-dist/assets/index-OnwWIHQn.css   26.89 kB │ gzip:   5.37 kB
-dist/assets/index-BmYPcr51.js   419.03 kB │ gzip: 132.48 kB
-✓ built in 2.21s
+      Tests  7 passed (7)

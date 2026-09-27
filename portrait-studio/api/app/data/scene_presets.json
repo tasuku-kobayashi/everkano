@@ -1,0 +1,13 @@
+[
+  {"id": "cafe", "name": "カフェ", "description": "窓際の席、自然光のカフェ", "fragments": ["sitting at a cafe by the window", "warm daylight through the window", "coffee cup on the table", "candid moment"]},
+  {"id": "beach", "name": "ビーチ", "description": "海辺・昼のビーチ", "fragments": ["at the beach", "sea and sky in the background", "bright sunlight", "wind in hair"]},
+  {"id": "japanese_room", "name": "和室", "description": "畳・障子の和室", "fragments": ["in a traditional japanese tatami room", "shoji screen soft light", "calm atmosphere"]},
+  {"id": "office", "name": "オフィス", "description": "オフィス・ビジネスカジュアル", "fragments": ["in a modern office", "business casual outfit", "clean desk with laptop", "soft fluorescent light"]},
+  {"id": "night_city", "name": "夜景・街", "description": "夜の街のネオン", "fragments": ["night city street", "neon lights bokeh background", "cinematic lighting"]},
+  {"id": "outdoor_portrait", "name": "屋外ポートレート", "description": "公園・逆光のポートレート", "fragments": ["outdoor portrait in a park", "golden hour backlight", "shallow depth of field", "85mm lens"]},
+  {"id": "indoor_natural_light", "name": "室内・自然光", "description": "窓辺の柔らかい光", "fragments": ["indoors near a large window", "soft natural window light", "neutral background", "relaxed pose"]},
+  {"id": "studio", "name": "スタジオ", "description": "無地背景のスタジオ撮影", "fragments": ["studio portrait", "seamless gray backdrop", "softbox lighting", "professional headshot"]},
+  {"id": "portrait_closeup", "name": "検証: 顔クローズアップ", "description": "同一性検証用（正面の顔）", "verify": true, "fragments": ["close-up portrait", "looking at the camera", "neutral expression", "even soft lighting", "plain background"]},
+  {"id": "upper_body_cafe", "name": "検証: 上半身・カフェ", "description": "同一性検証用（上半身）", "verify": true, "fragments": ["upper body shot", "sitting at a cafe", "casual outfit", "natural smile", "window light"]},
+  {"id": "full_body_street", "name": "検証: 全身・街", "description": "同一性検証用（全身）", "verify": true, "fragments": ["full body shot", "standing on a city street", "casual outfit", "daylight", "walking"]}
+]

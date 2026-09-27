@@ -1,13 +1,14 @@
-$ uv run pytest -q  (portrait-studio/api, 2026-09-27T17:11Z)
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-57 passed, 1 warning in 41.79s
-
-$ uv run ruff check .
+$ uv run ruff check . && uv run ruff format --check . && uv run mypy app && uv run pytest -q  (portrait-studio/api, 2026-09-27T18:32Z, after the acceptance-review repairs)
 All checks passed!
-$ uv run ruff format --check .
-44 files already formatted
-$ uv run mypy app
+45 files already formatted
 Success: no issues found in 29 source files
-$ uv run python scripts/export_openapi.py --check
-openapi.json is up to date
+....................................................................     [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /home/user/everkano/portrait-studio/api/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+tests/test_review_regressions.py::test_analyze_rejects_too_many_pixels_and_too_many_files
+  /home/user/everkano/portrait-studio/api/.venv/lib/python3.12/site-packages/PIL/Image.py:3578: DecompressionBombWarning: Image size (30000000 pixels) exceeds limit of 24000000 pixels, could be decompression bomb DOS attack.
+    warnings.warn(
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+68 passed, 2 warnings in 34.91s
