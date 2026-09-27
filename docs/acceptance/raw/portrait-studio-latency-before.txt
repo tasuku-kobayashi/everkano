@@ -1,0 +1,21 @@
+# portrait-studio latency, BEFORE the repairs (commit 741718d), 2026-09-27T17:40Z
+# mock ComfyUI (2 steps, 5 ms/step) + FACE_ENGINE=mock; 505 images generated first; 20 requests per row (10 for similarity)
+generated 505 images in 134.5s (266 ms/image incl. mock render, thumbnail, face analysis, sidecar, db)
+GET /api/images?limit=500 (gallery)                     p50    22.8 ms  p95    35.7 ms  max    73.3 ms
+GET /api/images?limit=100&offset=400                    p50     8.3 ms  p95     9.2 ms  max    12.9 ms
+GET /api/images?character_id&kind=generated&limit=200   p50    11.0 ms  p95    12.8 ms  max    13.6 ms
+GET /api/images?q=bulk&min_similarity=0.5               p50    27.7 ms  p95    29.3 ms  max    59.1 ms
+GET /api/jobs?limit=30 (job bar poll)                   p50     4.6 ms  p95     5.0 ms  max    31.7 ms
+GET /api/jobs/{id}                                      p50     2.6 ms  p95     2.7 ms  max     2.9 ms
+GET /api/characters                                     p50     3.4 ms  p95     3.8 ms  max     5.1 ms
+GET /api/characters/{id}                                p50     4.4 ms  p95     5.9 ms  max     8.2 ms
+GET /api/images/{id}/thumb                              p50     3.1 ms  p95     4.4 ms  max     5.2 ms
+GET /api/images/{id}/file                               p50     5.6 ms  p95     7.1 ms  max     8.8 ms
+POST /api/generate/preview-vram                         p50     3.3 ms  p95     4.0 ms  max     4.0 ms
+GET /api/system/vram                                    p50     3.6 ms  p95     4.0 ms  max    21.5 ms
+GET /api/audit?limit=100                                p50     3.1 ms  p95     3.9 ms  max     5.8 ms
+GET /api/health                                         p50     5.0 ms  p95     5.6 ms  max     5.7 ms
+GET /api/images/{id}/similarity (mock engine)           p50    49.5 ms  p95    52.8 ms  max    53.6 ms
+sqlite size MB: 2.4 | images dir MB: 603.6
+done
+

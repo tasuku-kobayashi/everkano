@@ -1,0 +1,23 @@
+# portrait-studio latency, AFTER the repairs (commit 2841d10), 2026-09-27T18:45Z
+# same procedure; plus 60 extra characters for the N+1 case, a UTC date-filter case and a cookie-authenticated thumbnail case
+generated 505 images in 142.2s (282 ms/image incl. mock render, thumbnail, face analysis, sidecar, db)
+created 60 more characters in 6.1s (analyze + register each)
+GET /api/images?limit=500 (gallery)                     p50    22.5 ms  p95    32.1 ms  max    54.2 ms
+GET /api/images?limit=100&offset=400                    p50     8.1 ms  p95     9.1 ms  max     9.9 ms
+GET /api/images?character_id&kind=generated&limit=200   p50    13.4 ms  p95    17.6 ms  max    18.1 ms
+GET /api/images?q=bulk&min_similarity=0.5               p50    28.0 ms  p95    33.8 ms  max    55.6 ms
+GET /api/images?from=<today>&to=<today> (UTC bounds)    p50    22.5 ms  p95    34.6 ms  max    56.9 ms
+GET /api/jobs?limit=30 (job bar poll)                   p50     4.4 ms  p95     5.1 ms  max    34.2 ms
+GET /api/jobs/{id}                                      p50     2.2 ms  p95     2.3 ms  max     2.4 ms
+GET /api/characters (61 characters)                     p50    16.8 ms  p95    19.9 ms  max    20.9 ms
+GET /api/characters/{id}                                p50     4.4 ms  p95     5.2 ms  max     6.5 ms
+GET /api/images/{id}/thumb                              p50     2.8 ms  p95     3.3 ms  max     8.9 ms
+GET /api/images/{id}/file                               p50     4.2 ms  p95     4.7 ms  max     4.8 ms
+GET /api/images/{id}/thumb (psk cookie, no header)      p50     2.6 ms  p95     3.3 ms  max     4.5 ms
+POST /api/generate/preview-vram                         p50     3.4 ms  p95     4.1 ms  max     5.8 ms
+GET /api/system/vram                                    p50     3.2 ms  p95     3.9 ms  max    17.8 ms
+GET /api/audit?limit=100 (63 lines)                     p50     3.0 ms  p95     3.8 ms  max     5.8 ms
+GET /api/health                                         p50     4.3 ms  p95     5.3 ms  max     5.8 ms
+GET /api/images/{id}/similarity (mock engine)           p50     2.1 ms  p95     2.3 ms  max     2.9 ms
+date filter with Z-suffixed UTC bound returns 500 of today's images (bound normalised server-side)
+sqlite size MB: 3.2 | images dir MB: 640.3
