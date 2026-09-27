@@ -1,37 +1,12 @@
-$ pnpm e2e  (portrait-studio/web, 2026-09-27T17:17Z; real API + tools/mock_comfy.py + FACE_ENGINE=mock; Chromium 1440x900 ja-JP)
-All checks passed!
-  ✓  1 e2e/app.spec.ts:13:1 › 18/28 first run redirects to settings and accepts the API key (1.8s)
-  ✓  2 e2e/app.spec.ts:24:1 › 18 characters screen: empty state with a creation call to action (642ms)
-  ✓  3 e2e/app.spec.ts:32:1 › 19 wizard: seed → select → verify → register → done (10.6s)
-  ✓  4 e2e/app.spec.ts:83:1 › 20/21/24/25 workspace: generate → results → history, blur on by default, locked warning, regenerate (7.7s)
-  ✓  5 e2e/app.spec.ts:134:1 › 23 character switching: dropdown and quick chips (1.0s)
-  ✓  6 e2e/app.spec.ts:150:1 › 26 gallery: filters, compare tray, bulk actions, ZIP and virtual scrolling with 500+ images (2.4m)
-  ✓  7 e2e/app.spec.ts:200:1 › 28 settings: compliance, VRAM table, audit log, presets (1.4s)
-  ✓  8 e2e/app.spec.ts:212:1 › 27 keyboard: Tab reaches the main controls, Esc closes dialogs, arrows move in the viewer (4.1s)
-  8 passed (3.0m)
-
---- annotations (test-results/results.json) ---
-26 gallery: filters, compare tray, bulk actions, ZIP and vir | bulk-generation: 504 mock images in 140s
-26 gallery: filters, compare tray, bulk actions, ZIP and vir | virtual-scroll: total=509 renderedCards=30
-26 gallery: filters, compare tray, bulk actions, ZIP and vir | scroll-ms: 691ms for 10 wheel steps
-27 keyboard: Tab reaches the main controls, Esc closes dialo | tab-reachable: A:👤キャラクター | A:✨作成 | A:🎨ワークスペース | A:🖼ギャラリー | A:⚙設定 | SELECT:character-select | SUMMARY:▸ プレフィックス / ネガティブ | BUTTON:toggle-override | BUTTON:参照顔を差し替え / 版を管理 | TEXTAREA:prompt | BUTTON:カフェ | BUTTON:ビーチ | BUTTON:和室 | BUTTON:オフィス | BUTTON:夜景・街 | BUTTON:屋外ポートレート | BUTTON:室内・自然光 | BUTTON:スタジオ | INPUT:count | BUTTON:generate | BUTTON:toggle-details | BUTTON:toggle-advanced | BUTTON:画像を開く | BUTTON:再生成
-
---- screenshots (docs/screenshots) ---
-01-characters-empty.png
-02a-wizard-step1-seed.png
-02b-wizard-step2-select.png
-02c-wizard-step3-verify.png
-02d-wizard-step4-register.png
-02e-wizard-step5-done.png
-03a-workspace-results.png
-03b-workspace-locked-warning.png
-03c-workspace-oom-warning.png
-03d-image-viewer.png
-03e-workspace-switch.png
-04a-gallery-compare.png
-04b-gallery-grouped.png
-04c-gallery-500.png
-05a-settings-first-run.png
-05b-settings.png
-05c-settings-compliance.png
-06-keyboard-compare-tray.png
+$ pnpm e2e  (portrait-studio/web, 2026-09-27T18:33Z re-run after the acceptance-review repairs; real API + tools/mock_comfy.py + FACE_ENGINE=mock; Chromium 1440x900 ja-JP)
+Running 8 tests using 1 worker
+  ✓  1 e2e/app.spec.ts:13:1 › 18/28 first run redirects to settings and accepts the API key (2.3s)
+  ✓  2 e2e/app.spec.ts:24:1 › 18 characters screen: empty state with a creation call to action (786ms)
+  ✓  3 e2e/app.spec.ts:32:1 › 19 wizard: seed → select → verify → register → done (16.2s)
+  ✓  4 e2e/app.spec.ts:83:1 › 20/21/24/25 workspace: generate → results → history, blur on by default, locked warning, regenerate (8.5s)
+  ✓  5 e2e/app.spec.ts:134:1 › 23 character switching: dropdown and quick chips (1.2s)
+  ✓  6 e2e/app.spec.ts:150:1 › 26 gallery: filters, compare tray, bulk actions, ZIP and virtual scrolling with 500+ images (5.2m)
+  ✓  7 e2e/app.spec.ts:200:1 › 28 settings: compliance, VRAM table, audit log, presets (1.5s)
+  ✓  8 e2e/app.spec.ts:212:1 › 27 keyboard: Tab reaches the main controls, Esc closes dialogs, arrows move in the viewer (4.9s)
+  8 passed (5.9m)
+EXIT 0
