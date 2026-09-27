@@ -2992,6 +2992,17 @@
       "VramTableResponse": {
         "additionalProperties": false,
         "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/VramTableEntry"
@@ -3009,6 +3020,17 @@
               }
             ],
             "title": "Gpu"
+          },
+          "lora": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora"
           },
           "measured_at": {
             "anyOf": [
@@ -3146,22 +3168,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -3266,22 +3272,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -3328,22 +3318,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -3405,22 +3379,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "requestBody": {
@@ -3480,22 +3438,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "requestBody": {
@@ -3538,6 +3480,7 @@
     },
     "/api/characters/{character_id}": {
       "delete": {
+        "description": "Remove the character and its reference faces. `delete_images=true` also purges every image ever made with\nit — including soft-deleted ones (the gallery hides them, the disk does not).",
         "operationId": "delete_character_api_characters__character_id__delete",
         "parameters": [
           {
@@ -3573,22 +3516,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -3646,22 +3573,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -3717,22 +3628,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -3884,22 +3779,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "requestBody": {
@@ -3977,22 +3856,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -4051,22 +3914,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -4136,22 +3983,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -4208,22 +4039,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -4284,22 +4099,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "requestBody": {
@@ -4358,22 +4157,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -4669,22 +4452,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -4733,22 +4500,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -4809,22 +4560,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "requestBody": {
@@ -4867,7 +4602,7 @@
     },
     "/api/images/zip": {
       "post": {
-        "description": "Download the selected images plus their params_snapshot JSON as one ZIP.",
+        "description": "Download the selected images plus their params_snapshot JSON as one ZIP (built in DATA_DIR/tmp, removed after\nthe response; `Storage.sweep_tmp` collects leftovers of clients that went away).",
         "operationId": "zip_images_api_images_zip_post",
         "parameters": [
           {
@@ -4884,22 +4619,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -4967,22 +4686,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5039,22 +4742,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5110,22 +4797,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -5241,7 +4912,7 @@
     },
     "/api/images/{image_id}/regenerate": {
       "post": {
-        "description": "Re-run the exact params_snapshot of an image (same character version, same locked values).",
+        "description": "Re-run the params_snapshot of an image against the SAME character version it was made with.\n\nGoes through `prepare_generate_job`, so every guard of POST /api/generate (draft, workflow, denoise, dimensions,\nhires_max, scenes, VRAM) applies here as well. Locked values that were overridden when the image was generated are\nre-applied as explicit overrides — reproducing the image is the point — but never saved as a new version.",
         "operationId": "regenerate_api_images__image_id__regenerate_post",
         "parameters": [
           {
@@ -5267,22 +4938,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -5352,22 +5007,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -5519,22 +5158,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5592,22 +5215,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -5667,22 +5274,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5732,22 +5323,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5794,22 +5369,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -5879,22 +5438,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -5943,22 +5486,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -6010,22 +5537,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -6074,22 +5585,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -6140,22 +5635,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -6205,22 +5684,6 @@
               ],
               "title": "X-Api-Key"
             }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
-            }
           }
         ],
         "responses": {
@@ -6269,22 +5732,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],
@@ -6344,22 +5791,6 @@
                 }
               ],
               "title": "X-Api-Key"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "psk",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Psk"
             }
           }
         ],

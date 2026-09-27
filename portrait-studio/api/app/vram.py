@@ -3,6 +3,11 @@
 Nothing here is guessed: an estimate is either `measured` (exact row), `bounded` (a measured row that is at least
 as expensive: same-or-costlier method, >= pixels, >= upscale, face detailer on) or `unknown`. Unknown combinations
 are rejected by the generate endpoints unless VRAM_ALLOW_UNMEASURED=true.
+
+A table is valid for the checkpoint (and LoRA) it was measured with: an fp32 checkpoint or an extra LoRA changes the
+peak by gigabytes, so when the table records a `checkpoint` / `lora` and a request uses a different one the
+estimate is `unknown` (rejected) rather than silently "bounded". Tables without those fields (older measurements)
+keep the previous behaviour.
 """
 
 from __future__ import annotations
@@ -59,6 +64,7 @@ class Estimate:
     peak_mb: int | None
     basis: Basis
     entry: VramEntry | None
+    reason: str | None = None  # why the estimate is unknown (shown in the API's advice)
 
 
 @dataclass(slots=True)
@@ -68,6 +74,8 @@ class VramTable:
     vram_total_mb: int | None
     measured_at: str | None
     entries: list[VramEntry]
+    checkpoint: str | None = None  # checkpoint file the table was measured with (None = not recorded)
+    lora: str | None = None  # LoRA file the table was measured with (None = measured without a LoRA)
 
     @classmethod
     def load(cls, path: Path) -> VramTable:
@@ -94,9 +102,39 @@ class VramTable:
             vram_total_mb=data.get("vram_total_mb"),
             measured_at=data.get("measured_at"),
             entries=entries,
+            checkpoint=data.get("checkpoint") or None,
+            lora=data.get("lora") or None,
         )
 
-    def estimate(self, method: str, width: int, height: int, upscale: float, face_detailer: bool) -> Estimate:
+    def estimate(
+        self,
+        method: str,
+        width: int,
+        height: int,
+        upscale: float,
+        face_detailer: bool,
+        *,
+        checkpoint: str | None = None,
+        lora: str | None = None,
+    ) -> Estimate:
+        if self.checkpoint and checkpoint and checkpoint != self.checkpoint:
+            return Estimate(
+                peak_mb=None,
+                basis="unknown",
+                entry=None,
+                reason=(
+                    f"VRAM テーブルは checkpoint '{self.checkpoint}' で実測したもので、'{checkpoint}' の値がありません"
+                ),
+            )
+        if lora and lora != self.lora:
+            return Estimate(
+                peak_mb=None,
+                basis="unknown",
+                entry=None,
+                reason=(
+                    f"VRAM テーブルは LoRA '{lora}' 付きでは実測されていません（実測時の LoRA: {self.lora or 'なし'}）"
+                ),
+            )
         pixels = width * height
         exact = [
             e
@@ -156,6 +194,8 @@ def assess(
             "は未実測です。scripts/measure_vram.py で実測して vram_table.json に追加するか、"
             "実測済みの組み合わせ（既定 832×1216）を使ってください。"
         )
+        if estimate.reason:
+            advice = f"{estimate.reason}。{advice}"
         return Assessment(
             estimated_peak_mb=None,
             free_mb=free_mb,

@@ -12,10 +12,21 @@
 # =============================================================================
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ -f "$HERE/.env" ]]; then
-  # shellcheck disable=SC1091
-  set -a; source "$HERE/.env"; set +a
-fi
+# .env is data, not a shell script: read KEY=VALUE lines only (no expansion, no command execution), env wins over file
+load_env_file() {
+  local file="$1" line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%$'\r'}"
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    key="${BASH_REMATCH[2]}"; value="${BASH_REMATCH[3]}"
+    value="${value%%[[:space:]]#*}"                      # trailing comment
+    value="${value%"${value##*[![:space:]]}"}"           # trailing whitespace
+    if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
+    if [[ -z "${!key+x}" ]]; then export "$key=$value"; fi
+  done < "$file"
+}
+if [[ -f "$HERE/.env" ]]; then load_env_file "$HERE/.env"; fi
 MODELS_DIR="${MODELS_DIR:-$HERE/data/models}"
 CIVITAI_TOKEN="${CIVITAI_TOKEN:-}"
 CIVITAI_CHECKPOINT_VERSION_ID="${CIVITAI_CHECKPOINT_VERSION_ID:-}"
@@ -26,13 +37,21 @@ case "$MODELS_DIR" in
 esac
 mkdir -p "$MODELS_DIR"/{checkpoints,loras,controlnet/instantid,pulid,ipadapter,instantid,clip_vision,insightface/models,ultralytics/bbox}
 
-fetch() { # fetch <url> <dest> [auth header]
+# Tokens never appear on a command line (visible in `ps` / shell history): curl reads them from a 0600 header file.
+HEADER_FILE="$(mktemp)"
+trap 'rm -f "$HEADER_FILE"' EXIT
+chmod 600 "$HEADER_FILE"
+write_bearer_header() { # write_bearer_header <token>
+  printf 'Authorization: Bearer %s\n' "$1" > "$HEADER_FILE"
+}
+
+fetch() { # fetch <url> <dest> [--auth]
   local url="$1" dest="$2" auth="${3:-}"
   if [[ -s "$dest" ]]; then echo "  exists: $dest"; return 0; fi
   echo "  GET $url"
   local code
   if [[ -n "$auth" ]]; then
-    code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' -H "$auth" "$url")"
+    code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' -H "@$HEADER_FILE" "$url")"
   else
     code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' "$url")"
   fi
@@ -94,11 +113,20 @@ install_checkpoint() {
     echo "  CyberRealistic XL / an Asian-photoreal SDXL such as XXMix_9realisticSDXL), put its *version id* in .env, re-run."
     return 0
   fi
+  if [[ ! "$CIVITAI_CHECKPOINT_VERSION_ID" =~ ^[0-9]+$ ]]; then
+    echo "  ERROR: CIVITAI_CHECKPOINT_VERSION_ID must be numeric (got '$CIVITAI_CHECKPOINT_VERSION_ID')" >&2; return 1
+  fi
+  write_bearer_header "$CIVITAI_TOKEN"
   local meta name
-  meta="$(curl -fsS -H "Authorization: Bearer $CIVITAI_TOKEN" "https://civitai.com/api/v1/model-versions/$CIVITAI_CHECKPOINT_VERSION_ID")"
+  meta="$(curl -fsS -H "@$HEADER_FILE" "https://civitai.com/api/v1/model-versions/$CIVITAI_CHECKPOINT_VERSION_ID")"
   name="$(python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print(f["name"])' <<<"$meta")"
+  # the file name comes from a remote API: keep the basename only and allow a conservative character set
+  name="$(basename -- "$name")"
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]+\.safetensors$ || "$name" == .* ]]; then
+    echo "  ERROR: refusing unexpected checkpoint file name from Civitai: '$name'" >&2; return 1
+  fi
   python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print("  model:",d["model"]["name"],"| version:",d["name"],"| file:",f["name"],"| size_kb:",f.get("sizeKB"),"| sha256:",f.get("hashes",{}).get("SHA256"))' <<<"$meta"
-  fetch "https://civitai.com/api/download/models/$CIVITAI_CHECKPOINT_VERSION_ID?type=Model&format=SafeTensor" "$MODELS_DIR/checkpoints/$name" "Authorization: Bearer $CIVITAI_TOKEN"
+  fetch "https://civitai.com/api/download/models/$CIVITAI_CHECKPOINT_VERSION_ID?type=Model&format=SafeTensor" "$MODELS_DIR/checkpoints/$name" --auth
   local expected
   expected="$(python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print((f.get("hashes",{}).get("SHA256") or "").lower())' <<<"$meta")"
   if [[ -n "$expected" ]]; then sha256_check "$MODELS_DIR/checkpoints/$name" "$expected"; fi

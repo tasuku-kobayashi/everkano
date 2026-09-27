@@ -11,6 +11,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,18 @@ CREATE TABLE IF NOT EXISTS scene_presets (
 """
 
 
+def _normalize_bound(value: str) -> str:
+    """Rows store `iso(utcnow())` (`+00:00`, microseconds) and are compared as strings, so a client bound must have
+    the same shape: parse (tz-less = UTC, `Z` accepted) and re-serialise. Unparsable input is passed through as-is."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
+
+
 def _loads(value: str | None, default: Any) -> Any:
     if value is None or value == "":
         return default
@@ -190,11 +203,13 @@ class Database:
             )
 
     def update_character(self, character: Character) -> None:
+        """Write the editable fields only. Counters (generation_count / last_used_at) are owned by
+        `record_generation`, which the job worker calls concurrently — a full-row write would lose them."""
         character.updated_at = utcnow()
         with self.transaction() as conn:
             conn.execute(
                 """UPDATE characters SET name=?, tags=?, description=?, status=?, is_synthetic=?, adult_confirmed=?,
-                   current_version=?, generation_count=?, last_used_at=?, updated_at=? WHERE id=?""",
+                   current_version=?, updated_at=? WHERE id=?""",
                 (
                     character.name,
                     json.dumps(character.tags, ensure_ascii=False),
@@ -203,11 +218,17 @@ class Database:
                     int(character.is_synthetic),
                     int(character.adult_confirmed),
                     character.current_version,
-                    character.generation_count,
-                    iso(character.last_used_at),
                     iso(character.updated_at),
                     character.id,
                 ),
+            )
+
+    def set_current_version(self, character_id: str, version: int) -> None:
+        """Switch the current version only (create_version / rollback / save_as_version); no other column is touched."""
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE characters SET current_version=?, updated_at=? WHERE id=?",
+                (version, iso(utcnow()), character_id),
             )
 
     def get_character(self, character_id: str) -> Character | None:
@@ -323,6 +344,47 @@ class Database:
             references=self._references(conn, row["character_id"], int(row["version"])),
         )
 
+    def current_versions(self, characters: list[Character]) -> dict[str, CharacterVersion]:
+        """Current version (with references) of many characters in two queries instead of 2 per character."""
+        if not characters:
+            return {}
+        keys = [(c.id, c.current_version) for c in characters]
+        placeholders = " OR ".join("(character_id=? AND version=?)" for _ in keys)
+        params = [x for key in keys for x in key]
+        versions_sql = f"SELECT * FROM character_versions WHERE {placeholders}"  # noqa: S608 - placeholders only
+        refs_sql = f"SELECT * FROM character_references WHERE {placeholders} ORDER BY position"  # noqa: S608
+        with self.connect() as conn:
+            version_rows = conn.execute(versions_sql, params).fetchall()
+            ref_rows = conn.execute(refs_sql, params).fetchall()
+        refs: dict[tuple[str, int], list[Reference]] = {}
+        for r in ref_rows:
+            refs.setdefault((r["character_id"], int(r["version"])), []).append(
+                Reference(
+                    id=r["id"],
+                    character_id=r["character_id"],
+                    version=int(r["version"]),
+                    position=int(r["position"]),
+                    image_path=r["image_path"],
+                    source_image_id=r["source_image_id"],
+                    embedding=[float(x) for x in _loads(r["embedding"], [])],
+                    quality=Quality.from_dict(_loads(r["quality"], {})),
+                    is_primary=bool(r["is_primary"]),
+                )
+            )
+        out: dict[str, CharacterVersion] = {}
+        for row in version_rows:
+            key = (row["character_id"], int(row["version"]))
+            out[row["character_id"]] = CharacterVersion(
+                character_id=row["character_id"],
+                version=int(row["version"]),
+                locked=LockedParams.from_dict(_loads(row["locked"], {})),
+                thumbnail_path=row["thumbnail_path"],
+                note=row["note"],
+                created_at=parse_dt(row["created_at"]) or utcnow(),
+                references=refs.get(key, []),
+            )
+        return out
+
     def get_version(self, character_id: str, version: int) -> CharacterVersion | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -411,23 +473,30 @@ class Database:
                 ),
             )
 
-    def update_image(self, image: ImageRecord) -> None:
+    def update_image_flags(self, image: ImageRecord) -> None:
+        """favorite / rating / tags only (never the columns other code paths write)."""
         with self.transaction() as conn:
             conn.execute(
-                """UPDATE images SET character_id=?, character_name=?, similarity=?, similarity_status=?, favorite=?,
-                   rating=?, tags=?, deleted_at=? WHERE id=?""",
-                (
-                    image.character_id,
-                    image.character_name,
-                    image.similarity,
-                    image.similarity_status,
-                    int(image.favorite),
-                    image.rating,
-                    json.dumps(image.tags, ensure_ascii=False),
-                    iso(image.deleted_at),
-                    image.id,
-                ),
+                "UPDATE images SET favorite=?, rating=?, tags=? WHERE id=?",
+                (int(image.favorite), image.rating, json.dumps(image.tags, ensure_ascii=False), image.id),
             )
+
+    def set_image_similarity(self, image_id: str, similarity: float | None, status: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE images SET similarity=?, similarity_status=? WHERE id=?", (similarity, status, image_id)
+            )
+
+    def soft_delete_images(self, image_ids: list[str]) -> int:
+        if not image_ids:
+            return 0
+        placeholders = ",".join("?" for _ in image_ids)
+        with self.transaction() as conn:
+            cur = conn.execute(
+                f"UPDATE images SET deleted_at=? WHERE deleted_at IS NULL AND id IN ({placeholders})",  # noqa: S608
+                [iso(utcnow()), *image_ids],
+            )
+        return int(cur.rowcount)
 
     def get_image(self, image_id: str, *, include_deleted: bool = False) -> ImageRecord | None:
         with self.connect() as conn:
@@ -481,10 +550,10 @@ class Database:
             params.append(job_id)
         if created_from:
             clauses.append("created_at>=?")
-            params.append(created_from)
+            params.append(_normalize_bound(created_from))
         if created_to:
             clauses.append("created_at<=?")
-            params.append(created_to)
+            params.append(_normalize_bound(created_to))
         if min_similarity is not None:
             clauses.append("similarity>=?")
             params.append(min_similarity)
@@ -517,14 +586,18 @@ class Database:
             ).fetchall()
         return [self._row_image(r) for r in rows], total
 
-    def detach_images_from_character(self, character_id: str) -> list[ImageRecord]:
-        """Images of a deleted character keep the name snapshot but lose the (dangling) character_id."""
+    def images_of_character(self, character_id: str, *, include_deleted: bool = False) -> list[ImageRecord]:
+        """Every image row of a character (soft-deleted rows included on request: the purge path needs them)."""
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM images WHERE character_id=?", (character_id,)).fetchall()
         images = [self._row_image(r) for r in rows]
+        return images if include_deleted else [i for i in images if i.deleted_at is None]
+
+    def detach_images_from_character(self, character_id: str) -> int:
+        """Images of a deleted character keep the name snapshot but lose the (dangling) character_id."""
         with self.transaction() as conn:
-            conn.execute("UPDATE images SET character_id=NULL WHERE character_id=?", (character_id,))
-        return images
+            cur = conn.execute("UPDATE images SET character_id=NULL WHERE character_id=?", (character_id,))
+        return int(cur.rowcount)
 
     def hard_delete_images(self, image_ids: list[str]) -> None:
         if not image_ids:

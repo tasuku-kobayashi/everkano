@@ -1,10 +1,11 @@
-# <git url> <commit or HEAD>
-# HEAD = whatever the default branch is at build time. Pin to a commit once the G1 verification (GET /object_info
-# lists ApplyPulid / IPAdapterFaceID / ApplyInstantID / FaceDetailer / UltralyticsDetectorProvider) has passed,
-# and record the commits in docs/MODELS.md. These URLs are the upstream repositories of the nodes named in the
-# workflow files; they were NOT fetched from the environment that wrote this file (network policy).
-https://github.com/cubiq/PuLID_ComfyUI.git HEAD
-https://github.com/cubiq/ComfyUI_IPAdapter_plus.git HEAD
-https://github.com/cubiq/ComfyUI_InstantID.git HEAD
-https://github.com/ltdrdata/ComfyUI-Impact-Pack.git HEAD
-https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git HEAD
+# <git url> <commit>
+# Pinned to the default-branch HEAD of each upstream repository as resolved with `git ls-remote` on 2026-09-27
+# (reproducible builds; ComfyUI-Manager is not installed). The node *names* these repositories provide
+# (ApplyPulid / IPAdapterFaceID / ApplyInstantID / FaceDetailer / UltralyticsDetectorProvider) still have to be
+# confirmed against GET /object_info on the target machine (G1, scripts/verify_env.sh) — that check could not be
+# run from the environment that wrote this file. Bump a pin deliberately and record the change in docs/MODELS.md.
+https://github.com/cubiq/PuLID_ComfyUI.git 93e0c4c226b87b23c0009d671978bad0e77289ff
+https://github.com/cubiq/ComfyUI_IPAdapter_plus.git a0f451a5113cf9becb0847b92884cb10cbdec0ef
+https://github.com/cubiq/ComfyUI_InstantID.git 72495e806bc2ab9c41581e15ccaa1bcf83c477e8
+https://github.com/ltdrdata/ComfyUI-Impact-Pack.git 429d0159ad429e64d2b3916e6e7be9c22d025c3c
+https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git 50c7b71a6a224734cc9b21963c6d1926816a97f1

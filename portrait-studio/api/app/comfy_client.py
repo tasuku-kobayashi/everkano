@@ -101,6 +101,8 @@ class ComfyClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.poll_interval = poll_interval
+        # how long to wait for /history to show a finished run (a restarted ComfyUI never will)
+        self.history_timeout = 30.0
         self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
     async def aclose(self) -> None:
@@ -249,10 +251,6 @@ class ComfyClient:
         if resp.status_code >= 400:
             raise ComfyError(f"/free が {resp.status_code} を返しました")
 
-    async def queue_state(self) -> dict[str, Any]:
-        data = await self._get_json("/queue")
-        return data if isinstance(data, dict) else {}
-
     # ------------------------------------------------------------------ run a prompt to completion
     @staticmethod
     def _outputs_from_history(entry: dict[str, Any]) -> list[OutputImage]:
@@ -304,7 +302,7 @@ class ComfyClient:
             else:
                 logger.info("websocket dropped (%s); polling history for %s", exc.__class__.__name__, prompt_id)
             await self._wait_polling(prompt_id, cancel=cancel, timeout=timeout)
-        entry = await self._wait_history_entry(prompt_id, timeout=max(30.0, timeout))
+        entry = await self._wait_history_entry(prompt_id, cancel=cancel, timeout=self.history_timeout)
         error = self._history_error(entry)
         if error:
             raise ComfyError(error)
@@ -384,12 +382,19 @@ class ComfyClient:
                 return
             await asyncio.sleep(self.poll_interval)
 
-    async def _wait_history_entry(self, prompt_id: str, *, timeout: float) -> dict[str, Any]:
+    async def _wait_history_entry(
+        self, prompt_id: str, *, cancel: asyncio.Event | None = None, timeout: float = 30.0
+    ) -> dict[str, Any]:
+        """After the run signalled completion, fetch its history entry (bounded; a restarted ComfyUI loses it)."""
         deadline = time.monotonic() + timeout
         while True:
+            if cancel is not None and cancel.is_set():
+                raise JobCanceled
             entry = await self.history(prompt_id)
-            if entry and (entry.get("outputs") or self._history_error(entry)):
+            if entry and (
+                entry.get("outputs") or self._history_error(entry) or (entry.get("status") or {}).get("completed")
+            ):
                 return entry
             if time.monotonic() > deadline:
-                raise ComfyError("ComfyUI の履歴に結果が現れません")
+                raise ComfyError("ComfyUI の履歴に結果が現れません（ComfyUI が再起動した可能性）")
             await asyncio.sleep(self.poll_interval)

@@ -14,6 +14,9 @@ services:
       args:
         PYTORCH_IMAGE: ${PYTORCH_IMAGE:-pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel}
         COMFYUI_REF: ${COMFYUI_REF:-master}
+        # uid/gid of the WSL2 user that owns ${MODELS_DIR} / ${DATA_DIR} (id -u / id -g); ComfyUI runs as this user
+        COMFY_UID: ${COMFY_UID:-1000}
+        COMFY_GID: ${COMFY_GID:-1000}
     image: portrait-studio-comfyui:local
     # ComfyUI's /prompt executes arbitrary workflows without auth: never publish on 0.0.0.0
     ports:
@@ -43,16 +46,32 @@ services:
     image: portrait-studio-api:local
     depends_on:
       - comfyui
-    env_file:
-      - path: .env
-        required: true
+    # Only the keys the API reads are passed in (compose interpolates them from .env). The whole file is NOT
+    # injected: CIVITAI_TOKEN and the image/model settings stay on the host.
     environment:
+      API_KEY: ${API_KEY:?API_KEY is required (.env) — the API refuses to start without it}
       COMFY_URL: http://comfyui:8188
       DATA_DIR: /data
       WORKFLOWS_DIR: /app/workflows
       WEB_DIST_DIR: /app/web/dist
       COMPLIANCE_PATH: /app/docs/COMPLIANCE.md
       FACE_MODEL_ROOT: /models/insightface
+      FACE_ENGINE: ${FACE_ENGINE:-insightface}
+      FACE_MODEL_NAME: ${FACE_MODEL_NAME:-antelopev2}
+      DEFAULT_CHECKPOINT: ${DEFAULT_CHECKPOINT:-}
+      QUALITY_FACE_RATIO_MIN: ${QUALITY_FACE_RATIO_MIN:-0.08}
+      QUALITY_DET_SCORE_MIN: ${QUALITY_DET_SCORE_MIN:-0.6}
+      QUALITY_YAW_MAX_DEG: ${QUALITY_YAW_MAX_DEG:-15}
+      QUALITY_SHARPNESS_MIN: ${QUALITY_SHARPNESS_MIN:-60}
+      QUALITY_RECOMMEND_MIN: ${QUALITY_RECOMMEND_MIN:-0.75}
+      QUALITY_ACCEPTABLE_MIN: ${QUALITY_ACCEPTABLE_MIN:-0.5}
+      CLUSTER_THRESHOLD: ${CLUSTER_THRESHOLD:-0.5}
+      SIMILARITY_GOOD: ${SIMILARITY_GOOD:-0.75}
+      SIMILARITY_ACCEPTABLE: ${SIMILARITY_ACCEPTABLE:-0.60}
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-1}
+      VRAM_SAFETY_MARGIN_MB: ${VRAM_SAFETY_MARGIN_MB:-512}
+      VRAM_ALLOW_UNMEASURED: ${VRAM_ALLOW_UNMEASURED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HOST: 0.0.0.0
       PORT: "8000"
     volumes:

@@ -115,6 +115,7 @@ class MockState:
     step_delay: float = 0.02
     steps: int = 4
     fail_next: str | None = None  # error message injected into the next execution
+    drop_history: bool = False  # simulate a ComfyUI restart: /history never shows finished runs
     missing_classes: set[str] = field(default_factory=set)
     history: dict[str, dict[str, Any]] = field(default_factory=dict)
     pending: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
@@ -375,7 +376,7 @@ def create_mock_app(state: MockState) -> FastAPI:
 
     @app.get("/history/{prompt_id}")
     async def history(prompt_id: str) -> dict[str, Any]:
-        entry = state.history.get(prompt_id)
+        entry = None if state.drop_history else state.history.get(prompt_id)
         return {prompt_id: entry} if entry else {}
 
     @app.get("/view")

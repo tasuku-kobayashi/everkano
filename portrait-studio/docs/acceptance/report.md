@@ -15,7 +15,7 @@ GPU に依存する項目は **未実施** と明記する。ComfyUI は `api/to
 | G1 ComfyUI 単体 | **未実施** | `docker/Dockerfile`（`ARG PYTORCH_IMAGE=pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel`、カスタムノード 5 種、onnxruntime CPU）と compose を作成。`docker compose config` は通る（`127.0.0.1` バインド・shm 8gb・GPU 予約）。イメージのビルドと `/object_info` の確認は実機で |
 | G2 品質確立 | **未実施** | チェックポイント選定・目視評価・VRAM 実測は GPU が必要。`scripts/measure_vram.py`（実測 → `vram_table.json`）を作成。同梱テーブルは全行 null（未実測は拒否） |
 | G3 顔一貫性 | **実装済み・実測は未実施** | PuLID / FaceID / InstantID のワークフロー（title ベース）と検証ジョブ（手法 × weight × 3 シーン、ArcFace 類似度）を実装。`scripts/face_similarity.py`（pair / calibrate）を作成。insightface 2.0 + antelopev2（実モデル）を CPU でロードし、顔なし画像で検出 0 を確認 |
-| G4 バックエンド API | **完了（モック ComfyUI で検証）** | 34 パス。pytest 57 件、ruff、mypy strict、OpenAPI 出力 → `openapi-typescript` で型生成 |
+| G4 バックエンド API | **完了（モック ComfyUI で検証）** | 34 パス。pytest 68 件（検収レビュー後。当初 57 件）、ruff、mypy strict、OpenAPI 出力 → `openapi-typescript` で型生成 |
 | G5 フロント基盤 + 画面 1・2 | **完了** | Playwright: 初回起動 → 設定、空状態、ウィザード 5 ステップ完走。スクリーンショット 01, 02a〜02e |
 | G6 画面 3・4・5 + 共通 UX 10 項目 | **完了** | Playwright: ワークスペース生成 → 結果 → 履歴、locked 警告、OOM 事前警告、ビューア、再生成の snapshot 一致、キャラ切替、ギャラリー（500 枚超の仮想スクロール・比較トレイ・ZIP）、設定（COMPLIANCE）、キーボード。スクリーンショット 03a〜06 |
 | G7 総合受け入れ | **API 3〜17 と UI 18〜28 をモックで実施。1・2・15（目視）・生成時間は実機待ち** | 下表 |

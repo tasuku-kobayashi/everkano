@@ -62,3 +62,37 @@ def test_assess_levels() -> None:
         **{**common, "width": 2048, "height": 2048},
     )
     assert a.risk == "unknown" and a.would_reject is False
+
+
+def test_table_bound_to_its_checkpoint_and_lora(tmp_path: Path) -> None:
+    """A table measured with one checkpoint (and no LoRA) must not vouch for another checkpoint or an added LoRA."""
+    import json
+
+    data = json.loads((Path(__file__).parent / "fixtures" / "vram_table.test.json").read_text())
+    data["checkpoint"] = "measured_xl.safetensors"
+    path = tmp_path / "t.json"
+    path.write_text(json.dumps(data))
+    table = VramTable.load(path)
+    same = table.estimate("pulid", 832, 1216, 1.0, True, checkpoint="measured_xl.safetensors")
+    assert same.basis == "measured" and same.peak_mb == 8600
+    other = table.estimate("pulid", 832, 1216, 1.0, True, checkpoint="other_fp32.safetensors")
+    assert other.basis == "unknown" and other.peak_mb is None and other.reason and "checkpoint" in other.reason
+    with_lora = table.estimate(
+        "pulid", 832, 1216, 1.0, True, checkpoint="measured_xl.safetensors", lora="x.safetensors"
+    )
+    assert with_lora.basis == "unknown" and with_lora.reason and "LoRA" in with_lora.reason
+    a = assess(
+        other,
+        free_mb=11000,
+        total_mb=12282,
+        margin_mb=512,
+        allow_unmeasured=False,
+        method="pulid",
+        width=832,
+        height=1216,
+        upscale=1.0,
+        face_detailer=True,
+    )
+    assert a.would_reject and "measured_xl.safetensors" in a.advice
+    # tables without the fields (older measurements) behave as before
+    assert TABLE.estimate("pulid", 832, 1216, 1.0, True, checkpoint="anything").basis == "measured"

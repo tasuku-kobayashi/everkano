@@ -14,11 +14,19 @@ class AuditLog:
         self.path = path
         self._lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._lines = self._count_file()  # counted once; append() keeps it current
+
+    def _count_file(self) -> int:
+        if not self.path.is_file():
+            return 0
+        with self.path.open("r", encoding="utf-8") as f:
+            return sum(1 for line in f if line.strip())
 
     def append(self, entry: dict[str, Any]) -> None:
         line = json.dumps(entry, ensure_ascii=False, default=str)
         with self._lock, self.path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
+            self._lines += 1
 
     def tail(self, limit: int) -> list[dict[str, Any]]:
         if not self.path.is_file():
@@ -38,10 +46,8 @@ class AuditLog:
         return items
 
     def count_lines(self) -> int:
-        if not self.path.is_file():
-            return 0
-        with self._lock, self.path.open("r", encoding="utf-8") as f:
-            return sum(1 for line in f if line.strip())
+        with self._lock:
+            return self._lines
 
     @staticmethod
     def write_sidecar(image_path: Path, entry: dict[str, Any]) -> Path:

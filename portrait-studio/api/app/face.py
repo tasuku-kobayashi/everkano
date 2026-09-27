@@ -17,11 +17,10 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
-import math
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import cv2
 import numpy as np
@@ -34,6 +33,7 @@ from app.models import Quality
 logger = logging.getLogger("portrait.face")
 
 EMBEDDING_DIM = 512
+SimilarityGrade = Literal["good", "acceptable", "warning", "unknown"]
 
 # composite = sum(weight * sub_score); sub-scores are clipped to 0..1 (see _quality below)
 COMPOSITE_WEIGHTS: dict[str, float] = {"frontal": 0.35, "sharpness": 0.25, "face_ratio": 0.25, "det_score": 0.15}
@@ -374,7 +374,7 @@ class FaceService:
         }
         composite = sum(COMPOSITE_WEIGHTS[k] * v for k, v in sub.items())
         composite = round(max(0.0, min(1.0, composite)), 4)
-        grade: str
+        grade: Literal["recommended", "acceptable", "not_recommended"]
         if composite >= t.recommend_min and not warnings:
             grade = "recommended"
         elif composite >= t.acceptable_min:
@@ -392,7 +392,7 @@ class FaceService:
             composite=composite,
             warnings=warnings,
             usable=True,
-            grade=grade,  # type: ignore[arg-type]
+            grade=grade,
         )
 
     def analyze(self, image_bgr: NDArray[np.uint8]) -> FaceAnalysisResult:
@@ -434,9 +434,8 @@ class FaceService:
             )
         largest = next((c for c in clusters if any(i in candidates for i in c)), None)
         pool = [i for i in (largest or candidates) if i in candidates] or candidates
-        best = max(pool, key=lambda i: qualities[i].composite if qualities[i] else 0.0)  # type: ignore[union-attr]
-        q = qualities[best]
-        assert q is not None  # noqa: S101 - guarded by candidate selection
+        scored = [(i, q) for i in pool if (q := qualities[i]) is not None]
+        best, q = max(scored, key=lambda pair: pair[1].composite)
         reasons: list[str] = []
         t = self.thresholds
         reasons.append("正面" if abs(q.yaw) <= t.yaw_max_deg else f"やや横向き（yaw {q.yaw:+.0f}°）")
@@ -450,7 +449,7 @@ class FaceService:
             reasons.append(f"同一人物グループ（{len(largest)}枚）の中で最高スコア")
         return Recommendation(index=best, reason="・".join(reasons), reasons=reasons)
 
-    def similarity_grade(self, similarity: float | None) -> str:
+    def similarity_grade(self, similarity: float | None) -> SimilarityGrade:
         if similarity is None:
             return "unknown"
         if similarity >= self.thresholds.similarity_good:
@@ -462,7 +461,3 @@ class FaceService:
 
 def embedding_id(embedding: list[float]) -> str:
     return "e_" + hashlib.sha1(np.asarray(embedding, dtype=np.float32).tobytes()).hexdigest()[:12]  # noqa: S324 - id only
-
-
-def isfinite_list(values: list[float]) -> bool:
-    return all(math.isfinite(v) for v in values)

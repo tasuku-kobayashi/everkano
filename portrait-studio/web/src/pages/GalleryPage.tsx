@@ -7,7 +7,7 @@ import { ImageViewer } from "../components/ImageViewer";
 import { useToast } from "../components/Toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { useShortcuts } from "../hooks/useKeyboard";
-import { copyText, downloadBlob, METHOD_LABEL } from "../lib/format";
+import { copyText, dayEndIso, dayStartIso, downloadBlob, isoToLocalDateInput, METHOD_LABEL } from "../lib/format";
 import { parseTags } from "../lib/prompt";
 import { useUiStore } from "../store/ui";
 
@@ -33,20 +33,23 @@ export function GalleryPage() {
   const patch = usePatchImage();
   const invalidate = useInvalidateAfterJob();
   const toggleTray = useUiStore((s) => s.toggleTray);
+  const compareTray = useUiStore((s) => s.compareTray);
 
+  // S / C act on the current selection while the viewer is closed (the viewer has its own S / C for the open image).
   useShortcuts(
     useMemo(
       () => ({
         s: () => {
-          const img = viewer !== null ? items[viewer] : undefined;
-          if (img) patch.mutate({ id: img.id, body: { favorite: !img.favorite } });
+          const chosen = items.filter((img) => selected.has(img.id));
+          if (!chosen.length) return;
+          const favorite = !chosen.every((img) => img.favorite);
+          for (const img of chosen) if (img.favorite !== favorite) patch.mutate({ id: img.id, body: { favorite } });
         },
         c: () => {
-          const img = viewer !== null ? items[viewer] : undefined;
-          if (img) toggleTray(img.id);
+          for (const id of selected) if (!compareTray.includes(id)) toggleTray(id);
         },
       }),
-      [viewer, items, patch, toggleTray],
+      [items, selected, compareTray, patch, toggleTray],
     ),
     viewer === null,
   );
@@ -134,11 +137,11 @@ export function GalleryPage() {
         </label>
         <label>
           <span className="label">期間 から</span>
-          <input type="date" className="input w-36" value={filters.from?.slice(0, 10) ?? ""} onChange={(e) => setFilters({ ...filters, from: e.target.value ? `${e.target.value}T00:00:00` : undefined })} />
+          <input type="date" className="input w-36" value={isoToLocalDateInput(filters.from)} onChange={(e) => setFilters({ ...filters, from: e.target.value ? dayStartIso(e.target.value) : undefined })} />
         </label>
         <label>
           <span className="label">まで</span>
-          <input type="date" className="input w-36" value={filters.to?.slice(0, 10) ?? ""} onChange={(e) => setFilters({ ...filters, to: e.target.value ? `${e.target.value}T23:59:59` : undefined })} />
+          <input type="date" className="input w-36" value={isoToLocalDateInput(filters.to)} onChange={(e) => setFilters({ ...filters, to: e.target.value ? dayEndIso(e.target.value) : undefined })} />
         </label>
         <label>
           <span className="label">seed</span>

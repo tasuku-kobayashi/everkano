@@ -44,8 +44,19 @@ RealVisXL 系 / Juggernaut XL 系 / CyberRealistic XL 系 / アジア人女性�
 | FaceDetailer 検出器 | `models/ultralytics/bbox/face_yolov8m.pt` | Bingsu/adetailer（HF） | AGPL-3.0 | 未取得 |
 | insightface（ComfyUI 側） | `models/insightface/models/antelopev2/*.onnx`（PuLID / InstantID）、buffalo_l（FaceID のノードが自動取得） | 上記 | 非商用 | antelopev2 は確認済み |
 
-カスタムノード（`docker/custom_nodes.lock`）: cubiq/PuLID_ComfyUI, cubiq/ComfyUI_IPAdapter_plus, cubiq/ComfyUI_InstantID, ltdrdata/ComfyUI-Impact-Pack, ltdrdata/ComfyUI-Impact-Subpack。
-G1 で `GET /object_info` に登録されていることを確認したら、そのときのコミットを lock に固定してここに記録する。
+カスタムノード（`docker/custom_nodes.lock`）は 2026-09-27 に `git ls-remote` で解決した各リポジトリの既定ブランチ先頭のコミットに固定した（再現性のため。ComfyUI-Manager は入れない）:
+
+| リポジトリ | コミット |
+| --- | --- |
+| cubiq/PuLID_ComfyUI | `93e0c4c226b87b23c0009d671978bad0e77289ff` |
+| cubiq/ComfyUI_IPAdapter_plus | `a0f451a5113cf9becb0847b92884cb10cbdec0ef` |
+| cubiq/ComfyUI_InstantID | `72495e806bc2ab9c41581e15ccaa1bcf83c477e8` |
+| ltdrdata/ComfyUI-Impact-Pack | `429d0159ad429e64d2b3916e6e7be9c22d025c3c` |
+| ltdrdata/ComfyUI-Impact-Subpack | `50c7b71a6a224734cc9b21963c6d1926816a97f1` |
+
+これらのコミットが提供するノード名（ApplyPulid / IPAdapterFaceID / ApplyInstantID / FaceDetailer / UltralyticsDetectorProvider）が
+`GET /object_info` に登録されることは、この環境では確認できていない（G1、`scripts/verify_env.sh` で実機確認する）。固定を進めるときは意図的に行い、ここに記録する。
+ComfyUI コンテナは root ではなく `COMFY_UID` / `COMFY_GID`（既定 1000 = WSL2 の最初のユーザー）で動くため、`MODELS_DIR` / `DATA_DIR` の所有者と合わせる（`.env`）。
 
 ### 手法の選定と類似度（G3）
 
@@ -69,5 +80,8 @@ G1 で `GET /object_info` に登録されていることを確認したら、そ
 
 ### VRAM 実測テーブル
 
-`cd api && uv run python ../scripts/measure_vram.py --checkpoint <file>` が `api/app/data/vram_table.json` を生成する。同梱のファイルは
+`cd api && uv run python ../scripts/measure_vram.py --checkpoint <file> [--lora <file>]` が `api/app/data/vram_table.json` を生成する。同梱のファイルは
 **全行 `peak_mb: null` のテンプレート**（未実測 → API は該当組み合わせの生成を拒否する）。実測後に設定画面の VRAM テーブルに表示される。
+テーブルは **実測に使った checkpoint（と LoRA）に紐づく**（`checkpoint` / `lora` フィールドに記録）。別の checkpoint や LoRA 付きの生成はその表では
+見積もれないため API は「未実測」として拒否する（fp32 の checkpoint や LoRA で数 GB 変わるため、上限値としても流用しない）。checkpoint を替えたら
+`--reset` か `--out` で別表を作って実測し直す。

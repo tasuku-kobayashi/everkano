@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import datetime
 
 from app.comfy_client import ComfyError, JobCanceled
 from app.db import Database
@@ -23,11 +22,22 @@ class JobQueue:
         self._cancel: dict[str, asyncio.Event] = {}
         self._task: asyncio.Task[None] | None = None
         self._running_id: str | None = None
-        self._order: list[str] = []
 
     async def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._loop(), name="portrait-job-queue")
+            self._task.add_done_callback(self._on_loop_done)
+
+    def _on_loop_done(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.critical("job queue loop died: %r — queued jobs will not run until restart", exc)
+
+    @property
+    def alive(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -43,7 +53,6 @@ class JobQueue:
     def submit(self, job: Job) -> int:
         self.db.insert_job(job)
         self._cancel[job.id] = asyncio.Event()
-        self._order.append(job.id)
         self._queue.put_nowait(job.id)
         return self.position(job) or 0
 
@@ -82,45 +91,48 @@ class JobQueue:
     async def _loop(self) -> None:
         while True:
             job_id = await self._queue.get()
-            job = self.db.get_job(job_id)
-            if job is None or job.status != "queued":
-                continue
-            cancel = self._cancel.setdefault(job_id, asyncio.Event())
-            job.status = "running"
-            job.started_at = utcnow()
-            self._running_id = job_id
-            self._save(job)
             try:
-                await self.runner.run(job, cancel, self._save)
-                job.status = "canceled" if cancel.is_set() and not job.result_image_ids else "done"
-            except JobCanceled:
-                job.status = "canceled"
-            except (JobFailed, ComfyError) as exc:
-                job.status = "error"
-                job.error = str(exc)
-                logger.warning("job %s failed: %s", job_id, exc)
+                await self._process(job_id)
             except asyncio.CancelledError:
-                job.status = "error"
-                job.error = "サーバーの停止により中断されました。"
-                job.finished_at = utcnow()
-                self._save(job)
                 raise
-            except Exception as exc:
-                job.status = "error"
-                job.error = f"{exc.__class__.__name__}: {exc}"
-                logger.exception("job %s crashed", job_id)
-            finally:
-                self._running_id = None
-                self._cancel.pop(job_id, None)
+            except Exception:
+                logger.exception("job %s: unrecoverable error in the worker loop", job_id)
+                await asyncio.sleep(0.5)
+
+    async def _process(self, job_id: str) -> None:
+        job = self.db.get_job(job_id)
+        if job is None or job.status != "queued":
+            return
+        cancel = self._cancel.setdefault(job_id, asyncio.Event())
+        job.status = "running"
+        job.started_at = utcnow()
+        self._running_id = job_id
+        self._save(job)
+        try:
+            await self.runner.run(job, cancel, self._save)
+            job.status = "canceled" if cancel.is_set() and not job.result_image_ids else "done"
+        except JobCanceled:
+            job.status = "canceled"
+        except (JobFailed, ComfyError) as exc:
+            job.status = "error"
+            job.error = str(exc)
+            logger.warning("job %s failed: %s", job_id, exc)
+        except asyncio.CancelledError:
+            job.status = "error"
+            job.error = "サーバーの停止により中断されました。"
             job.finished_at = utcnow()
             self._save(job)
-            try:
-                self.runner.write_audit(job)
-            except Exception:
-                logger.exception("audit write failed for job %s", job_id)
-
-
-def elapsed_ms(started: datetime | None, finished: datetime | None) -> int | None:
-    if started is None or finished is None:
-        return None
-    return int((finished - started).total_seconds() * 1000)
+            raise
+        except Exception as exc:
+            job.status = "error"
+            job.error = f"{exc.__class__.__name__}: {exc}"
+            logger.exception("job %s crashed", job_id)
+        finally:
+            self._running_id = None
+            self._cancel.pop(job_id, None)
+        job.finished_at = utcnow()
+        self._save(job)
+        try:
+            self.runner.write_audit(job)
+        except Exception:
+            logger.exception("audit write failed for job %s", job_id)

@@ -83,7 +83,7 @@ cd ../web && pnpm install && pnpm dev                                           
 
 ## セキュリティ・法務（要点）
 
-- 認証は `X-API-Key`（`GET /api/health` 以外すべて）。`API_KEY` 未設定なら起動を拒否。`<img>` 用に同じ値を Cookie `psk` でも受け付ける。
+- 認証は `X-API-Key`（`GET /api/health` 以外すべて）。`API_KEY` 未設定なら起動を拒否。`<img>` 用に同じ値を Cookie `psk` でも受け付けるが、Cookie が通るのは **画像・サムネイル・参照顔のファイルを返す GET だけ**（状態を変える API はヘッダのみ。同一サイト扱いになる別ポートのページから Cookie で叩けないようにするため）。
 - UI は API キーを **localStorage と Cookie に保存**する（ローカル専用のため許容）。**外部公開する構成に変える場合はこの方式を必ず変更**し、
   ComfyUI（無認証の `/prompt`）を絶対に露出しないこと。compose は両サービスを `127.0.0.1` にのみ公開する。
 - `POST /api/generate` は `adult_only: true` 必須、登録は `is_synthetic: true` と `adult_confirmed: true` 必須（違反は 400）。

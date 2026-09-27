@@ -48,6 +48,17 @@ RUN bash /tmp/install_custom_nodes.sh ${COMFYUI_DIR}/custom_nodes /tmp/custom_no
 # onnxruntime: CPU build only (never onnxruntime-gpu). Installed last so no custom node's requirements can swap it.
 RUN pip uninstall -y onnxruntime-gpu onnxruntime || true && pip install "onnxruntime>=1.18" && pip check || true
 
+# Run as an unprivileged user (ComfyUI's /prompt executes arbitrary workflows; a node bug must not own the container).
+# The uid/gid default to 1000 = the first WSL2 user, so the bind-mounted models / input / output stay writable.
+ARG COMFY_UID=1000
+ARG COMFY_GID=1000
+RUN groupadd --gid ${COMFY_GID} comfy \
+    && useradd --uid ${COMFY_UID} --gid ${COMFY_GID} --home-dir ${COMFYUI_DIR} --no-create-home --shell /usr/sbin/nologin comfy \
+    && mkdir -p ${COMFYUI_DIR}/models ${COMFYUI_DIR}/input ${COMFYUI_DIR}/output ${COMFYUI_DIR}/temp ${COMFYUI_DIR}/user \
+    && chown -R comfy:comfy ${COMFYUI_DIR}
+USER comfy
+ENV HOME=${COMFYUI_DIR}
+
 # Models and inputs/outputs live on the host (docker-compose volumes). ComfyUI listens on the container's
 # 0.0.0.0 but compose publishes it on 127.0.0.1 only.
 EXPOSE 8188

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradeSimilarity, lowerResolution, pct, similarityLabel } from "./format";
+import { dayEndIso, dayStartIso, gradeSimilarity, isoToLocalDateInput, lowerResolution, pct, similarityLabel } from "./format";
 
 describe("gradeSimilarity", () => {
   const t = { good: 0.75, acceptable: 0.6 };
@@ -31,5 +31,21 @@ describe("pct", () => {
     expect(pct(50, 100)).toBe(50);
     expect(pct(500, 100)).toBe(100);
     expect(pct(1, 0)).toBe(0);
+  });
+});
+
+describe("date filter bounds", () => {
+  it("covers the whole local day and round-trips to the picked date", () => {
+    const start = new Date(dayStartIso("2026-09-27"));
+    const end = new Date(dayEndIso("2026-09-27"));
+    expect(start.getHours()).toBe(0);
+    expect(start.getMinutes()).toBe(0);
+    expect(end.getHours()).toBe(23);
+    expect(end.getTime() - start.getTime()).toBe(24 * 60 * 60 * 1000 - 1);
+    expect(dayStartIso("2026-09-27").endsWith("Z")).toBe(true);
+    expect(isoToLocalDateInput(dayStartIso("2026-09-27"))).toBe("2026-09-27");
+    expect(isoToLocalDateInput(dayEndIso("2026-09-27"))).toBe("2026-09-27");
+    expect(isoToLocalDateInput(undefined)).toBe("");
+    expect(isoToLocalDateInput("garbage")).toBe("");
   });
 });

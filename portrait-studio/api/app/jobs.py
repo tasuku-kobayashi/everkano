@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.comfy_client import ComfyError, JobCanceled, PromptResult
 from app.ids import new_ulid
-from app.models import Character, CharacterVersion, ImageKind, ImageRecord, Job, LockedParams, utcnow
+from app.models import Character, CharacterVersion, ImageKind, ImageRecord, Job, LockedParams, SimilarityStatus, utcnow
 from app.presets import compose_prompt
 from app.workflow import GenerationParams, WorkflowError, build_prompt
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("portrait.jobs")
 
 SaveJob = Callable[[Job], None]
+PROGRESS_SAVE_INTERVAL_SECONDS = 0.25
 
 
 class JobFailed(RuntimeError):
@@ -350,10 +351,16 @@ class JobRunner:
             except WorkflowError as exc:
                 raise JobFailed(str(exc)) from exc
 
+            last_saved = 0.0
+
             def on_progress(value: int, maximum: int, _job: Job = job) -> None:
+                nonlocal last_saved
                 _job.progress.step = value
                 _job.progress.total = maximum
-                save(_job)
+                # one sqlite transaction per WebSocket frame would fsync on every sampler step; 4 Hz is plenty
+                if value >= maximum or time.monotonic() - last_saved >= PROGRESS_SAVE_INTERVAL_SECONDS:
+                    last_saved = time.monotonic()
+                    save(_job)
 
             result = await self.s.comfy.run_prompt(
                 prompt, on_progress=on_progress, cancel=cancel, timeout=self.s.settings.comfy_generation_timeout_seconds
@@ -397,7 +404,7 @@ class JobRunner:
         thumb = self.s.storage.thumb_path(image_id)
         self.s.storage.make_thumbnail(path, thumb)
         similarity: float | None = None
-        status: str = "no_reference"
+        status: SimilarityStatus = "no_reference"
         if plan.version is not None and plan.version.primary is not None:
             try:
                 analysis = self.s.face.analyze_path(path)
@@ -433,7 +440,7 @@ class JobRunner:
             seed=plan.params.seed,
             params_snapshot=snapshot,
             similarity=similarity,
-            similarity_status=status,  # type: ignore[arg-type]
+            similarity_status=status,
             is_adult=True,
             favorite=False,
             rating=None,

@@ -109,3 +109,21 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** Local calendar day (YYYY-MM-DD from <input type="date">) -> UTC ISO bounds. The API compares ISO strings in UTC. */
+export function dayStartIso(localDate: string): string {
+  return new Date(`${localDate}T00:00:00`).toISOString();
+}
+
+export function dayEndIso(localDate: string): string {
+  return new Date(`${localDate}T23:59:59.999`).toISOString();
+}
+
+/** Inverse of the two above for the input's `value`: the local calendar day of an ISO timestamp. */
+export function isoToLocalDateInput(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

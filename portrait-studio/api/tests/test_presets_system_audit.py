@@ -118,10 +118,16 @@ def test_audit_log_one_line_per_generation(client: TestClient, settings) -> None
 
 
 def test_cookie_auth_compliance_and_workflow_json(client: TestClient, settings, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    c = create_character(client, identity=70)
     client.headers.pop("X-API-Key")
     assert client.get("/api/system/vram").status_code == 401
     client.cookies.set("psk", "test-api-key-0123456789")
-    assert client.get("/api/system/vram").status_code == 200
+    # the cookie is honoured by the <img src> routes only; every other route stays header-only (CSRF surface)
+    assert client.get(c["references"][0]["file_url"]).status_code == 200
+    assert client.get("/api/system/vram").status_code == 401
+    assert client.get("/api/characters").status_code == 401
+    assert client.delete(f"/api/characters/{c['id']}").status_code == 401
+    client.headers["X-API-Key"] = "test-api-key-0123456789"
     r = client.get("/api/system/workflows/pulid")
     assert r.status_code == 200 and r.json()["titles"]["FACE_APPLY"] and "nodes" in r.json()
     assert client.get("/api/system/workflows/nope").status_code == 404

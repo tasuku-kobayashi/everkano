@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import io
+import time
 from pathlib import Path
 
 from PIL import Image
+
+# Uploads / outputs larger than this are refused before decoding (decompression-bomb guard). 24 MP is far above the
+# 1024x1536 maximum the generator produces and well below Pillow's own warning threshold.
+MAX_IMAGE_PIXELS = 24_000_000
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+
+class ImageTooLargeError(ValueError):
+    pass
 
 
 class Storage:
@@ -14,6 +24,20 @@ class Storage:
         self.thumbnail_size = thumbnail_size
         for sub in ("images", "thumbs", "refs", "uploads", "logs", "tmp"):
             (data_dir / sub).mkdir(parents=True, exist_ok=True)
+        self.sweep_tmp()
+
+    def sweep_tmp(self, max_age_seconds: float = 3600.0) -> int:
+        """Remove leftovers (ZIP downloads whose client went away) older than max_age_seconds."""
+        removed = 0
+        cutoff = time.time() - max_age_seconds
+        for path in (self.data_dir / "tmp").glob("*"):
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                continue
+        return removed
 
     def image_path(self, kind: str, image_id: str) -> Path:
         directory = self.data_dir / "images" / kind
@@ -33,13 +57,14 @@ class Storage:
 
     @staticmethod
     def save_png(data: bytes, dest: Path) -> tuple[int, int]:
-        """Write bytes as PNG (re-encoding non-PNG uploads) and return (width, height)."""
+        """Decode, check the pixel budget, and re-encode as PNG (strips ancillary chunks). Returns (width, height)."""
         with Image.open(io.BytesIO(data)) as im:
             width, height = im.size
-            if (im.format or "").upper() == "PNG":
-                dest.write_bytes(data)
-            else:
-                im.convert("RGB").save(dest, format="PNG")
+            if width * height > MAX_IMAGE_PIXELS:
+                raise ImageTooLargeError(
+                    f"画像が大きすぎます（{width}×{height}。上限 {MAX_IMAGE_PIXELS // 1_000_000} メガピクセル）"
+                )
+            im.convert("RGB").save(dest, format="PNG", compress_level=6)
         return width, height
 
     def make_thumbnail(self, src: Path, dest: Path) -> None:

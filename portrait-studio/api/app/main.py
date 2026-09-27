@@ -1,6 +1,7 @@
 """FastAPI application. `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
 
-- All API routes live under /api. `GET /api/health` is the only unauthenticated route.
+- All API routes live under /api. `GET /api/health` is the only unauthenticated route. Image / thumbnail / reference
+  file bytes (GET) additionally accept the `psk` cookie (see app.security); everything else is header-only.
 - The built web UI (web/dist) is served from `/` with an SPA fallback when the directory exists.
 - Startup fails loudly when API_KEY is missing or a workflow file lacks a required `_meta.title`.
 """
@@ -69,9 +70,11 @@ def create_app(settings: Settings | None = None, *, face_engine: FaceEngine | No
     for router in (
         health.router,
         characters.router,
+        characters.files_router,  # header OR psk cookie: reference face bytes for <img src>
         generate.router,
         jobs.router,
         images.router,
+        images.files_router,  # header OR psk cookie: image / thumbnail bytes for <img src>
         presets.router,
         system.router,
         audit.router,

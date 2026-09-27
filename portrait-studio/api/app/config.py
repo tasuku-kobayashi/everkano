@@ -34,8 +34,6 @@ class Settings(BaseSettings):
 
     # --- security -------------------------------------------------------------
     api_key: SecretStr = Field(min_length=8, description="X-API-Key value. Required; no default on purpose.")
-    host: str = "127.0.0.1"
-    port: int = Field(8000, ge=1, le=65535)
 
     # --- ComfyUI ---------------------------------------------------------------
     comfy_url: str = "http://127.0.0.1:8188"

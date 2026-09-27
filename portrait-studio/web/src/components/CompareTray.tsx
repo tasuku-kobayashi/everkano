@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { api, unwrap } from "../api/client";
+import { api, ApiError, unwrap } from "../api/client";
 import { keys, useCharacter } from "../api/queries";
 import { useUiStore } from "../store/ui";
 import { SimilarityBadge } from "./Badges";
 import { BlurImage } from "./BlurImage";
+
+function isGone(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
 
 /** Bottom drawer: the reference face is always pinned at the left, followed by the images in the tray. */
 export function CompareTray() {
@@ -16,8 +20,14 @@ export function CompareTray() {
     queries: tray.map((id) => ({
       queryKey: keys.image(id),
       queryFn: async () => unwrap(await api.GET("/api/images/{image_id}", { params: { path: { image_id: id } } })),
+      retry: (count: number, error: unknown) => !isGone(error) && count < 2,
     })),
   });
+  // the tray is persisted across sessions: drop ids whose image has since been deleted instead of retrying forever
+  const gone = tray.filter((_, i) => isGone(queries[i]?.error));
+  useEffect(() => {
+    for (const id of gone) toggleTray(id);
+  }, [gone, toggleTray]);
   const images = queries.map((q) => q.data).filter((x): x is NonNullable<typeof x> => !!x);
   const characterId = images.find((i) => i.character_id)?.character_id ?? undefined;
   const { data: character } = useCharacter(characterId);

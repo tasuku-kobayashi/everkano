@@ -96,6 +96,19 @@ async def run(args: argparse.Namespace) -> int:
     }
     if out_path.is_file() and not args.reset:
         table = json.loads(out_path.read_text(encoding="utf-8"))
+        previous = (table.get("checkpoint") or None, table.get("lora") or None)
+        if any(e.get("peak_mb") is not None for e in table.get("entries", [])) and previous != (
+            args.checkpoint,
+            args.lora,
+        ):
+            print(
+                f"ERROR: {out_path} was measured with checkpoint={previous[0]!r} lora={previous[1]!r}; "
+                f"re-measuring with checkpoint={args.checkpoint!r} lora={args.lora!r} would mix two models. "
+                "Use --reset (new table) or --out <other file>.",
+                file=sys.stderr,
+            )
+            await client.aclose()
+            return 2
     entries: dict[tuple[str, int, int, float, bool], dict[str, Any]] = {
         (e["method"], e["width"], e["height"], float(e.get("upscale", 1.0)), bool(e.get("face_detailer", False))): e
         for e in table.get("entries", [])
@@ -125,6 +138,8 @@ async def run(args: argparse.Namespace) -> int:
                     face_weight=0.8,
                     ref_image=ref_name,
                     face_detailer=fd,
+                    lora=args.lora,
+                    lora_strength=args.lora_strength if args.lora else 0.0,
                     filename_prefix=f"portrait-studio/measure/{method}",
                 )
                 prompt = build_prompt(workflows[method], params)
@@ -158,9 +173,12 @@ async def run(args: argparse.Namespace) -> int:
     table["gpu"] = stats.gpu_name
     table["vram_total_mb"] = stats.vram_total_mb
     table["measured_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    # the API returns `unknown` (rejects) for a different checkpoint / LoRA than the one measured here
+    table["checkpoint"] = args.checkpoint
+    table["lora"] = args.lora
     table["note"] = (
-        "Measured by scripts/measure_vram.py (peak of vram_total - vram_free sampled during one generation). "
-        "Unknown rows are rejected by the API."
+        "Measured by scripts/measure_vram.py (peak of vram_total - vram_free sampled during one generation) "
+        f"with checkpoint {args.checkpoint!r} and LoRA {args.lora!r}. Unknown rows are rejected by the API."
     )
     table["entries"] = list(entries.values())
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,6 +195,8 @@ def main() -> int:
     parser.add_argument(
         "--checkpoint", default=os.environ.get("DEFAULT_CHECKPOINT"), help="file name under models/checkpoints"
     )
+    parser.add_argument("--lora", default=None, help="measure with this LoRA (file name under models/loras)")
+    parser.add_argument("--lora-strength", type=float, default=0.8)
     parser.add_argument("--ref", help="reference face PNG (generated with txt2img when omitted)")
     parser.add_argument("--workflows", default=str(API_DIR.parent / "workflows"))
     parser.add_argument("--out", default=str(API_DIR / "app" / "data" / "vram_table.json"))

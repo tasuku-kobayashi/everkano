@@ -91,7 +91,11 @@ export interface paths {
         get: operations["get_character_api_characters__character_id__get"];
         put?: never;
         post?: never;
-        /** Delete Character */
+        /**
+         * Delete Character
+         * @description Remove the character and its reference faces. `delete_images=true` also purges every image ever made with
+         *     it — including soft-deleted ones (the gallery hides them, the disk does not).
+         */
         delete: operations["delete_character_api_characters__character_id__delete"];
         options?: never;
         head?: never;
@@ -307,7 +311,8 @@ export interface paths {
         put?: never;
         /**
          * Zip Images
-         * @description Download the selected images plus their params_snapshot JSON as one ZIP.
+         * @description Download the selected images plus their params_snapshot JSON as one ZIP (built in DATA_DIR/tmp, removed after
+         *     the response; `Storage.sweep_tmp` collects leftovers of clients that went away).
          */
         post: operations["zip_images_api_images_zip_post"];
         delete?: never;
@@ -363,7 +368,11 @@ export interface paths {
         put?: never;
         /**
          * Regenerate
-         * @description Re-run the exact params_snapshot of an image (same character version, same locked values).
+         * @description Re-run the params_snapshot of an image against the SAME character version it was made with.
+         *
+         *     Goes through `prepare_generate_job`, so every guard of POST /api/generate (draft, workflow, denoise, dimensions,
+         *     hires_max, scenes, VRAM) applies here as well. Locked values that were overridden when the image was generated are
+         *     re-applied as explicit overrides — reproducing the image is the point — but never saved as a new version.
          */
         post: operations["regenerate_api_images__image_id__regenerate_post"];
         delete?: never;
@@ -1570,10 +1579,14 @@ export interface components {
         };
         /** VramTableResponse */
         VramTableResponse: {
+            /** Checkpoint */
+            checkpoint?: string | null;
             /** Entries */
             entries: components["schemas"]["VramTableEntry"][];
             /** Gpu */
             gpu: string | null;
+            /** Lora */
+            lora?: string | null;
             /** Measured At */
             measured_at: string | null;
             /** Vram Total Mb */
@@ -1623,9 +1636,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -1661,9 +1672,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -1694,9 +1703,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -1731,9 +1738,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: {
             content: {
@@ -1768,9 +1773,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -1807,9 +1810,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -1844,9 +1845,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -1879,9 +1878,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -1954,9 +1951,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -1994,9 +1989,7 @@ export interface operations {
                 character_id: string;
                 version: number;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2029,9 +2022,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2068,9 +2059,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2103,9 +2092,7 @@ export interface operations {
             path: {
                 character_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2140,9 +2127,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2177,9 +2162,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2257,9 +2240,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2290,9 +2271,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2327,9 +2306,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2364,9 +2341,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2403,9 +2378,7 @@ export interface operations {
             path: {
                 image_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2438,9 +2411,7 @@ export interface operations {
             path: {
                 image_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2473,9 +2444,7 @@ export interface operations {
             path: {
                 image_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2547,9 +2516,7 @@ export interface operations {
             path: {
                 image_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2586,9 +2553,7 @@ export interface operations {
             path: {
                 image_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2657,9 +2622,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2692,9 +2655,7 @@ export interface operations {
             path: {
                 job_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2727,9 +2688,7 @@ export interface operations {
             path: {
                 job_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2760,9 +2719,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2793,9 +2750,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody: {
             content: {
@@ -2832,9 +2787,7 @@ export interface operations {
             path: {
                 scene_id: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2865,9 +2818,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2898,9 +2849,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2931,9 +2880,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2964,9 +2911,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -2997,9 +2942,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -3030,9 +2973,7 @@ export interface operations {
                 "X-API-Key"?: string | null;
             };
             path?: never;
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {
@@ -3065,9 +3006,7 @@ export interface operations {
             path: {
                 method: string;
             };
-            cookie?: {
-                psk?: string | null;
-            };
+            cookie?: never;
         };
         requestBody?: never;
         responses: {

@@ -27,6 +27,10 @@ def not_found(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
+def payload_too_large(detail: str) -> HTTPException:
+    return HTTPException(status_code=413, detail=detail)
+
+
 async def resolve_checkpoint(s: Services, requested: str | None) -> str:
     """Requested -> DEFAULT_CHECKPOINT -> first installed checkpoint (ComfyUI)."""
     if requested:
@@ -47,10 +51,18 @@ async def resolve_checkpoint(s: Services, requested: str | None) -> str:
 
 
 async def vram_assessment(
-    s: Services, *, method: str, width: int, height: int, upscale: float, face_detailer: bool
+    s: Services,
+    *,
+    method: str,
+    width: int,
+    height: int,
+    upscale: float,
+    face_detailer: bool,
+    checkpoint: str | None = None,
+    lora: str | None = None,
 ) -> Assessment:
     stats = await s.comfy.system_stats()  # ComfyUnavailable -> 503 via the app-level handler
-    estimate = s.vram.estimate(method, width, height, upscale, face_detailer)
+    estimate = s.vram.estimate(method, width, height, upscale, face_detailer, checkpoint=checkpoint, lora=lora)
     total = stats.vram_total_mb or s.vram.vram_total_mb
     return assess(
         estimate,

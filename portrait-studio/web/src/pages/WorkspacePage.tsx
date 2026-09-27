@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, getErrorMessage, unwrap, type CharacterDetail, type ImageItem, type LockedPatch, type PreviewVram } from "../api/client";
 import { isFinished, useCharacter, useCharacters, useHealth, useImages, useJob, usePatchImage, useScenes, useWorkflowJson } from "../api/queries";
 import { SimilarityBadge } from "../components/Badges";
+import { BlurImage } from "../components/BlurImage";
 import { ImageCard } from "../components/ImageCard";
 import { ImageViewer } from "../components/ImageViewer";
 import { JobRow } from "../components/JobBar";
@@ -526,7 +527,7 @@ function RightColumn({ characterId }: { characterId: string }) {
         {items.map((img, i) => (
           <li key={img.id} className="card flex gap-2 p-1" data-testid="history-item">
             <button className="shrink-0" onClick={() => setViewer(i)} aria-label="画像を開く">
-              <img src={img.thumb_url} alt="" className={clsx("h-16 w-12 rounded object-cover", useUiStore.getState().blurDefault && !useUiStore.getState().revealed[img.id] && "blur-nsfw")} loading="lazy" />
+              <BlurImage id={img.id} src={img.thumb_url} alt={`seed ${img.seed} の生成画像`} className="h-16 w-12 rounded" />
             </button>
             <div className="min-w-0 flex-1 text-[11px]">
               <div className="flex items-center justify-between">

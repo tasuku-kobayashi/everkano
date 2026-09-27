@@ -95,5 +95,7 @@ async def vram_table(s: ServicesDep) -> VramTableResponse:
         gpu=s.vram.gpu,
         vram_total_mb=s.vram.vram_total_mb,
         measured_at=s.vram.measured_at,
+        checkpoint=s.vram.checkpoint,
+        lora=s.vram.lora,
         entries=[VramTableEntry(**e.to_dict()) for e in s.vram.entries],
     )

@@ -75,6 +75,8 @@ class VramTableResponse(ApiModel):
     gpu: str | None
     vram_total_mb: int | None
     measured_at: str | None
+    checkpoint: str | None = None
+    lora: str | None = None
     entries: list[VramTableEntry]
 
 

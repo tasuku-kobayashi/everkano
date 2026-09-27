@@ -50,6 +50,7 @@ def client(settings: Settings, mock_comfy: MockComfyServer) -> Iterator[TestClie
     mock_comfy.state.fail_next = None
     mock_comfy.state.missing_classes = set()
     mock_comfy.state.step_delay = 0.01
+    mock_comfy.state.drop_history = False
     app = create_app(settings, face_engine=MockFaceEngine())
     with TestClient(app) as c:
         c.headers.update(HEADERS)

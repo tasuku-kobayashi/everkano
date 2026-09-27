@@ -1,4 +1,8 @@
-"""Characters: registry, versions, reference analysis (wizard step 2), seed drafts (step 1), verification (step 3)."""
+"""Characters: registry, versions, reference analysis (wizard step 2), seed drafts (step 1), verification (step 3).
+
+Two routers: `router` (header auth, everything) and `files_router` (header OR `psk` cookie, GET file bytes only —
+the browser cannot attach a header to `<img src>`).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.container import Services
@@ -28,6 +32,7 @@ from app.routers.common import (
     ServicesDep,
     bad_request,
     not_found,
+    payload_too_large,
     reject_if_dangerous,
     resolve_checkpoint,
     validate_dimensions,
@@ -51,12 +56,16 @@ from app.schemas import (
     VersionCreateRequest,
     VersionListResponse,
 )
-from app.security import ApiKeyDep, require_api_key
+from app.security import ApiKeyDep, require_api_key, require_api_key_or_cookie
 from app.serialize import character_detail, character_summary, image_file_url, image_thumb_url, version_schema
+from app.storage import ImageTooLargeError
 
 router = APIRouter(prefix="/characters", tags=["characters"], dependencies=[Depends(require_api_key)])
+files_router = APIRouter(prefix="/characters", tags=["characters"], dependencies=[Depends(require_api_key_or_cookie)])
 
 MAX_UPLOAD_BYTES = 40 * 1024 * 1024
+MAX_UPLOAD_FILES = 12
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 DRAFT_NAME = "（下書き）"
 
 
@@ -78,16 +87,38 @@ def _apply_patch(base: LockedParams, patch: LockedParamsPatch | None) -> LockedP
     return LockedParams.from_dict({**base.to_dict(), **patch.model_dump(exclude_none=True)})
 
 
+def _check_face_method(s: Services, locked: LockedParams) -> None:
+    if locked.face_method not in s.workflows:
+        raise bad_request(f"face_method '{locked.face_method}' のワークフローがありません")
+
+
 async def _analyze_image_records(s: Services, images: list[ImageRecord]) -> list[FaceAnalysisResult]:
     await s.ensure_face_engine()
     return [await asyncio.to_thread(s.face.analyze_path, Path(img.path)) for img in images]
 
 
+def _copy_reference_files(refs: list[Reference], sources: list[str]) -> None:
+    """Copy every validated source; on any failure remove what was copied so far (no orphan files)."""
+    copied: list[Path] = []
+    try:
+        for ref, src in zip(refs, sources, strict=True):
+            dest = Path(ref.image_path)
+            shutil.copyfile(src, dest)
+            copied.append(dest)
+    except OSError:
+        for path in copied:
+            path.unlink(missing_ok=True)
+        raise
+
+
 async def _build_references(
     s: Services, character_id: str, version: int, image_ids: list[str], primary_image_id: str | None
 ) -> list[Reference]:
+    """Validate every candidate first (faces, duplicates), then copy the files — nothing is written on a 400."""
     if not image_ids:
         raise bad_request("参照顔の画像（reference_image_ids）を 1 枚以上指定してください")
+    if len(set(image_ids)) != len(image_ids):
+        raise bad_request("reference_image_ids に重複があります")
     images = s.db.get_images(image_ids)
     found = {img.id for img in images}
     missing = [i for i in image_ids if i not in found]
@@ -96,30 +127,70 @@ async def _build_references(
     if primary_image_id is not None and primary_image_id not in found:
         raise bad_request("primary_image_id が reference_image_ids に含まれていません")
     analyses = await _analyze_image_records(s, images)
-    refs: list[Reference] = []
-    ref_dir = s.storage.ref_dir(character_id, version)
-    for position, (img, analysis) in enumerate(zip(images, analyses, strict=True)):
+    for img, analysis in zip(images, analyses, strict=True):
         if analysis.quality.face_count == 0 or analysis.embedding is None:
             raise bad_request(f"顔が検出できない画像は参照顔に使えません（使用不可）: {img.id}")
         if analysis.quality.face_count > 1:
             raise bad_request(f"複数の顔が写っている画像は参照顔に使えません（1 人だけの画像にしてください）: {img.id}")
+    ref_dir = s.storage.ref_dir(character_id, version)
+    refs: list[Reference] = []
+    for position, (img, analysis) in enumerate(zip(images, analyses, strict=True)):
         ref_id = new_ulid()
-        dest = ref_dir / f"{ref_id}.png"
-        shutil.copyfile(img.path, dest)
         refs.append(
             Reference(
                 id=ref_id,
                 character_id=character_id,
                 version=version,
                 position=position,
-                image_path=str(dest),
+                image_path=str(ref_dir / f"{ref_id}.png"),
                 source_image_id=img.id,
-                embedding=analysis.embedding,
+                embedding=analysis.embedding or [],
                 quality=analysis.quality,
                 is_primary=(img.id == primary_image_id) if primary_image_id else position == 0,
             )
         )
+    await asyncio.to_thread(_copy_reference_files, refs, [img.path for img in images])
     return refs
+
+
+async def _read_upload_capped(upload: UploadFile) -> bytes:
+    """Read an upload in chunks and stop as soon as it exceeds MAX_UPLOAD_BYTES (never buffers a larger body)."""
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await upload.read(UPLOAD_CHUNK_BYTES):
+        size += len(chunk)
+        if size > MAX_UPLOAD_BYTES:
+            raise payload_too_large(
+                f"ファイルが大きすぎます（最大 {MAX_UPLOAD_BYTES // (1024 * 1024)} MB）: {upload.filename}"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _store_upload(s: Services, data: bytes, path: Path, thumb: Path) -> tuple[int, int]:
+    """Decode + re-encode + thumbnail on a worker thread; removes partial files when either step fails."""
+    try:
+        size = s.storage.save_png(data, path)
+        s.storage.make_thumbnail(path, thumb)
+    except Exception:
+        path.unlink(missing_ok=True)
+        thumb.unlink(missing_ok=True)
+        raise
+    return size
+
+
+def _purge_character_files(s: Services, character: Character, images: list[ImageRecord]) -> tuple[int, int]:
+    deleted_refs = 0
+    for version in s.db.list_versions(character.id):
+        for ref in version.references:
+            if s.storage.remove(ref.image_path):
+                deleted_refs += 1
+    shutil.rmtree(s.storage.data_dir / "refs" / character.id, ignore_errors=True)
+    for img in images:
+        s.storage.remove(img.path)
+        s.storage.remove(Path(img.path).with_suffix(".json"))
+        s.storage.remove(img.thumbnail_path)
+    return deleted_refs, len(images)
 
 
 # ----------------------------------------------------------------------------- list / create / detail
@@ -131,10 +202,9 @@ async def list_characters(
     sort: Annotated[str, Query(pattern="^(recent|name|generations)$")] = "recent",
     include_drafts: bool = False,
 ) -> CharacterListResponse:
-    items = []
-    for character in s.db.list_characters(q=q, tag=tag, sort=sort, include_drafts=include_drafts):
-        items.append(character_summary(character, _current_version(s, character)))
-    return CharacterListResponse(items=items)
+    characters = s.db.list_characters(q=q, tag=tag, sort=sort, include_drafts=include_drafts)
+    versions = s.db.current_versions(characters)
+    return CharacterListResponse(items=[character_summary(c, versions.get(c.id)) for c in characters])
 
 
 @router.post("", response_model=CharacterDetail, status_code=201)
@@ -151,8 +221,7 @@ async def create_character(body: CharacterCreateRequest, s: ServicesDep) -> Char
             raise bad_request("name は必須です")
     checkpoint = await resolve_checkpoint(s, body.locked.checkpoint if body.locked else None)
     locked = _apply_patch(LockedParams(checkpoint=checkpoint), body.locked)
-    if locked.face_method not in s.workflows:
-        raise bad_request(f"face_method '{locked.face_method}' のワークフローがありません")
+    _check_face_method(s, locked)
     character_id = new_ulid()
     refs = await _build_references(s, character_id, 1, body.reference_image_ids, body.primary_image_id)
     now = utcnow()
@@ -196,6 +265,8 @@ async def get_character(character_id: str, s: ServicesDep) -> CharacterDetail:
 async def patch_character(character_id: str, body: CharacterPatchRequest, s: ServicesDep) -> CharacterDetail:
     character = _character_or_404(s, character_id)
     if body.name is not None:
+        if not body.name.strip():
+            raise bad_request("name を空にはできません")
         character.name = body.name.strip()
     if body.tags is not None:
         character.tags = [t.strip() for t in body.tags if t.strip()]
@@ -219,13 +290,14 @@ async def register_character(character_id: str, body: CharacterRegisterRequest, 
         )
     if not body.adult_confirmed:
         raise bad_request("adult_confirmed: true（成人キャラクターである）の確認が必須です。")
+    if not body.name.strip():
+        raise bad_request("name は必須です")
     version = _current_version(s, character)
     if version is None:
         raise bad_request("参照顔がありません")
     if body.locked is not None:
         locked = _apply_patch(version.locked, body.locked)
-        if locked.face_method not in s.workflows:
-            raise bad_request(f"face_method '{locked.face_method}' のワークフローがありません")
+        _check_face_method(s, locked)
         s.db.update_version_locked(character.id, version.version, locked)
         version.locked = locked
     character.name = body.name.strip()
@@ -240,24 +312,14 @@ async def register_character(character_id: str, body: CharacterRegisterRequest, 
 
 @router.delete("/{character_id}", response_model=DeleteResponse)
 async def delete_character(character_id: str, s: ServicesDep, delete_images: bool = False) -> DeleteResponse:
+    """Remove the character and its reference faces. `delete_images=true` also purges every image ever made with
+    it — including soft-deleted ones (the gallery hides them, the disk does not)."""
     character = _character_or_404(s, character_id)
-    deleted_refs = 0
-    for version in s.db.list_versions(character.id):
-        for ref in version.references:
-            if s.storage.remove(ref.image_path):
-                deleted_refs += 1
-    shutil.rmtree(s.storage.data_dir / "refs" / character.id, ignore_errors=True)
-    deleted_images = 0
+    images = s.db.images_of_character(character.id, include_deleted=True) if delete_images else []
+    deleted_refs, deleted_images = await asyncio.to_thread(_purge_character_files, s, character, images)
     if delete_images:
-        images, _ = s.db.list_images(character_id=character.id, limit=100000)
-        for img in images:
-            s.storage.remove(img.path)
-            s.storage.remove(Path(img.path).with_suffix(".json"))
-            s.storage.remove(img.thumbnail_path)
         s.db.hard_delete_images([img.id for img in images])
-        deleted_images = len(images)
-    else:
-        s.db.detach_images_from_character(character.id)
+    s.db.detach_images_from_character(character.id)
     s.db.delete_character(character.id)
     return DeleteResponse(deleted=True, deleted_images=deleted_images, deleted_references=deleted_refs)
 
@@ -282,8 +344,7 @@ async def create_version(character_id: str, body: VersionCreateRequest, s: Servi
         raise bad_request("現在の版がありません")
     next_version = max(v.version for v in versions) + 1
     locked = _apply_patch(current.locked, body.locked)
-    if locked.face_method not in s.workflows:
-        raise bad_request(f"face_method '{locked.face_method}' のワークフローがありません")
+    _check_face_method(s, locked)
     refs = await _build_references(s, character.id, next_version, body.reference_image_ids, body.primary_image_id)
     primary = next((r for r in refs if r.is_primary), refs[0])
     version = CharacterVersion(
@@ -296,8 +357,7 @@ async def create_version(character_id: str, body: VersionCreateRequest, s: Servi
         references=refs,
     )
     s.db.insert_version(version)
-    character.current_version = next_version
-    s.db.update_character(character)
+    s.db.set_current_version(character.id, next_version)
     return version_schema(version)
 
 
@@ -307,12 +367,12 @@ async def rollback(character_id: str, version: int, s: ServicesDep) -> Character
     target = s.db.get_version(character.id, version)
     if target is None:
         raise not_found("指定した版がありません")
+    s.db.set_current_version(character.id, version)
     character.current_version = version
-    s.db.update_character(character)
     return character_detail(character, target, [v.version for v in s.db.list_versions(character.id)])
 
 
-@router.get("/{character_id}/references/{reference_id}/file")
+@files_router.get("/{character_id}/references/{reference_id}/file")
 async def reference_file(character_id: str, reference_id: str, s: ServicesDep) -> FileResponse:
     ref = s.db.get_reference(reference_id)
     if ref is None or ref.character_id != character_id or not Path(ref.image_path).is_file():
@@ -323,30 +383,33 @@ async def reference_file(character_id: str, reference_id: str, s: ServicesDep) -
 # ----------------------------------------------------------------------------- analyze (step 2)
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
+    request: Request,
     s: ServicesDep,
     files: Annotated[list[UploadFile] | None, File()] = None,
     image_ids: Annotated[str | None, Form(description="comma-separated existing image ids (drafts)")] = None,
 ) -> AnalyzeResponse:
     """Quality / embedding / clustering of candidate reference faces. Uploaded files are stored as `upload` images
     so they can be referenced by id at registration; the analysis itself is not persisted."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES * MAX_UPLOAD_FILES:
+        raise payload_too_large(f"リクエストが大きすぎます（最大 {MAX_UPLOAD_FILES} ファイル、各 40 MB）")
+    if files and len(files) > MAX_UPLOAD_FILES:
+        raise payload_too_large(f"一度に解析できるのは最大 {MAX_UPLOAD_FILES} ファイルです")
     records: list[ImageRecord] = []
     filenames: list[str] = []
     for upload in files or []:
-        data = await upload.read()
+        data = await _read_upload_capped(upload)
         if not data:
             continue
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise bad_request(
-                f"ファイルが大きすぎます（最大 {MAX_UPLOAD_BYTES // (1024 * 1024)} MB）: {upload.filename}"
-            )
         image_id = new_ulid()
         path = s.storage.image_path("upload", image_id)
+        thumb = s.storage.thumb_path(image_id)
         try:
-            width, height = s.storage.save_png(data, path)
+            width, height = await asyncio.to_thread(_store_upload, s, data, path, thumb)
+        except ImageTooLargeError as exc:
+            raise bad_request(f"{exc}: {upload.filename}") from exc
         except Exception as exc:
             raise bad_request(f"画像として読めません: {upload.filename}（{exc.__class__.__name__}）") from exc
-        thumb = s.storage.thumb_path(image_id)
-        s.storage.make_thumbnail(path, thumb)
         record = ImageRecord(
             id=image_id,
             kind="upload",
@@ -374,6 +437,8 @@ async def analyze(
         filenames.append(upload.filename or image_id)
     if image_ids:
         ids = [i.strip() for i in image_ids.split(",") if i.strip()]
+        if len(ids) > MAX_UPLOAD_FILES:
+            raise bad_request(f"一度に解析できるのは最大 {MAX_UPLOAD_FILES} 枚です")
         existing = s.db.get_images(ids)
         found = {img.id for img in existing}
         missing = [i for i in ids if i not in found]
@@ -429,7 +494,13 @@ async def draft(body: DraftRequest, s: ServicesDep, api_key_id: ApiKeyDep) -> Jo
         raise bad_request(f"txt2img ワークフローが使えません: {'; '.join(s.workflow_issues.get('txt2img', []))}")
     checkpoint = await resolve_checkpoint(s, body.checkpoint)
     assessment = await vram_assessment(
-        s, method="txt2img", width=body.width, height=body.height, upscale=1.0, face_detailer=False
+        s,
+        method="txt2img",
+        width=body.width,
+        height=body.height,
+        upscale=1.0,
+        face_detailer=False,
+        checkpoint=checkpoint,
     )
     reject_if_dangerous(assessment)
     request = {**body.model_dump(), "checkpoint": checkpoint}
@@ -478,6 +549,8 @@ async def verify(character_id: str, body: VerifyRequest, s: ServicesDep, api_key
         height=version.locked.default_height,
         upscale=1.0,
         face_detailer=True,
+        checkpoint=version.locked.checkpoint,
+        lora=version.locked.lora,
     )
     reject_if_dangerous(assessment)
     count = len(body.face_weights) * len(body.scenes)
