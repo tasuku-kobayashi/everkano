@@ -41,9 +41,11 @@ export const config = {
      * 以下を除くすべてのパスで実行:
      * - _next/static, _next/image（ビルド成果物）
      * - icons/, sw.js, manifest.json, favicon.ico, robots.txt（PWA / 静的ファイル）
-     * - 画像などの拡張子付き静的ファイル
+     * - ルート直下の拡張子付き静的ファイル（public/ 直下の画像など）と、画像の拡張子を持つ /media/*
+     *   （/media/[...key] の Route Handler 自身がセッションを確認する）
+     *   アプリの画面のパス（/c/x.png・/posts/a.txt など。handle や id が拡張子のように見える値）は除外しない
      * 変更したら middleware.test.ts の「matcher」のテストも更新すること。
      */
-    "/((?!_next/static|_next/image|icons/|sw\\.js|manifest\\.json|favicon\\.ico|robots\\.txt|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|txt|xml|webmanifest)$).*)",
+    "/((?!_next/static|_next/image|icons/|sw\\.js|manifest\\.json|favicon\\.ico|robots\\.txt|(?:media/.*|[^/]+)\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|txt|xml|webmanifest)$).*)",
   ],
 };

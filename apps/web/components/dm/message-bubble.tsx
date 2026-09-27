@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { AlertIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
@@ -35,8 +36,12 @@ export interface MessageBubbleProps {
  * - キャラからの自発メッセージも通常の吹き出し（返信を急かすような特別な表示はしない。P4 / P6）
  * - スクリーンリーダー向けに、吹き出しごとに送り手（「あなた: 」/「<キャラ名>: 」）を読み上げる
  *   （会話ログ role="log" の中でユーザーとキャラの発言が区別できるように。アバターは装飾扱い）
+ *
+ * memo: 受信中（ストリーミング）はチャンクが届くたびに会話全体（dm-conversation.tsx の rows）が再計算されるが、
+ * 確定済みの吹き出しの props は参照が変わらない（message はキャッシュの同じオブジェクト、onRetry は useCallback）
+ * ため、変わった吹き出しだけを描画し直す。
  */
-export function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   message,
   isFirstInGroup,
   isLastInGroup,
@@ -123,4 +128,4 @@ export function MessageBubble({
       {bubble}
     </div>
   );
-}
+});

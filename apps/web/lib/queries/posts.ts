@@ -6,6 +6,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { toAppError } from "@/lib/api/errors";
+import { isUuid } from "@/lib/guards";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { queryKeys } from "./keys";
@@ -86,12 +87,8 @@ export interface PostRowWithRelations {
   my_likes: { user_id: string }[] | null;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** UUID 形式か（不正な値で問い合わせると 22P02 エラーになるため事前に弾く） */
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
+// UUID の判定は lib/guards.ts。ここから import しているテスト（posts.test.ts）のために再エクスポートする
+export { isUuid };
 
 /** DB の行 → 画面用の Post。キャラが見えない（非公開化された等）行は null */
 export function toPost(row: PostRowWithRelations): Post | null {

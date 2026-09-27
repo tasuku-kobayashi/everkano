@@ -5,6 +5,7 @@ import { queryKeys } from "./keys";
 import {
   buildTempMemory,
   createMemoryMutationOptions,
+  deleteMemoryMutationOptions,
   EDITABLE_MEMORY_KINDS,
   filterMemoriesByKind,
   isNoticeWorthyMemory,
@@ -27,6 +28,7 @@ import {
   patchMemory,
   sortMemories,
   stableMemoryOrder,
+  updateMemoryMutationOptions,
   withTag,
 } from "./memories";
 
@@ -272,6 +274,90 @@ describe("useCreateMemory（楽観的更新と失敗時の取り消し）", () =
     });
     await mutation.mutate({ request, tempId: "temp-z" });
     expect(queryClient.getQueryData<MemoryDTO[]>(key)?.[0]).toEqual(saved);
+    queryClient.clear();
+  });
+});
+
+describe("useUpdateMemory / useDeleteMemory（失敗時はその 1 件だけ取り消す）", () => {
+  const CHAR = "33333333-3333-4333-8333-333333333333";
+  const a = memory("a", 0.9, "2026-09-24T00:00:00Z");
+  const b = memory("b", 0.6, "2026-09-23T00:00:00Z");
+  const c = memory("c", 0.3, "2026-09-22T00:00:00Z");
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  it("更新に失敗したら、その記憶だけ操作前に戻す（並行して進む他の記憶の楽観的更新は残す）", async () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.memories(CHAR);
+    queryClient.setQueryData<MemoryDTO[]>(key, [a, b, c]);
+    let fail: (error: Error) => void = () => undefined;
+    const mutation = new MutationObserver(queryClient, {
+      ...updateMemoryMutationOptions(
+        queryClient,
+        CHAR,
+        () => new Promise<MemoryDTO>((_, reject) => (fail = reject)),
+      ),
+    });
+    const pending = mutation
+      .mutate({ memoryId: "b", patch: { content: "編集中" } })
+      .catch(() => undefined);
+    await flush();
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)?.[1]?.content).toBe("編集中");
+    // 別の記憶（a）の楽観的更新が並行して進む
+    queryClient.setQueryData<MemoryDTO[]>(key, (list) => patchMemory(list ?? [], "a", { importance: 0.3 }));
+    fail(new Error("down"));
+    await pending;
+    await flush();
+
+    const after = queryClient.getQueryData<MemoryDTO[]>(key) ?? [];
+    expect(after.map((m) => m.id)).toEqual(["a", "b", "c"]);
+    expect(after[1]).toEqual(b);
+    expect(after[0]?.importance, "並行する a の更新は消えない").toBe(0.3);
+    queryClient.clear();
+  });
+
+  it("削除に失敗したら、その記憶だけ元の位置に戻す（並行して消した他の記憶は戻さない）", async () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.memories(CHAR);
+    queryClient.setQueryData<MemoryDTO[]>(key, [a, b, c]);
+    let fail: (error: Error) => void = () => undefined;
+    const mutation = new MutationObserver(queryClient, {
+      ...deleteMemoryMutationOptions(
+        queryClient,
+        CHAR,
+        () => new Promise<void>((_, reject) => (fail = reject)),
+      ),
+    });
+    const pending = mutation.mutate({ memoryId: "b" }).catch(() => undefined);
+    await flush();
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)?.map((m) => m.id)).toEqual(["a", "c"]);
+    // 別の記憶の更新（a）と削除（c）が並行して進む
+    queryClient.setQueryData<MemoryDTO[]>(key, (list) =>
+      patchMemory(list ?? [], "a", { importance: 0.3 }).filter((m) => m.id !== "c"),
+    );
+    fail(new Error("down"));
+    await pending;
+    await flush();
+
+    const after = queryClient.getQueryData<MemoryDTO[]>(key) ?? [];
+    expect(after.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(after[1]).toEqual(b);
+    expect(after[0]?.importance, "並行する a の更新は消えない").toBe(0.3);
+    queryClient.clear();
+  });
+
+  it("更新に成功したらサーバーの結果で置き換える", async () => {
+    const queryClient = new QueryClient();
+    const key = queryKeys.memories(CHAR);
+    queryClient.setQueryData<MemoryDTO[]>(key, [a, b]);
+    const saved = { ...b, content: "保存済み", is_user_edited: true };
+    const mutation = new MutationObserver(queryClient, {
+      ...updateMemoryMutationOptions(queryClient, CHAR, async () => saved),
+    });
+    await mutation.mutate({ memoryId: "b", patch: { content: "保存済み" } });
+    expect(queryClient.getQueryData<MemoryDTO[]>(key)).toEqual([a, saved]);
     queryClient.clear();
   });
 });

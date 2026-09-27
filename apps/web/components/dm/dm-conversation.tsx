@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBottomBarHeight } from "@/components/ui/toast";
 import { getErrorMessage, isApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
+import { isUuid } from "@/lib/guards";
 import { useConversation, useDmCharacter, useMarkConversationRead } from "@/lib/queries/dm";
 import { useMemoryCreatedRealtime } from "@/lib/queries/memories";
 import {
@@ -33,7 +34,7 @@ import {
   streamingTimelineItem,
   useChatStream,
 } from "./stream-state";
-import { buildTimelineRows, holdCharacterReplies, isUuid } from "./timeline";
+import { buildTimelineRows, holdCharacterReplies } from "./timeline";
 import { TypingIndicator } from "./typing-indicator";
 import { useChatScroll } from "./use-chat-scroll";
 import { useSendMessage } from "./use-send-message";

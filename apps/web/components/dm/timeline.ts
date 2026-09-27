@@ -161,9 +161,5 @@ export function holdCharacterReplies(
   );
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** URL の characterId が UUID 形式か（不正なら API を呼ばずに「見つかりません」を出す） */
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
+// UUID の判定は lib/guards.ts。ここから import しているテスト（timeline.test.ts）のために再エクスポートする
+export { isUuid } from "@/lib/guards";

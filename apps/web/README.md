@@ -32,8 +32,8 @@ NEXT_DIST_DIR=.next-dm     pnpm exec next dev -p 3002
 ## 環境変数
 
 `apps/web/.env.local`（gitignore 済み）に置く。キーの一覧と意味はリポジトリ直下の `.env.example`。
-値は `lib/env.ts`（公開値 `NEXT_PUBLIC_*`）と `lib/env.server.ts`（サーバー専用 `BUNNY_*`）で zod 検証し、
-不正ならルートレイアウトの描画時に分かりやすいエラーで停止する。
+値は `lib/env.ts`（公開値 `NEXT_PUBLIC_*`。全画面のクライアントバンドルに入るため zod を使わず手書きで検証）と
+`lib/env.server.ts`（サーバー専用 `BUNNY_*`。zod で検証）で検証し、不正ならルートレイアウトの描画時に分かりやすいエラーで停止する。
 
 | 変数 | 用途 |
 | --- | --- |
@@ -83,6 +83,7 @@ lib/
   home-scroll.ts        ホームのスクロール位置（別のタブから Home タブで戻ったときに復元）
   format.ts             相対時刻・件数の日本語表記
   text.ts               絵文字を壊さない先頭文字・文字数
+  guards.ts             共通の型ガード（isRecord / isUuid）
   navigation.ts         アプリ内の「戻る」+ 端末の「戻る」でシート・モーダルを閉じる履歴管理
                         （pushState / replaceState を包み、シートを閉じる history.go(-n) の着地まで Next.js の履歴の書き込みを保留する）
 middleware.ts           セッション更新 + 未ログインは /login へ（判定は lib/auth/route-gate.ts）

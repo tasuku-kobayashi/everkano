@@ -21,6 +21,33 @@ describe("sanitizeNextPath", () => {
     expect(sanitizeNextPath("/login?next=/x")).toBe("/");
     expect(sanitizeNextPath("/auth/callback")).toBe("/");
   });
+
+  it("ドットセグメントで正規化すると認証系のページになるパスは除外（正規化後のパスで判定する）", () => {
+    for (const next of [
+      "/x/../login",
+      "/x/../login?error=withdrawn",
+      "/./login",
+      "/login/",
+      "/login/x",
+      "/dm/../auth/confirm?token_hash=a",
+      "/dm/../../auth/confirm",
+      // パーセントエンコードされたドットは正規化されないので拒否
+      "/%2e%2e/auth/confirm",
+      "/%2E%2E/login",
+      "/dm/%2e%2e/login",
+    ]) {
+      expect(sanitizeNextPath(next), next).toBe("/");
+    }
+  });
+
+  it("通常のパスはそのまま（ドットセグメントは解決した形で返す）", () => {
+    expect(sanitizeNextPath("/c/misaki?tab=posts")).toBe("/c/misaki?tab=posts");
+    expect(sanitizeNextPath("/posts/p1?comment=c1&x=1")).toBe("/posts/p1?comment=c1&x=1");
+    expect(sanitizeNextPath("/search?q=%E7%8C%AB")).toBe("/search?q=%E7%8C%AB");
+    expect(sanitizeNextPath("/posts/p1#c1")).toBe("/posts/p1#c1");
+    expect(sanitizeNextPath("/x/../dm/c1")).toBe("/dm/c1");
+    expect(sanitizeNextPath("/login-help")).toBe("/login-help");
+  });
 });
 
 describe("emailRedirectUrl（signInWithOtp の emailRedirectTo）", () => {

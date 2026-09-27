@@ -6,14 +6,31 @@ export const ACCOUNT_BANNED_MESSAGE = "このアカウントは利用停止中�
 /**
  * ログイン後の遷移先（?next=）の検証。オープンリダイレクトを防ぐため、
  * 同一オリジンの相対パス（"/" で始まり "//" や "/\" で始まらない）のみ許可する。
+ *
+ * 返すのは URL として正規化したパス（"/x/../login" → "/login" のようにドットセグメントを解決した形）。
+ * 呼び出し側（middleware / window.location.replace / emailRedirectTo）はこの値をオリジンに対して解決するため、
+ * 正規化前の文字列の前方一致だけでは "/x/../login?error=withdrawn" が認証系ページの除外をすり抜ける。
  */
 export function sanitizeNextPath(next: string | null | undefined, fallback = "/"): string {
   if (!next) return fallback;
   if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
   if (/[\u0000-\u001f]/.test(next)) return fallback;
-  // 認証系のページへ戻すとループするため除外
-  if (next.startsWith("/login") || next.startsWith("/auth/")) return fallback;
-  return next;
+  // パーセントエンコードされたドット（%2e%2e など）は URL の正規化では解決されず、サーバー側の解釈に依存するため拒否
+  if (/%2e/i.test(next)) return fallback;
+  let url: URL;
+  try {
+    url = new URL(next, "http://x");
+  } catch {
+    return fallback;
+  }
+  // 相対パスとして解決してオリジンが変わる形（"/\evil" の変種など）は外部への遷移
+  if (url.origin !== "http://x") return fallback;
+  const { pathname } = url;
+  // 認証系のページへ戻すとループするため除外（正規化後のパスで判定する）
+  if (pathname === "/login" || pathname.startsWith("/login/") || pathname.startsWith("/auth/")) {
+    return fallback;
+  }
+  return `${pathname}${url.search}${url.hash}`;
 }
 
 /** マジックリンクの戻り先のパス（signInWithOtp の emailRedirectTo。app/auth/callback/route.ts） */

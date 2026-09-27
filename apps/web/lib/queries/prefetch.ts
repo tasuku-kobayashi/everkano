@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { isUuid } from "@/lib/guards";
 import {
   characterPostCountQueryOptions,
   characterPostsQueryOptions,
@@ -6,7 +7,7 @@ import {
   normalizeHandle,
 } from "./characters";
 import { commentsQueryOptions } from "./comments";
-import { isUuid, postQueryOptions } from "./posts";
+import { postQueryOptions } from "./posts";
 
 /**
  * 遷移先の画面のデータを、リンクに触れた時点（pointerdown）で取りに行く。

@@ -8,6 +8,7 @@
  */
 
 import type { ApiErrorBody, ChatStreamEvent } from "@everkano/shared";
+import { isRecord } from "@/lib/guards";
 import { normalizeChatResponse } from "./normalize";
 
 /** 1 件のイベント（event 未指定は "message"） */
@@ -114,10 +115,6 @@ export function createSseParser(): SseParser {
 // ---------------------------------------------------------------------------
 // POST /chat/stream のイベント
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function parseJson(data: string): unknown {
   try {

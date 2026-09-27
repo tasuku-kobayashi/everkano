@@ -312,15 +312,62 @@ async function optimistic(
   return { previous };
 }
 
+/** 1 件を更新・削除するミューテーションのコンテキスト（失敗したらその 1 件だけを戻す） */
+interface MemoryItemContext extends MemoriesContext {
+  /** 操作前のその記憶（一覧に無ければ undefined） */
+  target: MemoryDTO | undefined;
+  /** 操作前の位置（削除の取り消しで元の位置に戻す。無ければ -1） */
+  index: number;
+}
+
+/** optimistic に加えて、対象の 1 件と位置（スナップショット時点）を控える */
+async function optimisticItem(
+  queryClient: QueryClient,
+  characterId: string,
+  memoryId: string,
+  update: (memories: MemoryDTO[]) => MemoryDTO[],
+): Promise<MemoryItemContext> {
+  const context = await optimistic(queryClient, characterId, update);
+  const index = context.previous?.findIndex((memory) => memory.id === memoryId) ?? -1;
+  const target = index >= 0 ? context.previous?.[index] : undefined;
+  return { ...context, target, index };
+}
+
 /**
- * 楽観的更新を取り消す。一覧を読み込めていなかった（previous が undefined）場合は setQueryData で
- * undefined に戻せない（無視される）ため、読み込み前の状態に戻して取り直す。
+ * 更新・削除の楽観的更新を取り消す。一覧ごとスナップショットに戻すと、並行して進んでいる他の記憶の
+ * 楽観的更新（や確定した結果）まで消えるため、失敗した 1 件だけを戻す:
+ * - update: 一覧にまだあれば操作前の内容に戻す（並行する削除で消えていれば何もしない）
+ * - delete: 一覧に無ければ元の位置に戻す（並行する追加・削除で位置がずれていても末尾を超えない）
+ * 一覧を読み込めていなかった（previous が undefined）場合は setQueryData で undefined に戻せない
+ * （無視される）ため、読み込み前の状態に戻して取り直す。
  */
-function rollback(queryClient: QueryClient, characterId: string, context?: MemoriesContext) {
+function rollbackItem(
+  queryClient: QueryClient,
+  characterId: string,
+  mode: "update" | "delete",
+  context?: MemoryItemContext,
+) {
   if (!context) return;
   const queryKey = queryKeys.memories(characterId);
-  if (context.previous === undefined) void queryClient.resetQueries({ queryKey, exact: true });
-  else queryClient.setQueryData(queryKey, context.previous);
+  if (context.previous === undefined) {
+    void queryClient.resetQueries({ queryKey, exact: true });
+    return;
+  }
+  const { target, index } = context;
+  if (!target) return;
+  queryClient.setQueryData<MemoryDTO[]>(queryKey, (memories) => {
+    if (!memories) return memories;
+    const present = memories.some((memory) => memory.id === target.id);
+    if (mode === "update") {
+      return present
+        ? memories.map((memory) => (memory.id === target.id ? target : memory))
+        : memories;
+    }
+    if (present) return memories;
+    const next = [...memories];
+    next.splice(Math.min(index, next.length), 0, target);
+    return next;
+  });
 }
 
 /** 最後のミューテーションが終わったときだけ再取得する（途中で古いサーバー状態に戻って見えるのを防ぐ） */
@@ -458,21 +505,40 @@ export function nextTempMemoryId(): string {
   return `${TEMP_MEMORY_PREFIX}${Date.now().toString(36)}-${tempSeq}`;
 }
 
+export interface UpdateMemoryVariables {
+  memoryId: string;
+  patch: UpdateMemoryRequest;
+}
+
 /** 記憶を更新（PATCH /memories/{id}）— 内容・優先度・タグ */
 export function useUpdateMemory(characterId: string) {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation(updateMemoryMutationOptions(queryClient, characterId));
+}
+
+/** useUpdateMemory の設定（楽観的更新・失敗時はその 1 件だけ取り消す。単体テスト用に切り出している） */
+export function updateMemoryMutationOptions(
+  queryClient: QueryClient,
+  characterId: string,
+  updateMemory: (memoryId: string, patch: UpdateMemoryRequest) => Promise<MemoryDTO> = (
+    memoryId,
+    patch,
+  ) => api.updateMemory(memoryId, patch),
+) {
+  return mutationOptions<MemoryDTO, unknown, UpdateMemoryVariables, MemoryItemContext>({
     mutationKey: memoriesMutationKey(characterId),
-    mutationFn: ({ memoryId, patch }: { memoryId: string; patch: UpdateMemoryRequest }) =>
-      api.updateMemory(memoryId, patch),
+    mutationFn: ({ memoryId, patch }) => updateMemory(memoryId, patch),
     onMutate: async ({ memoryId, patch }) =>
-      optimistic(queryClient, characterId, (memories) => patchMemory(memories, memoryId, patch)),
+      optimisticItem(queryClient, characterId, memoryId, (memories) =>
+        patchMemory(memories, memoryId, patch),
+      ),
     onSuccess: (updated) => {
       queryClient.setQueryData<MemoryDTO[]>(queryKeys.memories(characterId), (memories) =>
         (memories ?? []).map((memory) => (memory.id === updated.id ? updated : memory)),
       );
     },
-    onError: (_error, _variables, context) => rollback(queryClient, characterId, context),
+    onError: (_error, _variables, context) =>
+      rollbackItem(queryClient, characterId, "update", context),
     onSettled: () => settle(queryClient, characterId),
   });
 }
@@ -480,14 +546,24 @@ export function useUpdateMemory(characterId: string) {
 /** 記憶を削除（DELETE /memories/{id}） */
 export function useDeleteMemory(characterId: string) {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation(deleteMemoryMutationOptions(queryClient, characterId));
+}
+
+/** useDeleteMemory の設定（楽観的更新・失敗時はその 1 件だけ元の位置に戻す。単体テスト用に切り出している） */
+export function deleteMemoryMutationOptions(
+  queryClient: QueryClient,
+  characterId: string,
+  deleteMemory: (memoryId: string) => Promise<void> = (memoryId) => api.deleteMemory(memoryId),
+) {
+  return mutationOptions<void, unknown, { memoryId: string }, MemoryItemContext>({
     mutationKey: memoriesMutationKey(characterId),
-    mutationFn: ({ memoryId }: { memoryId: string }) => api.deleteMemory(memoryId),
+    mutationFn: ({ memoryId }) => deleteMemory(memoryId),
     onMutate: async ({ memoryId }) =>
-      optimistic(queryClient, characterId, (memories) =>
+      optimisticItem(queryClient, characterId, memoryId, (memories) =>
         memories.filter((memory) => memory.id !== memoryId),
       ),
-    onError: (_error, _variables, context) => rollback(queryClient, characterId, context),
+    onError: (_error, _variables, context) =>
+      rollbackItem(queryClient, characterId, "delete", context),
     onSettled: () => settle(queryClient, characterId),
   });
 }

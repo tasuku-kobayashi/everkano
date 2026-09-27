@@ -11,11 +11,12 @@ import { toAppError } from "@/lib/api/errors";
 import { api } from "@/lib/api";
 import type { MyAccount } from "@/lib/auth/account";
 import { anonymousUserName } from "@/lib/format";
+import { isUuid } from "@/lib/guards";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { TypedSupabaseClient } from "@/lib/supabase/types";
 import { queryKeys } from "./keys";
 import { uniqueSuffix } from "./messages";
-import { isUuid, updatePostInCaches, type Post, type PostAuthor } from "./posts";
+import { updatePostInCaches, type Post, type PostAuthor } from "./posts";
 
 /**
  * 投稿のコメント。

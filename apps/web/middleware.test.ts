@@ -108,6 +108,11 @@ describe("middleware の matcher（config.matcher）", () => {
       "/auth/confirm",
       "/auth/callback",
       "/media/posts/abc",
+      // handle や id が拡張子のように見えるパス（HANDLE_RE は x.png を許す）も静的ファイル扱いにしない
+      "/c/x.png",
+      "/posts/a.txt",
+      "/dm/a.svg",
+      "/search/x.xml",
     ]) {
       expect(matches(path), path).toBe(true);
     }
@@ -120,8 +125,13 @@ describe("middleware の matcher（config.matcher）", () => {
       "/sw.js",
       "/manifest.json",
       "/icons/icon-192.png",
+      "/icons/x.png",
       "/favicon.ico",
       "/robots.txt",
+      // ルート直下の拡張子付き静的ファイル（public/ 直下）
+      "/apple-touch-icon.png",
+      "/sitemap.xml",
+      "/site.webmanifest",
       // 画像の拡張子を持つパスは /media でも middleware を通らない。
       // そのため /media/[...key] の Route Handler 自身がセッションを確認して 401 を返す（app/media/[...key]/route.test.ts）
       "/media/posts/a.jpg",

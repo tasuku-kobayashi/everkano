@@ -1,5 +1,6 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
+import { isRecord } from "@/lib/guards";
 
 /**
  * アプリ内の戻る操作。
@@ -96,10 +97,6 @@ let flushScheduled = false;
 const deferredHistoryOps: (() => void)[] = [];
 /** pushState / replaceState を包んだ History（1 回だけ包む） */
 let guardedHistory: History | null = null;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function overlayIdOf(state: unknown): string | undefined {
   if (!isRecord(state)) return undefined;
