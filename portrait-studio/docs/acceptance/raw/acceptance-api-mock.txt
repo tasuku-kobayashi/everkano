@@ -1,0 +1,370 @@
+
+### 3. 疎通（torch/cuda バージョンと VRAM が返る）
+$ curl -s http://127.0.0.1:18500/api/health
+{"ok":true,"gpu":"Mock GPU (ComfyUI mock, no real GPU)","vram_total_mb":12282,"vram_free_mb":11000,"torch":"0.0.0+mock","cuda":null,"comfy_version":"mock-0.0","checkpoints":["mock_photoreal_xl_v1.safetensors","mock_photoreal_xl_v2.safetensors"],"face_methods":["pulid","faceid","instantid"],"comfy_connected":true,"face_engine":"mock","face_engine_ready":true,"workflows":[{"method":"txt2img","file":"portrait_txt2img_api.json","ok":true,"issues":[]},{"method":"pulid","file":"portrait_pulid_api.json","ok":true,"issues":[]},{"method":"faceid","file":"portrait_faceid_api.json","ok":true,"issues":[]},{"method":"instantid","file":"portrait_instantid_api.json","ok":true,"issues":[]}],"version":"0.1.0","error":null}
+
+### 4. 認証が効いている（期待 401）
+401
+→ OK (HTTP 401)
+
+### 8. 参照顔の品質分析
+{
+    "items": [
+        {
+            "index": 0,
+            "filename": "face_a_front.png",
+            "image_id": "01M3HXJVGNQ51R0G701GTJ0JGV",
+            "face_count": 1,
+            "quality": {
+                "face_count": 1,
+                "face_ratio": 0.2025,
+                "det_score": 0.95,
+                "sharpness": 344.49,
+                "yaw": 0.24,
+                "pitch": 0.0,
+                "roll": 0.0,
+                "composite": 0.9907,
+                "warnings": [],
+                "usable": true,
+                "grade": "recommended"
+            },
+            "warnings": [],
+            "embedding_id": "e_a222e79db418",
+            "usable": true,
+            "thumb_url": "/api/images/01M3HXJVGNQ51R0G701GTJ0JGV/thumb",
+            "file_url": "/api/images/01M3HXJVGNQ51R0G701GTJ0JGV/file"
+        },
+        {
+            "index": 1,
+            "filename": "face_a_side.png",
+            "image_id": "01M3HXJVK83T80RDR9NQ055P8X",
+            "face_count": 1,
+            "quality": {
+                "face_count": 1,
+                "face_ratio": 0.2025,
+                "det_score": 0.95,
+                "sharpness": 343.16,
+                "yaw": 34.12,
+                "pitch": 0.0,
+                "roll": 0.0,
+                "composite": 0.7271,
+                "warnings": [
+                    "not_frontal"
+                ],
+                "usable": true,
+                "grade": "acceptable"
+            },
+            "warnings": [
+                "not_frontal"
+            ],
+            "embedding_id": "e_a222e79db418",
+            "usable": true,
+            "thumb_url": "/api/images/01M3HXJVK83T80RDR9NQ055P8X/thumb",
+            "file_url": "/api/images/01M3HXJVK83T80RDR9NQ055P8X/file"
+        }
+    ],
+    "similarity_matrix": [
+        [
+            1.0,
+            1.0
+        ],
+        [
+            1.0,
+            1.0
+        ]
+    ],
+    "clusters": [
+        [
+            0,
+            1
+        ]
+    ],
+    "recommended_index": 0,
+    "recommend_reason": "\u6b63\u9762\u30fb\u9ad8\u7cbe\u7d30\u30fb\u9854\u30b5\u30a4\u30ba\u5341\u5206\u30fb\u540c\u4e00\u4eba\u7269\u30b0\u30eb\u30fc\u30d7\uff082\u679a\uff09\u306e\u4e2d\u3067\u6700\u9ad8\u30b9\u30b3\u30a2",
+    "thresholds": {
+        "face_ratio_min": 0.08,
+        "det_score_min": 0.6,
+        "yaw_max_deg": 15.0,
+        "sharpness_min": 60.0,
+        "recommend_min": 0.75,
+        "acceptable_min": 0.5,
+        "cluster": 0.5,
+        "similarity_good": 0.75,
+        "similarity_acceptable": 0.6
+    }
+}
+
+### 9. 顔が無い画像が弾かれること（期待 face_count=0 と使用不可）
+{
+    "items": [
+        {
+            "index": 0,
+            "filename": "landscape.png",
+            "image_id": "01M3HXJVSFXFKW47J6EC1ZZP46",
+            "face_count": 0,
+            "quality": null,
+            "warnings": [
+                "no_face"
+            ],
+            "embedding_id": null,
+            "usable": false,
+            "thumb_url": "/api/images/01M3HXJVSFXFKW47J6EC1ZZP46/thumb",
+            "file_url": "/api/images/01M3HXJVSFXFKW47J6EC1ZZP46/file"
+        }
+    ],
+    "similarity_matrix": [
+        [
+            null
+        ]
+    ],
+    "clusters": [
+        [
+            0
+        ]
+    ],
+    "recommended_index": null,
+    "recommend_reason": "\u4f7f\u7528\u3067\u304d\u308b\u53c2\u7167\u9854\u304c\u3042\u308a\u307e\u305b\u3093\uff08\u9854\u304c\u691c\u51fa\u3067\u304d\u308b\u753b\u50cf\u3092\u7528\u610f\u3057\u3066\u304f\u3060\u3055\u3044\uff09",
+    "thresholds": {
+        "face_ratio_min": 0.08,
+        "det_score_min": 0.6,
+        "yaw_max_deg": 15.0,
+        "sharpness_min": 60.0,
+        "recommend_min": 0.75,
+        "acceptable_min": 0.5,
+        "cluster": 0.5,
+        "similarity_good": 0.75,
+        "similarity_acceptable": 0.6
+    }
+}
+
+### 10. 種顔のドラフト生成（期待 202 と job_id）
+{"job_id":"01M3HXJVTY993JK903A0AVGAA3","position":0}
+HTTP 202
+draft job → done
+
+### 11. 合成申告なしでは登録できないこと（期待 400）
+400
+→ OK (HTTP 400)
+
+### 登録（受け入れ 12〜16 の前提。参照顔 = 8 の画像）
+{
+    "id": "01M3HXJXZZNZS8TCYQDZC3RQ99",
+    "name": "\u53d7\u3051\u5165\u308c\u82b1\u5b50",
+    "tags": [],
+    "description": "",
+    "status": "active",
+    "is_synthetic": true,
+    "adult_confirmed": true,
+    "current_version": 1,
+    "created_at": "2026-09-27T17:11:15.222657+00:00",
+    "updated_at": "2026-09-27T17:11:15.222657+00:00",
+    "stats": {
+        "generations": 0,
+        "last_used": null
+    },
+    "thumbnail_url": "/api/characters/01M3HXJXZZNZS8TCYQDZC3RQ99/references/01M3HXJY0MC47GSVYSDABZ8FA4/file",
+    "reference_urls": [
+        "/api/characters/01M3HXJXZZNZS8TCYQDZC3RQ99/references/01M3HXJY0MC47GSVYSDABZ8FA4/file"
+    ],
+    "face_method": "pulid",
+    "locked": {
+        "checkpoint": "mock_photoreal_xl_v1.safetensors",
+        "face_method": "pulid",
+        "face_weight": 0.8,
+        "prefix_prompt": "photorealistic, RAW photo, realistic, japanese, asian, natural skin texture, visible skin pores, film grain, 35mm photograph, soft natural lighting, detailed eyes, sharp focus, professional photography",
+        "negative_prompt": "anime, cartoon, illustration, 3d render, cgi, painting, drawing, plastic skin, airbrushed, doll, oversmooth, deformed anatomy, bad hands, extra digits, fewer digits, watermark, signature, text, jpeg artifacts, lowres, blurry",
+        "default_width": 832,
+        "default_height": 1216,
+        "face_detailer_denoise": 0.35,
+        "hires_max": 1.3,
+        "lora": null,
+        "lora_strength": 0.0
+    },
+    "references": [
+        {
+            "id": "01M3HXJY0MC47GSVYSDABZ8FA4",
+            "position": 0,
+            "source_image_id": "01M3HXJVGNQ51R0G701GTJ0JGV",
+            "quality": {
+                "face_count": 1,
+character_id = 01M3HXJXZZNZS8TCYQDZC3RQ99
+
+### 5. 成人フラグ必須（期待 400）
+400
+→ OK (HTTP 400)
+{"detail":"adult_only: true が必須です（成人キャラクター限定の生成であることを明示してください）"}
+
+### 6. locked 保護（allow_locked_override なしで overrides。期待 400 と「この操作はキャラの同一性を変えます」）
+{"detail":"この操作はキャラの同一性を変えます（face_weight）。変更すると以降の生成は別人になる可能性があります。続行するには allow_locked_override: true を明示してください。"}
+HTTP 400
+→ OK (HTTP 400)
+
+### 7. 危険な解像度の拒否（12GB 保護。期待 400 と推定 VRAM / 未実測の説明）
+{"detail":"VRAM 見積りが未実測のため拒否しました。pulid 2048×2048 upscale 1 face_detailer=on は未実測です。scripts/measure_vram.py で実測して vram_table.json に追加するか、実測済みの組み合わせ（既定 832×1216）を使ってください。"}
+HTTP 400
+→ OK (HTTP 400)
+
+### 12. 同一性検証（9 枚。期待 202 と job_id）
+{"job_id":"01M3HXJY4WRJ0XAT52DR6FHNSC","position":0}
+HTTP 202
+verify job → done
+{"status": "done", "images": 9, "by_weight": {"0.6": 0.0358, "0.8": 1.0, "1": 1.0}, "best_weight": 0.8}
+
+### 13. 生成（期待 202 と job_id）
+{"job_id":"01M3HXK2VGQGJXTJTMC1M8P89R","position":0}
+HTTP 202
+
+### 14. ジョブの進捗が取れること（status / progress / result_image_ids）
+{
+    "id": "01M3HXK2VGQGJXTJTMC1M8P89R",
+    "type": "generate",
+    "status": "running",
+    "progress": {
+        "step": 0,
+        "total": 0,
+        "current": 1,
+        "total_images": 4,
+        "stage": "1/4 \u679a\u76ee\u3092\u751f\u6210\u4e2d"
+    },
+    "queue_position": 0,
+    "request": {
+        "character_id": "01M3HXJXZZNZS8TCYQDZC3RQ99",
+        "prompt": "standing in a cafe, casual outfit",
+        "negative_prompt": null,
+        "count": 4,
+        "seed": 12345,
+        "width": 832,
+        "height": 1216,
+        "upscale": 1.0,
+        "face_detailer": true,
+        "scene_ids": [],
+        "steps": null,
+        "cfg": null,
+        "sampler_name": null,
+        "scheduler": null,
+        "overrides": null,
+        "allow_locked_override": false,
+        "save_as_version": false,
+generate job → done
+{
+    "id": "01M3HXK2VGQGJXTJTMC1M8P89R",
+    "type": "generate",
+    "status": "done",
+    "progress": {
+        "step": 3,
+        "total": 3,
+        "current": 4,
+        "total_images": 4,
+        "stage": "4/4 \u679a\u76ee\u3092\u751f\u6210\u4e2d"
+    },
+    "queue_position": null,
+    "request": {
+        "character_id": "01M3HXJXZZNZS8TCYQDZC3RQ99",
+        "prompt": "standing in a cafe, casual outfit",
+        "negative_prompt": null,
+        "count": 4,
+        "seed": 12345,
+        "width": 832,
+        "height": 1216,
+        "upscale": 1.0,
+        "face_detailer": true,
+        "scene_ids": [],
+        "steps": null,
+        "cfg": null,
+        "sampler_name": null,
+        "scheduler": null,
+        "overrides": null,
+        "allow_locked_override": false,
+        "save_as_version": false,
+
+### 15. 別シーンでも同一人物であること（beach, seed 999）→ 類似度で確認
+{"job_id":"01M3HXK52KS4J6G27CYT9315ZX","position":0}
+generate job → done
+[
+ {
+  "id": "01M3HXK5ZTJA4RY0ST71F7G4P5",
+  "seed": 1000,
+  "prompt": "at the beach, swimwear",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK5FB1RJNR1FEANDXQVS3",
+  "seed": 999,
+  "prompt": "at the beach, swimwear",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK4SC1DJBSAZ3BM7N7HMR",
+  "seed": 12348,
+  "prompt": "standing in a cafe, casual outfit",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK484BJPXWMZXQSRH2VB7",
+  "seed": 12347,
+  "prompt": "standing in a cafe, casual outfit",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK3QDS4QPM6WAMV1R1ASN",
+  "seed": 12346,
+  "prompt": "standing in a cafe, casual outfit",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK3840G950ZRYV22GHTJW",
+  "seed": 12345,
+  "prompt": "standing in a cafe, casual outfit",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK287F1V54GGYRFEPKZWS",
+  "seed": 3464964489,
+  "prompt": "",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK1SJ0YEWAGE4GSHQ54RB",
+  "seed": 3464964488,
+  "prompt": "",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK1AP485RC73RCNHDEQNR",
+  "seed": 3464964487,
+  "prompt": "",
+  "similarity": 1.0,
+  "status": "computed"
+ },
+ {
+  "id": "01M3HXK0VT80QA3FT5M0GDQJ23",
+  "seed": 3464964489,
+  "prompt": "",
+  "similarity": 1.0,
+  "status": "computed"
+ }
+]
+
+### 16. 類似度が計算されていること
+$ curl -s -H X-API-Key: acceptance-run-key-0123456789 -H Content-Type: application/json http://127.0.0.1:18500/api/images/01M3HXK3840G950ZRYV22GHTJW/similarity
+{"image_id":"01M3HXK3840G950ZRYV22GHTJW","similarity":1.0,"status":"computed","reason":null,"reference_id":"01M3HXJY0MC47GSVYSDABZ8FA4","grade":"good"}
+
+### 17. 監査ログ（生成ジョブ数 = draft 1 + verify 1 + generate 2 = 4 行を期待）
+total_lines: 4 path: /tmp/claude-0/-home-user-everkano/6cbb70e3-b7f0-59c9-b712-af740fb111a0/scratchpad/acc/data/logs/audit.jsonl
+{"endpoint": "/api/generate", "status": "done", "count": 2, "face_method": "pulid", "seed": 999, "duration_ms": 1038}
+{"endpoint": "/api/generate", "status": "done", "count": 4, "face_method": "pulid", "seed": 12345, "duration_ms": 2072}
+{"endpoint": "/api/characters/{id}/verify", "status": "done", "count": 9, "face_method": "pulid", "seed": -1, "duration_ms": 4283}
+{"endpoint": "/api/characters/draft", "status": "done", "count": 4, "face_method": null, "seed": -1, "duration_ms": 1851}
+$ wc -l /tmp/claude-0/-home-user-everkano/6cbb70e3-b7f0-59c9-b712-af740fb111a0/scratchpad/acc/data/logs/audit.jsonl
+4 /tmp/claude-0/-home-user-everkano/6cbb70e3-b7f0-59c9-b712-af740fb111a0/scratchpad/acc/data/logs/audit.jsonl
+
+
+ACCEPTANCE (API 3–17): all expectations met

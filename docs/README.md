@@ -14,7 +14,7 @@ everkano（Project P MVP）のドキュメント一覧。環境構築・テス�
 | [handover/07-security.md](handover/07-security.md) | 脅威モデル・H4 / H7・エンジンの E1〜E9・RLS のテスト                                                 |                                                     |
 | [handover/08-dev-guide.md](handover/08-dev-guide.md) | 開発の約束・エンドポイント追加・DB 変更・テスト・コミット / PR・ブランチ保護                       |                                                     |
 | [handover/supabase-auth.md](handover/supabase-auth.md) | ホスト版 Supabase の Auth 設定チェックリスト                                                   | `infra/supabase/config.toml` の Auth 設定を変えたとき |
-| [adr/](adr/README.md)                           | 設計判断の記録（ADR-0001〜0049。0035 以降がキャラクターエンジン v1.0）。コードのコメントから番号で参照される | 設計判断をしたとき（新しい番号で追加）              |
+| [adr/](adr/README.md)                           | 設計判断の記録（ADR-0001〜0050。0035 以降がキャラクターエンジン v1.0、0050 は portrait-studio の配置）。コードのコメントから番号で参照される | 設計判断をしたとき（新しい番号で追加）              |
 | [character-engine-report.md](character-engine-report.md) | キャラクターエンジン v1.0 の最終報告（全指標の結果・コスト・レイテンシ・提出物・残っている確認事項） | エンジンの評価をやり直したとき |
 | [eval/](eval/README.md)                         | キャラクターエンジンの評価ハーネスの使い方・指標・判定のプロンプト（`eval/prompts/`）・結果（`eval/results/`）・推移（`eval/history.md`） | プロンプト・パラメータを変えたとき（再実行して記録） |
 | [api/openapi.json](api/openapi.json)            | Python API の OpenAPI（生成物。`pnpm --filter @everkano/api openapi`）                                   | API のモデルを変えたとき（CI が差分を検出）         |
@@ -22,6 +22,7 @@ everkano（Project P MVP）のドキュメント一覧。環境構築・テス�
 | [acceptance/e2e-results.md](acceptance/e2e-results.md) | E2E（Playwright）の実行結果の詳細                                                               | E2E を実行したとき                                  |
 | [acceptance/inspection-report.md](acceptance/inspection-report.md) | 納品前の検査の報告（観点別・重大度別の件数、修正前後の計測値、修正した項目、未対応の項目と推奨する対応） | 検査・再検査をしたとき                              |
 | [acceptance/raw/](acceptance/raw/)              | 各テストの生の出力（Playwright・pgTAP・pytest・監査ログのサンプル・会話ログ）                           |                                                     |
+| [../portrait-studio/](../portrait-studio/README.md) | 同一キャラクター画像生成のローカルツール（ComfyUI + FastAPI + React。MVP の外。[ADR-0050](adr/0050-portrait-studio-local-image-tool.md)） | ツールを変えたとき |
 | [acceptance/screenshots/](acceptance/screenshots/) | 全 26 画面 × ライト / ダークのスクリーンショット（エミュレーション。画像はダミー。23〜26 はエンジン v1.0 の画面） | `apps/web/e2e/screenshots.spec.ts` で再生成          |
 
 各パッケージの README: [apps/web](../apps/web/README.md) / [apps/web/e2e](../apps/web/e2e/README.md) / [apps/api](../apps/api/README.md) /

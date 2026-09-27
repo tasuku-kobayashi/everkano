@@ -1,0 +1,64 @@
+# =============================================================================
+# portrait-studio — ComfyUI (GPU) + API/UI. Local only: both ports are published on 127.0.0.1.
+#
+#   cp .env.example .env && edit API_KEY (required) and MODELS_DIR
+#   scripts/install_models.sh            # models into ${MODELS_DIR} (ext4 side of WSL2, never /mnt/c)
+#   docker compose up --build            # ComfyUI :8188 (127.0.0.1) + API/UI :8000 (127.0.0.1)
+#   scripts/verify_env.sh                # cu128 / sm_120 / nodes / workflows
+# =============================================================================
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTORCH_IMAGE: ${PYTORCH_IMAGE:-pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel}
+        COMFYUI_REF: ${COMFYUI_REF:-master}
+    image: portrait-studio-comfyui:local
+    # ComfyUI's /prompt executes arbitrary workflows without auth: never publish on 0.0.0.0
+    ports:
+      - "127.0.0.1:8188:8188"
+    volumes:
+      - ${MODELS_DIR:-./data/models}:/opt/ComfyUI/models
+      - ${DATA_DIR:-./data}/comfy-input:/opt/ComfyUI/input
+      - ${DATA_DIR:-./data}/comfy-output:/opt/ComfyUI/output
+    environment:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    # insightface / dataloaders need more shared memory than Docker's 64 MB default
+    shm_size: "8gb"
+    command: ["--preview-method", "none", "${COMFY_EXTRA_ARGS:---normalvram}"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: portrait-studio-api:local
+    depends_on:
+      - comfyui
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      COMFY_URL: http://comfyui:8188
+      DATA_DIR: /data
+      WORKFLOWS_DIR: /app/workflows
+      WEB_DIST_DIR: /app/web/dist
+      COMPLIANCE_PATH: /app/docs/COMPLIANCE.md
+      FACE_MODEL_ROOT: /models/insightface
+      HOST: 0.0.0.0
+      PORT: "8000"
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      # antelopev2 for the API's insightface (same files ComfyUI uses): ${MODELS_DIR}/insightface/models/antelopev2
+      - ${MODELS_DIR:-./data/models}/insightface:/models/insightface:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped

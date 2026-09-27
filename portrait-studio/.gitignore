@@ -1,0 +1,14 @@
+# portrait-studio local state (models, images, references, SQLite, audit log)
+data/
+.env
+!.env.example
+api/.venv/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/e2e/.tmp/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

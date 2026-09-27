@@ -1,0 +1,6395 @@
+{
+  "components": {
+    "schemas": {
+      "AnalyzeItem": {
+        "additionalProperties": false,
+        "properties": {
+          "embedding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Id"
+          },
+          "face_count": {
+            "title": "Face Count",
+            "type": "integer"
+          },
+          "file_url": {
+            "title": "File Url",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "image_id": {
+            "title": "Image Id",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualitySchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "thumb_url": {
+            "title": "Thumb Url",
+            "type": "string"
+          },
+          "usable": {
+            "title": "Usable",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "filename",
+          "image_id",
+          "face_count",
+          "quality",
+          "warnings",
+          "embedding_id",
+          "usable",
+          "thumb_url",
+          "file_url"
+        ],
+        "title": "AnalyzeItem",
+        "type": "object"
+      },
+      "AnalyzeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "clusters": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Clusters",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyzeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "recommend_reason": {
+            "title": "Recommend Reason",
+            "type": "string"
+          },
+          "recommended_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Index"
+          },
+          "similarity_matrix": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Similarity Matrix",
+            "type": "array"
+          },
+          "thresholds": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Thresholds",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "similarity_matrix",
+          "clusters",
+          "recommended_index",
+          "recommend_reason",
+          "thresholds"
+        ],
+        "title": "AnalyzeResponse",
+        "type": "object"
+      },
+      "AuditResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "total_lines": {
+            "title": "Total Lines",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "path",
+          "total_lines"
+        ],
+        "title": "AuditResponse",
+        "type": "object"
+      },
+      "Body_analyze_api_characters_analyze_post": {
+        "properties": {
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "contentMediaType": "application/octet-stream",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          },
+          "image_ids": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "comma-separated existing image ids (drafts)",
+            "title": "Image Ids"
+          }
+        },
+        "title": "Body_analyze_api_characters_analyze_post",
+        "type": "object"
+      },
+      "BulkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "updated"
+        ],
+        "title": "BulkResponse",
+        "type": "object"
+      },
+      "CharacterCreateRequest": {
+        "additionalProperties": false,
+        "description": "Registration (wizard step 4) or draft creation (`draft: true`, wizard step 3: only used for verification).",
+        "properties": {
+          "adult_confirmed": {
+            "default": false,
+            "title": "Adult Confirmed",
+            "type": "boolean"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Description",
+            "type": "string"
+          },
+          "draft": {
+            "default": false,
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "is_synthetic": {
+            "default": false,
+            "title": "Is Synthetic",
+            "type": "boolean"
+          },
+          "locked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedParamsPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Image Id"
+          },
+          "reference_image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Reference Image Ids",
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "title": "CharacterCreateRequest",
+        "type": "object"
+      },
+      "CharacterDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "adult_confirmed": {
+            "title": "Adult Confirmed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "face_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pulid",
+                  "faceid",
+                  "instantid"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Method"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_synthetic": {
+            "title": "Is Synthetic",
+            "type": "boolean"
+          },
+          "locked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedParamsSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reference_urls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference Urls",
+            "type": "array"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceSchema"
+            },
+            "title": "References",
+            "type": "array"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/CharacterStats"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tags",
+          "description",
+          "status",
+          "is_synthetic",
+          "adult_confirmed",
+          "current_version",
+          "created_at",
+          "updated_at",
+          "stats",
+          "thumbnail_url",
+          "reference_urls",
+          "face_method",
+          "locked",
+          "references",
+          "versions"
+        ],
+        "title": "CharacterDetail",
+        "type": "object"
+      },
+      "CharacterListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CharacterListResponse",
+        "type": "object"
+      },
+      "CharacterPatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "title": "CharacterPatchRequest",
+        "type": "object"
+      },
+      "CharacterRegisterRequest": {
+        "additionalProperties": false,
+        "description": "Finalize a draft character (wizard step 4).",
+        "properties": {
+          "adult_confirmed": {
+            "title": "Adult Confirmed",
+            "type": "boolean"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Description",
+            "type": "string"
+          },
+          "is_synthetic": {
+            "title": "Is Synthetic",
+            "type": "boolean"
+          },
+          "locked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedParamsPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "is_synthetic",
+          "adult_confirmed"
+        ],
+        "title": "CharacterRegisterRequest",
+        "type": "object"
+      },
+      "CharacterStats": {
+        "additionalProperties": false,
+        "properties": {
+          "generations": {
+            "title": "Generations",
+            "type": "integer"
+          },
+          "last_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used"
+          }
+        },
+        "required": [
+          "generations",
+          "last_used"
+        ],
+        "title": "CharacterStats",
+        "type": "object"
+      },
+      "CharacterSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "adult_confirmed": {
+            "title": "Adult Confirmed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "face_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pulid",
+                  "faceid",
+                  "instantid"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Method"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_synthetic": {
+            "title": "Is Synthetic",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reference_urls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference Urls",
+            "type": "array"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/CharacterStats"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tags",
+          "description",
+          "status",
+          "is_synthetic",
+          "adult_confirmed",
+          "current_version",
+          "created_at",
+          "updated_at",
+          "stats",
+          "thumbnail_url",
+          "reference_urls",
+          "face_method"
+        ],
+        "title": "CharacterSummary",
+        "type": "object"
+      },
+      "CharacterVersionSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "locked": {
+            "$ref": "#/components/schemas/LockedParamsSchema"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceSchema"
+            },
+            "title": "References",
+            "type": "array"
+          },
+          "thumbnail_url": {
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "locked",
+          "note",
+          "created_at",
+          "thumbnail_url",
+          "references"
+        ],
+        "title": "CharacterVersionSchema",
+        "type": "object"
+      },
+      "ComplianceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "markdown": {
+            "title": "Markdown",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "markdown",
+          "path"
+        ],
+        "title": "ComplianceResponse",
+        "type": "object"
+      },
+      "DeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "deleted_images": {
+            "default": 0,
+            "title": "Deleted Images",
+            "type": "integer"
+          },
+          "deleted_references": {
+            "default": 0,
+            "title": "Deleted References",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeleteResponse",
+        "type": "object"
+      },
+      "DraftRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cfg": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cfg"
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
+          "count": {
+            "default": 6,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "height": {
+            "default": 1216,
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "multipleOf": 8.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "negative_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Prompt"
+          },
+          "prompt": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "seed": {
+            "default": -1,
+            "minimum": -1.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "steps": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps"
+          },
+          "width": {
+            "default": 832,
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "multipleOf": 8.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "DraftRequest",
+        "type": "object"
+      },
+      "FreeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "free_mb_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Mb After"
+          },
+          "free_mb_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Mb Before"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "free_mb_before",
+          "free_mb_after"
+        ],
+        "title": "FreeResponse",
+        "type": "object"
+      },
+      "GenerateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "adult_only": {
+            "default": false,
+            "title": "Adult Only",
+            "type": "boolean"
+          },
+          "allow_locked_override": {
+            "default": false,
+            "title": "Allow Locked Override",
+            "type": "boolean"
+          },
+          "cfg": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cfg"
+          },
+          "character_id": {
+            "title": "Character Id",
+            "type": "string"
+          },
+          "count": {
+            "default": 4,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "face_detailer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Detailer"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "maximum": 2048.0,
+                "minimum": 512.0,
+                "multipleOf": 8.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "negative_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Prompt"
+          },
+          "overrides": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedParamsPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prompt": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "sampler_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sampler Name"
+          },
+          "save_as_version": {
+            "default": false,
+            "title": "Save As Version",
+            "type": "boolean"
+          },
+          "scene_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Scene Ids",
+            "type": "array"
+          },
+          "scheduler": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduler"
+          },
+          "seed": {
+            "default": -1,
+            "minimum": -1.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "steps": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps"
+          },
+          "upscale": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upscale"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "maximum": 2048.0,
+                "minimum": 512.0,
+                "multipleOf": 8.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "character_id",
+          "prompt"
+        ],
+        "title": "GenerateRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoints": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checkpoints",
+            "type": "array"
+          },
+          "comfy_connected": {
+            "title": "Comfy Connected",
+            "type": "boolean"
+          },
+          "comfy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comfy Version"
+          },
+          "cuda": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "face_engine": {
+            "title": "Face Engine",
+            "type": "string"
+          },
+          "face_engine_ready": {
+            "title": "Face Engine Ready",
+            "type": "boolean"
+          },
+          "face_methods": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Face Methods",
+            "type": "array"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "torch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torch"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "vram_free_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Free Mb"
+          },
+          "vram_total_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Total Mb"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowStatus"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "comfy_connected",
+          "face_engine",
+          "face_engine_ready",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImageBulkDeleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Image Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "image_ids"
+        ],
+        "title": "ImageBulkDeleteRequest",
+        "type": "object"
+      },
+      "ImageBulkPatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "add_tags": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Add Tags",
+            "type": "array"
+          },
+          "favorite": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite"
+          },
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Image Ids",
+            "type": "array"
+          },
+          "remove_tags": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Remove Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "image_ids"
+        ],
+        "title": "ImageBulkPatchRequest",
+        "type": "object"
+      },
+      "ImageDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "character_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
+          "character_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Name"
+          },
+          "character_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Version"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "face_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Method"
+          },
+          "favorite": {
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "file_url": {
+            "title": "File Url",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_adult": {
+            "title": "Is Adult",
+            "type": "boolean"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "kind": {
+            "enum": [
+              "generated",
+              "draft",
+              "verify",
+              "upload"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "params_snapshot": {
+            "additionalProperties": true,
+            "title": "Params Snapshot",
+            "type": "object"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          },
+          "similarity_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "computed",
+                  "no_face",
+                  "no_reference",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Status"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "thumb_url": {
+            "title": "Thumb Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "character_id",
+          "character_name",
+          "character_version",
+          "job_id",
+          "width",
+          "height",
+          "seed",
+          "similarity",
+          "similarity_status",
+          "is_adult",
+          "favorite",
+          "rating",
+          "tags",
+          "created_at",
+          "file_url",
+          "thumb_url",
+          "face_method",
+          "prompt",
+          "params_snapshot"
+        ],
+        "title": "ImageDetail",
+        "type": "object"
+      },
+      "ImageListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ImageListResponse",
+        "type": "object"
+      },
+      "ImagePatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "favorite": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "title": "ImagePatchRequest",
+        "type": "object"
+      },
+      "ImageSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "character_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
+          "character_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Name"
+          },
+          "character_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Version"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "face_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Method"
+          },
+          "favorite": {
+            "title": "Favorite",
+            "type": "boolean"
+          },
+          "file_url": {
+            "title": "File Url",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_adult": {
+            "title": "Is Adult",
+            "type": "boolean"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "kind": {
+            "enum": [
+              "generated",
+              "draft",
+              "verify",
+              "upload"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          },
+          "similarity_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "computed",
+                  "no_face",
+                  "no_reference",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Status"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "thumb_url": {
+            "title": "Thumb Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "character_id",
+          "character_name",
+          "character_version",
+          "job_id",
+          "width",
+          "height",
+          "seed",
+          "similarity",
+          "similarity_status",
+          "is_adult",
+          "favorite",
+          "rating",
+          "tags",
+          "created_at",
+          "file_url",
+          "thumb_url",
+          "face_method",
+          "prompt"
+        ],
+        "title": "ImageSchema",
+        "type": "object"
+      },
+      "ImageZipRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Image Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "image_ids"
+        ],
+        "title": "ImageZipRequest",
+        "type": "object"
+      },
+      "JobAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "position"
+        ],
+        "title": "JobAccepted",
+        "type": "object"
+      },
+      "JobListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "JobListResponse",
+        "type": "object"
+      },
+      "JobProgressSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_images": {
+            "title": "Total Images",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "total",
+          "current",
+          "total_images",
+          "stage"
+        ],
+        "title": "JobProgressSchema",
+        "type": "object"
+      },
+      "JobSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "character_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/JobProgressSchema"
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
+          "request": {
+            "additionalProperties": true,
+            "title": "Request",
+            "type": "object"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "result_image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Result Image Ids",
+            "type": "array"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "error",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "generate",
+              "draft",
+              "verify"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "progress",
+          "queue_position",
+          "request",
+          "result",
+          "result_image_ids",
+          "error",
+          "character_id",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "JobSchema",
+        "type": "object"
+      },
+      "LockedParamsPatch": {
+        "additionalProperties": false,
+        "description": "Partial LockedParams (used for `overrides`, registration adjustments and new versions).",
+        "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
+          "default_height": {
+            "anyOf": [
+              {
+                "maximum": 2048.0,
+                "minimum": 512.0,
+                "multipleOf": 8.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Height"
+          },
+          "default_width": {
+            "anyOf": [
+              {
+                "maximum": 2048.0,
+                "minimum": 512.0,
+                "multipleOf": 8.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Width"
+          },
+          "face_detailer_denoise": {
+            "anyOf": [
+              {
+                "maximum": 0.49,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Detailer Denoise"
+          },
+          "face_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pulid",
+                  "faceid",
+                  "instantid"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Method"
+          },
+          "face_weight": {
+            "anyOf": [
+              {
+                "maximum": 1.5,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Weight"
+          },
+          "hires_max": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hires Max"
+          },
+          "lora": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora"
+          },
+          "lora_strength": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora Strength"
+          },
+          "negative_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Prompt"
+          },
+          "prefix_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix Prompt"
+          }
+        },
+        "title": "LockedParamsPatch",
+        "type": "object"
+      },
+      "LockedParamsSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "minLength": 1,
+            "title": "Checkpoint",
+            "type": "string"
+          },
+          "default_height": {
+            "default": 1216,
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "multipleOf": 8.0,
+            "title": "Default Height",
+            "type": "integer"
+          },
+          "default_width": {
+            "default": 832,
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "multipleOf": 8.0,
+            "title": "Default Width",
+            "type": "integer"
+          },
+          "face_detailer_denoise": {
+            "default": 0.35,
+            "maximum": 0.49,
+            "minimum": 0.0,
+            "title": "Face Detailer Denoise",
+            "type": "number"
+          },
+          "face_method": {
+            "default": "pulid",
+            "enum": [
+              "pulid",
+              "faceid",
+              "instantid"
+            ],
+            "title": "Face Method",
+            "type": "string"
+          },
+          "face_weight": {
+            "default": 0.8,
+            "maximum": 1.5,
+            "minimum": 0.0,
+            "title": "Face Weight",
+            "type": "number"
+          },
+          "hires_max": {
+            "default": 1.3,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Hires Max",
+            "type": "number"
+          },
+          "lora": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lora"
+          },
+          "lora_strength": {
+            "default": 0.0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Lora Strength",
+            "type": "number"
+          },
+          "negative_prompt": {
+            "default": "anime, cartoon, illustration, 3d render, cgi, painting, drawing, plastic skin, airbrushed, doll, oversmooth, deformed anatomy, bad hands, extra digits, fewer digits, watermark, signature, text, jpeg artifacts, lowres, blurry",
+            "title": "Negative Prompt",
+            "type": "string"
+          },
+          "prefix_prompt": {
+            "default": "photorealistic, RAW photo, realistic, japanese, asian, natural skin texture, visible skin pores, film grain, 35mm photograph, soft natural lighting, detailed eyes, sharp focus, professional photography",
+            "title": "Prefix Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkpoint"
+        ],
+        "title": "LockedParamsSchema",
+        "type": "object"
+      },
+      "ModelsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "folders": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Folders",
+            "type": "object"
+          }
+        },
+        "required": [
+          "folders"
+        ],
+        "title": "ModelsResponse",
+        "type": "object"
+      },
+      "PreviewVramRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 1,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "face_detailer": {
+            "default": true,
+            "title": "Face Detailer",
+            "type": "boolean"
+          },
+          "height": {
+            "default": 1216,
+            "maximum": 8192.0,
+            "minimum": 64.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "method": {
+            "default": "pulid",
+            "title": "Method",
+            "type": "string"
+          },
+          "upscale": {
+            "default": 1.0,
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Upscale",
+            "type": "number"
+          },
+          "width": {
+            "default": 832,
+            "maximum": 8192.0,
+            "minimum": 64.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "PreviewVramRequest",
+        "type": "object"
+      },
+      "PreviewVramResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "title": "Advice",
+            "type": "string"
+          },
+          "basis": {
+            "enum": [
+              "measured",
+              "bounded",
+              "unknown"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "estimated_peak_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Peak Mb"
+          },
+          "free_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Mb"
+          },
+          "risk": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "unknown"
+            ],
+            "title": "Risk",
+            "type": "string"
+          },
+          "total_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Mb"
+          },
+          "would_reject": {
+            "title": "Would Reject",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "estimated_peak_mb",
+          "free_mb",
+          "total_mb",
+          "risk",
+          "basis",
+          "advice",
+          "would_reject"
+        ],
+        "title": "PreviewVramResponse",
+        "type": "object"
+      },
+      "QualitySchema": {
+        "additionalProperties": false,
+        "properties": {
+          "composite": {
+            "title": "Composite",
+            "type": "number"
+          },
+          "det_score": {
+            "title": "Det Score",
+            "type": "number"
+          },
+          "face_count": {
+            "title": "Face Count",
+            "type": "integer"
+          },
+          "face_ratio": {
+            "title": "Face Ratio",
+            "type": "number"
+          },
+          "grade": {
+            "enum": [
+              "recommended",
+              "acceptable",
+              "not_recommended",
+              "unusable"
+            ],
+            "title": "Grade",
+            "type": "string"
+          },
+          "pitch": {
+            "title": "Pitch",
+            "type": "number"
+          },
+          "roll": {
+            "title": "Roll",
+            "type": "number"
+          },
+          "sharpness": {
+            "title": "Sharpness",
+            "type": "number"
+          },
+          "usable": {
+            "title": "Usable",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "yaw": {
+            "title": "Yaw",
+            "type": "number"
+          }
+        },
+        "required": [
+          "face_count",
+          "face_ratio",
+          "det_score",
+          "sharpness",
+          "yaw",
+          "pitch",
+          "roll",
+          "composite",
+          "warnings",
+          "usable",
+          "grade"
+        ],
+        "title": "QualitySchema",
+        "type": "object"
+      },
+      "ReferenceSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "file_url": {
+            "title": "File Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_primary": {
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/QualitySchema"
+          },
+          "source_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Image Id"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "source_image_id",
+          "quality",
+          "is_primary",
+          "file_url"
+        ],
+        "title": "ReferenceSchema",
+        "type": "object"
+      },
+      "RegenerateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 1,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "keep_seed": {
+            "default": true,
+            "title": "Keep Seed",
+            "type": "boolean"
+          }
+        },
+        "title": "RegenerateRequest",
+        "type": "object"
+      },
+      "ScenePresetListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScenePresetSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ScenePresetListResponse",
+        "type": "object"
+      },
+      "ScenePresetSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "builtin": {
+            "default": false,
+            "title": "Builtin",
+            "type": "boolean"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "fragments": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Fragments",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 60,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "verify": {
+            "default": false,
+            "title": "Verify",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScenePresetSchema",
+        "type": "object"
+      },
+      "SimilarityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "grade": {
+            "enum": [
+              "good",
+              "acceptable",
+              "warning",
+              "unknown"
+            ],
+            "title": "Grade",
+            "type": "string"
+          },
+          "image_id": {
+            "title": "Image Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reference_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Id"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          },
+          "status": {
+            "enum": [
+              "computed",
+              "no_face",
+              "no_reference",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_id",
+          "similarity",
+          "status",
+          "reason",
+          "reference_id",
+          "grade"
+        ],
+        "title": "SimilarityResponse",
+        "type": "object"
+      },
+      "StylePart": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "fragment": {
+            "title": "Fragment",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "fragment"
+        ],
+        "title": "StylePart",
+        "type": "object"
+      },
+      "StylePresetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "negative_prompt": {
+            "title": "Negative Prompt",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/StylePart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "prefix_prompt": {
+            "title": "Prefix Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix_prompt",
+          "negative_prompt",
+          "parts"
+        ],
+        "title": "StylePresetResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
+          "face_method": {
+            "default": "pulid",
+            "enum": [
+              "pulid",
+              "faceid",
+              "instantid"
+            ],
+            "title": "Face Method",
+            "type": "string"
+          },
+          "face_weights": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Face Weights",
+            "type": "array"
+          },
+          "scenes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Scenes",
+            "type": "array"
+          },
+          "seed": {
+            "default": -1,
+            "minimum": -1.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "title": "VerifyRequest",
+        "type": "object"
+      },
+      "VersionCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "locked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LockedParamsPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Note",
+            "type": "string"
+          },
+          "primary_image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Image Id"
+          },
+          "reference_image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Reference Image Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference_image_ids"
+        ],
+        "title": "VersionCreateRequest",
+        "type": "object"
+      },
+      "VersionListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "current_version": {
+            "title": "Current Version",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterVersionSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current_version",
+          "items"
+        ],
+        "title": "VersionListResponse",
+        "type": "object"
+      },
+      "VramResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comfy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comfy Version"
+          },
+          "free_mb": {
+            "title": "Free Mb",
+            "type": "integer"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu"
+          },
+          "torch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torch"
+          },
+          "torch_free_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torch Free Mb"
+          },
+          "torch_total_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torch Total Mb"
+          },
+          "total_mb": {
+            "title": "Total Mb",
+            "type": "integer"
+          },
+          "used_mb": {
+            "title": "Used Mb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gpu",
+          "total_mb",
+          "free_mb",
+          "used_mb"
+        ],
+        "title": "VramResponse",
+        "type": "object"
+      },
+      "VramTableEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "face_detailer": {
+            "title": "Face Detailer",
+            "type": "boolean"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "peak_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Mb"
+          },
+          "upscale": {
+            "title": "Upscale",
+            "type": "number"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "width",
+          "height",
+          "upscale",
+          "face_detailer",
+          "peak_mb"
+        ],
+        "title": "VramTableEntry",
+        "type": "object"
+      },
+      "VramTableResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/VramTableEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "vram_total_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Total Mb"
+          }
+        },
+        "required": [
+          "gpu",
+          "vram_total_mb",
+          "measured_at",
+          "entries"
+        ],
+        "title": "VramTableResponse",
+        "type": "object"
+      },
+      "WorkflowJsonResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "nodes": {
+            "additionalProperties": true,
+            "title": "Nodes",
+            "type": "object"
+          },
+          "titles": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Titles",
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "file",
+          "titles",
+          "nodes"
+        ],
+        "title": "WorkflowJsonResponse",
+        "type": "object"
+      },
+      "WorkflowStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "method",
+          "file",
+          "ok"
+        ],
+        "title": "WorkflowStatus",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "同一の架空キャラクター（実写調・日本人・成人）で画像を生成・管理するローカル専用 API。認証: ヘッダ `X-API-Key`（`GET /api/health` を除く）。エラーは `{\"detail\": \"...\"}`（日本語）。",
+    "title": "portrait-studio API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/audit": {
+      "get": {
+        "operationId": "audit_api_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/characters": {
+      "get": {
+        "operationId": "list_characters_api_characters_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "recent",
+              "pattern": "^(recent|name|generations)$",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_drafts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Drafts",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Characters",
+        "tags": [
+          "characters"
+        ]
+      },
+      "post": {
+        "operationId": "create_character_api_characters_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CharacterCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Character",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/analyze": {
+      "post": {
+        "description": "Quality / embedding / clustering of candidate reference faces. Uploaded files are stored as `upload` images\nso they can be referenced by id at registration; the analysis itself is not persisted.",
+        "operationId": "analyze_api_characters_analyze_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_api_characters_analyze_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/draft": {
+      "post": {
+        "description": "Generate seed faces with txt2img (no character yet).",
+        "operationId": "draft_api_characters_draft_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}": {
+      "delete": {
+        "operationId": "delete_character_api_characters__character_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delete_images",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Delete Images",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Character",
+        "tags": [
+          "characters"
+        ]
+      },
+      "get": {
+        "operationId": "get_character_api_characters__character_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Character",
+        "tags": [
+          "characters"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_character_api_characters__character_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CharacterPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Character",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}/references/{reference_id}/file": {
+      "get": {
+        "operationId": "reference_file_api_characters__character_id__references__reference_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reference_id",
+            "required": true,
+            "schema": {
+              "title": "Reference Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reference File",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}/register": {
+      "post": {
+        "description": "Finalize a draft (wizard step 4). Both declarations are mandatory.",
+        "operationId": "register_character_api_characters__character_id__register_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CharacterRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Character",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}/rollback/{version}": {
+      "post": {
+        "operationId": "rollback_api_characters__character_id__rollback__version__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}/verify": {
+      "post": {
+        "description": "Identity verification: len(face_weights) × len(scenes) images with similarity to the primary reference.",
+        "operationId": "verify_api_characters__character_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/characters/{character_id}/versions": {
+      "get": {
+        "operationId": "list_versions_api_characters__character_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Versions",
+        "tags": [
+          "characters"
+        ]
+      },
+      "post": {
+        "description": "Replace the reference face as a NEW version (the previous version is kept and can be rolled back to).",
+        "operationId": "create_version_api_characters__character_id__versions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CharacterVersionSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Version",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/api/generate": {
+      "post": {
+        "operationId": "generate_api_generate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate",
+        "tags": [
+          "generate"
+        ]
+      }
+    },
+    "/api/generate/preview-vram": {
+      "post": {
+        "operationId": "preview_vram_api_generate_preview_vram_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewVramRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewVramResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Vram",
+        "tags": [
+          "generate"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/images": {
+      "get": {
+        "operationId": "list_images_api_images_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "character_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Character Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(generated|draft|verify|upload)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_similarity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Similarity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "favorite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Favorite"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "seed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seed"
+            }
+          },
+          {
+            "in": "query",
+            "name": "face_method",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(pulid|faceid|instantid)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Face Method"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Images",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/bulk": {
+      "post": {
+        "operationId": "bulk_patch_api_images_bulk_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageBulkPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Patch",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/bulk-delete": {
+      "post": {
+        "operationId": "bulk_delete_api_images_bulk_delete_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageBulkDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Delete",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/zip": {
+      "post": {
+        "description": "Download the selected images plus their params_snapshot JSON as one ZIP.",
+        "operationId": "zip_images_api_images_zip_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageZipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zip Images",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{image_id}": {
+      "delete": {
+        "operationId": "delete_image_api_images__image_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Image",
+        "tags": [
+          "images"
+        ]
+      },
+      "get": {
+        "operationId": "get_image_api_images__image_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Image",
+        "tags": [
+          "images"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_image_api_images__image_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImagePatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Image",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{image_id}/file": {
+      "get": {
+        "operationId": "image_file_api_images__image_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Image File",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{image_id}/regenerate": {
+      "post": {
+        "description": "Re-run the exact params_snapshot of an image (same character version, same locked values).",
+        "operationId": "regenerate_api_images__image_id__regenerate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{image_id}/similarity": {
+      "get": {
+        "description": "Recompute the ArcFace cosine similarity against the primary reference of the version the image was made with.",
+        "operationId": "similarity_api_images__image_id__similarity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Similarity",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{image_id}/thumb": {
+      "get": {
+        "operationId": "image_thumb_api_images__image_id__thumb_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Image Thumb",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "operationId": "list_jobs_api_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(queued|running|done|error|canceled)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Jobs",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/presets/scenes": {
+      "get": {
+        "operationId": "list_scenes_api_presets_scenes_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenePresetListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Scenes",
+        "tags": [
+          "presets"
+        ]
+      },
+      "post": {
+        "operationId": "upsert_scene_api_presets_scenes_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenePresetSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenePresetSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Scene",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/presets/scenes/{scene_id}": {
+      "delete": {
+        "operationId": "delete_scene_api_presets_scenes__scene_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Scene",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/presets/styles": {
+      "get": {
+        "operationId": "styles_api_presets_styles_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StylePresetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Styles",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/system/compliance": {
+      "get": {
+        "description": "docs/COMPLIANCE.md so the settings screen can show the legal / prohibited-use notes.",
+        "operationId": "compliance_api_system_compliance_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComplianceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compliance",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/free": {
+      "post": {
+        "operationId": "free_api_system_free_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Free",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/models": {
+      "get": {
+        "operationId": "models_api_system_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Models",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/vram": {
+      "get": {
+        "operationId": "vram_api_system_vram_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VramResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vram",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/vram-table": {
+      "get": {
+        "operationId": "vram_table_api_system_vram_table_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VramTableResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vram Table",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/workflows/{method}": {
+      "get": {
+        "description": "Raw API-format workflow (for the 上級 panel: view / copy the JSON).",
+        "operationId": "workflow_json_api_system_workflows__method__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "title": "Method",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "psk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Psk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowJsonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workflow Json",
+        "tags": [
+          "system"
+        ]
+      }
+    }
+  }
+}

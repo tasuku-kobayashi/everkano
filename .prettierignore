@@ -12,3 +12,5 @@ docs/eval/results/**/*.json
 *.yaml
 *.yml
 *.md
+# portrait-studio は独立プロジェクト（web/ 側の Prettier 設定で整形。ADR-0050）
+portrait-studio

@@ -1,0 +1,13 @@
+$ uv run pytest -q  (portrait-studio/api, 2026-09-27T17:11Z)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+57 passed, 1 warning in 41.79s
+
+$ uv run ruff check .
+All checks passed!
+$ uv run ruff format --check .
+44 files already formatted
+$ uv run mypy app
+Success: no issues found in 29 source files
+$ uv run python scripts/export_openapi.py --check
+openapi.json is up to date

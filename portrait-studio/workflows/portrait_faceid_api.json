@@ -1,0 +1,291 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "CHECKPOINT"
+    },
+    "inputs": {
+      "ckpt_name": "SET_BY_API.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "LORA"
+    },
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "clip": [
+        "1",
+        1
+      ],
+      "lora_name": "SET_BY_API_or_bypassed.safetensors",
+      "strength_model": 0.0,
+      "strength_clip": 0.0
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "POSITIVE"
+    },
+    "inputs": {
+      "text": "photorealistic, RAW photo, realistic, japanese, asian, natural skin texture, visible skin pores, film grain, 35mm photograph, soft natural lighting, detailed eyes, sharp focus, professional photography",
+      "clip": [
+        "2",
+        1
+      ]
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "NEGATIVE"
+    },
+    "inputs": {
+      "text": "anime, cartoon, illustration, 3d render, cgi, painting, drawing, plastic skin, airbrushed, doll, oversmooth, deformed anatomy, bad hands, extra digits, fewer digits, watermark, signature, text, jpeg artifacts, lowres, blurry",
+      "clip": [
+        "2",
+        1
+      ]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "LATENT"
+    },
+    "inputs": {
+      "width": 832,
+      "height": 1216,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "SAMPLER"
+    },
+    "inputs": {
+      "model": [
+        "24",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ],
+      "seed": 0,
+      "steps": 28,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0
+    }
+  },
+  "7": {
+    "class_type": "LatentUpscaleBy",
+    "_meta": {
+      "title": "UPSCALE"
+    },
+    "inputs": {
+      "samples": [
+        "6",
+        0
+      ],
+      "upscale_method": "nearest-exact",
+      "scale_by": 1.3
+    }
+  },
+  "8": {
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "HIRES_SAMPLER"
+    },
+    "inputs": {
+      "model": [
+        "24",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "7",
+        0
+      ],
+      "seed": 0,
+      "steps": 28,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.45
+    }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "DECODE"
+    },
+    "inputs": {
+      "samples": [
+        "8",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "REF_IMAGE"
+    },
+    "inputs": {
+      "image": "refs/SET_BY_API.png",
+      "upload": "image"
+    }
+  },
+  "21": {
+    "class_type": "IPAdapterUnifiedLoaderFaceID",
+    "_meta": {
+      "title": "FACE_LOADER"
+    },
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "preset": "FACEID PLUS V2",
+      "lora_strength": 0.6,
+      "provider": "CPU"
+    }
+  },
+  "24": {
+    "class_type": "IPAdapterFaceID",
+    "_meta": {
+      "title": "FACE_APPLY"
+    },
+    "inputs": {
+      "model": [
+        "21",
+        0
+      ],
+      "ipadapter": [
+        "21",
+        1
+      ],
+      "image": [
+        "20",
+        0
+      ],
+      "weight": 0.8,
+      "weight_faceidv2": 0.8,
+      "weight_type": "linear",
+      "combine_embeds": "concat",
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "embeds_scaling": "V only"
+    }
+  },
+  "30": {
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "FACE_DETECTOR"
+    },
+    "inputs": {
+      "model_name": "bbox/face_yolov8m.pt"
+    }
+  },
+  "31": {
+    "class_type": "FaceDetailer",
+    "_meta": {
+      "title": "FACE_DETAILER"
+    },
+    "inputs": {
+      "image": [
+        "9",
+        0
+      ],
+      "model": [
+        "24",
+        0
+      ],
+      "clip": [
+        "2",
+        1
+      ],
+      "vae": [
+        "1",
+        2
+      ],
+      "guide_size": 512,
+      "guide_size_for": true,
+      "max_size": 1024,
+      "seed": 0,
+      "steps": 20,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "denoise": 0.35,
+      "feather": 5,
+      "noise_mask": true,
+      "force_inpaint": true,
+      "bbox_threshold": 0.5,
+      "bbox_dilation": 10,
+      "bbox_crop_factor": 3.0,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 10,
+      "bbox_detector": [
+        "30",
+        0
+      ],
+      "wildcard": "",
+      "cycle": 1
+    }
+  },
+  "40": {
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "SAVE"
+    },
+    "inputs": {
+      "images": [
+        "31",
+        0
+      ],
+      "filename_prefix": "portrait-studio/faceid"
+    }
+  }
+}

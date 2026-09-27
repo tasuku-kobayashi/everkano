@@ -1,0 +1,13 @@
+$ bash scripts/check-secrets.sh  (2026-09-27T17:12Z)
+シークレットチェック: 865 ファイルを走査します
+
+OK: シークレットは見つかりませんでした
+
+$ bash scripts/check-scope.sh
+
+91 行を許可しました（scope-check: allow / 許可リスト / 禁止を述べる行。理由をレビューで確認すること）
+OK: スコープ外機能は見つかりませんでした
+
+$ docker compose config --quiet  (portrait-studio, with a temporary .env)
+compose config: OK
+{"host_ips":["127.0.0.1","127.0.0.1"],"shm_size":"8589934592","gpu":["gpu"]}

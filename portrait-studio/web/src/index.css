@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-950 text-slate-100 antialiased;
+  }
+  /* Never hide the focus ring: every control is keyboard reachable */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-ink-950;
+  }
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-sm font-medium transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply btn border-ink-600 bg-ink-800 text-slate-100 hover:bg-ink-700;
+  }
+  .btn-danger {
+    @apply btn bg-rose-700 text-white hover:bg-rose-600;
+  }
+  .btn-ghost {
+    @apply btn text-slate-300 hover:bg-ink-800 hover:text-white;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accent;
+  }
+  .card {
+    @apply rounded-lg border border-ink-700 bg-ink-900;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-slate-400;
+  }
+  .badge {
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium;
+  }
+  .skeleton {
+    @apply animate-pulse rounded bg-ink-800;
+  }
+  .kbd {
+    @apply rounded border border-ink-600 bg-ink-800 px-1 font-mono text-[10px] text-slate-300;
+  }
+}
+
+.blur-nsfw {
+  filter: blur(18px);
+  transform: scale(1.06);
+}

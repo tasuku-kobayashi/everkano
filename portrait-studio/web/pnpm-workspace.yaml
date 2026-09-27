@@ -1,0 +1,4 @@
+# Marks portrait-studio/web as its own pnpm root so `pnpm install` here never resolves to the everkano workspace
+# (ADR-0050). No sub-packages.
+onlyBuiltDependencies:
+  - esbuild

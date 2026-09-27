@@ -1,0 +1,16 @@
+{
+  "gpu": "TEST FIXTURE (not a measurement)",
+  "vram_total_mb": 12282,
+  "measured_at": "test-fixture",
+  "note": "Values used only by the automated tests to exercise measured / bounded / unknown / high paths. NOT real measurements.",
+  "entries": [
+    {"method": "txt2img", "width": 832, "height": 1216, "upscale": 1.0, "face_detailer": false, "peak_mb": 7000},
+    {"method": "pulid", "width": 832, "height": 1216, "upscale": 1.0, "face_detailer": false, "peak_mb": 8000},
+    {"method": "pulid", "width": 832, "height": 1216, "upscale": 1.0, "face_detailer": true, "peak_mb": 8600},
+    {"method": "pulid", "width": 832, "height": 1216, "upscale": 1.3, "face_detailer": true, "peak_mb": 9800},
+    {"method": "faceid", "width": 832, "height": 1216, "upscale": 1.0, "face_detailer": true, "peak_mb": 9500},
+    {"method": "instantid", "width": 832, "height": 1216, "upscale": 1.0, "face_detailer": true, "peak_mb": 11600},
+    {"method": "pulid", "width": 1024, "height": 1536, "upscale": 1.0, "face_detailer": true, "peak_mb": 10900},
+    {"method": "pulid", "width": 1536, "height": 1536, "upscale": 1.0, "face_detailer": true, "peak_mb": 13500}
+  ]
+}

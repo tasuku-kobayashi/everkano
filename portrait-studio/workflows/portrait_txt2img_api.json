@@ -1,0 +1,170 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "CHECKPOINT"
+    },
+    "inputs": {
+      "ckpt_name": "SET_BY_API.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "LORA"
+    },
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "clip": [
+        "1",
+        1
+      ],
+      "lora_name": "SET_BY_API_or_bypassed.safetensors",
+      "strength_model": 0.0,
+      "strength_clip": 0.0
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "POSITIVE"
+    },
+    "inputs": {
+      "text": "photorealistic, RAW photo, realistic, japanese, asian, natural skin texture, visible skin pores, film grain, 35mm photograph, soft natural lighting, detailed eyes, sharp focus, professional photography",
+      "clip": [
+        "2",
+        1
+      ]
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "NEGATIVE"
+    },
+    "inputs": {
+      "text": "anime, cartoon, illustration, 3d render, cgi, painting, drawing, plastic skin, airbrushed, doll, oversmooth, deformed anatomy, bad hands, extra digits, fewer digits, watermark, signature, text, jpeg artifacts, lowres, blurry",
+      "clip": [
+        "2",
+        1
+      ]
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "LATENT"
+    },
+    "inputs": {
+      "width": 832,
+      "height": 1216,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "SAMPLER"
+    },
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ],
+      "seed": 0,
+      "steps": 28,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0
+    }
+  },
+  "7": {
+    "class_type": "LatentUpscaleBy",
+    "_meta": {
+      "title": "UPSCALE"
+    },
+    "inputs": {
+      "samples": [
+        "6",
+        0
+      ],
+      "upscale_method": "nearest-exact",
+      "scale_by": 1.3
+    }
+  },
+  "8": {
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "HIRES_SAMPLER"
+    },
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "7",
+        0
+      ],
+      "seed": 0,
+      "steps": 28,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.45
+    }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "DECODE"
+    },
+    "inputs": {
+      "samples": [
+        "8",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    }
+  },
+  "10": {
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "SAVE"
+    },
+    "inputs": {
+      "images": [
+        "9",
+        0
+      ],
+      "filename_prefix": "portrait-studio/draft"
+    }
+  }
+}

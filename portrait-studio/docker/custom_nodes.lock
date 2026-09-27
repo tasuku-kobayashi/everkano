@@ -1,0 +1,10 @@
+# <git url> <commit or HEAD>
+# HEAD = whatever the default branch is at build time. Pin to a commit once the G1 verification (GET /object_info
+# lists ApplyPulid / IPAdapterFaceID / ApplyInstantID / FaceDetailer / UltralyticsDetectorProvider) has passed,
+# and record the commits in docs/MODELS.md. These URLs are the upstream repositories of the nodes named in the
+# workflow files; they were NOT fetched from the environment that wrote this file (network policy).
+https://github.com/cubiq/PuLID_ComfyUI.git HEAD
+https://github.com/cubiq/ComfyUI_IPAdapter_plus.git HEAD
+https://github.com/cubiq/ComfyUI_InstantID.git HEAD
+https://github.com/ltdrdata/ComfyUI-Impact-Pack.git HEAD
+https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git HEAD

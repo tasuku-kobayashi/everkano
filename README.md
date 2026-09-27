@@ -87,6 +87,9 @@ everkano/
 
 全体の構成図とデータの流れは [docs/handover/01-architecture.md](docs/handover/01-architecture.md)。
 
+> **portrait-studio/**（MVP の外・ローカル専用）: キャラクターの同一性を保ったフォトリアル画像を自前 GPU（RTX 5070）上の ComfyUI で生成・管理するツール。
+> `apps/` `packages/` には含めず、MVP の「画像生成を実装しない」（§12 / A16）は変えない。起動手順は [portrait-studio/README.md](portrait-studio/README.md)、判断は [ADR-0050](docs/adr/0050-portrait-studio-local-image-tool.md)。
+
 ## 必要なツール
 
 | ツール                          | バージョン                                                                  | 用途                                                                                         |
