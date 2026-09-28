@@ -329,6 +329,8 @@ class PersonaRepository:
         self._by_key: dict[str, Persona] = {}
         for p in personas:
             self._by_key[p.key] = p
+        # YAML が無くフォールバックした persona_key（警告を 1 回だけ出すため）
+        self._warned_fallback_keys: set[str] = set()
 
     @classmethod
     def load_dir(cls, directory: Path) -> PersonaRepository:
@@ -367,10 +369,13 @@ class PersonaRepository:
     def for_character(self, character: CharacterRecord) -> Persona:
         persona = self._by_key.get(character.persona_key)
         if persona is None:
-            logger.warning(
-                "persona YAML missing; using characters.system_prompt fallback",
-                extra={"fields": {"persona_key": character.persona_key, "character_id": str(character.id)}},
-            )
+            # 起動時に _log_persona_coverage が一覧を出している。リクエストごとに繰り返さず、キーごとに 1 回だけ警告する
+            if character.persona_key not in self._warned_fallback_keys:
+                self._warned_fallback_keys.add(character.persona_key)
+                logger.warning(
+                    "persona YAML missing; using characters.system_prompt fallback",
+                    extra={"fields": {"persona_key": character.persona_key, "character_id": str(character.id)}},
+                )
             return Persona.fallback(character)
         return persona
 

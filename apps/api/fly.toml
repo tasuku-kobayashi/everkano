@@ -32,7 +32,10 @@
 app = "everkano-api"
 primary_region = "nrt"
 kill_signal = "SIGTERM"
-kill_timeout = "30s"
+# SIGTERM の後、uvicorn が接続の終了を待つ 20 秒（--timeout-graceful-shutdown）+ lifespan の停止処理
+# （実行中のジョブ・生成中の返答の保存を並行して最大 20 秒待つ。app/main.py stop_engine_background）に収まる値。
+# 短いと、生成中の返答の保存（クライアントが切断していても保存する約束）を SIGKILL で打ち切ってしまう
+kill_timeout = "60s"
 
 [build]
   # apps/api/Dockerfile の既定値と同じ（digest で固定。更新手順は Dockerfile の先頭）
@@ -59,6 +62,10 @@ kill_timeout = "30s"
   EMBEDDING_MODE = "hash"
   # Supavisor の transaction mode（:6543）経由で接続する場合は 0 にする
   DATABASE_STATEMENT_CACHE_SIZE = "100"
+  # DB 接続プールの上限（既定 10）。/chat 1 件は文脈の組み立てで最大 4 本の接続を同時に使い、保存・監査ログ・
+  # ジョブ登録が続く。soft_limit（40 件）の同時リクエストで接続待ちが文脈の締め切り（1.5 秒）を圧迫しないよう
+  # 余裕を持たせる。app と worker の両方に効く（合計 = 2 × この値。Supabase の直結の上限に収めること）
+  DATABASE_POOL_MAX_SIZE = "20"
   AUDIT_LOG_PROMPTS = "true"
   # Fly のエッジ（プロキシ）経由の X-Forwarded-Proto を信頼する。クライアントIPは偽装できない Fly-Client-IP を記録する
   FORWARDED_ALLOW_IPS = "*"

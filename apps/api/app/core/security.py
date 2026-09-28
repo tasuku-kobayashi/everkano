@@ -208,9 +208,13 @@ class TokenVerifier:
             raise AuthError("malformed_token", repr(exc)) from exc
         alg = header.get("alg")
         kid = header.get("kid")
+        # PyJWT はヘッダーの kid しか検証しない。alg が文字列以外（配列など）だと frozenset の判定で TypeError になり
+        # 未認証のクライアントから 500 を起こせるので、ここで 401 にする
+        if not isinstance(alg, str):
+            raise AuthError("unsupported_algorithm", repr(alg))
         key: Any
         if alg in ASYMMETRIC_ALGORITHMS:
-            key = (await self._jwks.get_key(kid if isinstance(kid, str) else None, str(alg))).key
+            key = (await self._jwks.get_key(kid if isinstance(kid, str) else None, alg)).key
         elif alg == "HS256":
             if self._hs_secret is None:
                 raise AuthError("hs256_not_configured")
@@ -222,7 +226,7 @@ class TokenVerifier:
             claims: dict[str, Any] = jwt.decode(
                 token,
                 key,
-                algorithms=[str(alg)],
+                algorithms=[alg],
                 audience=self._audience,
                 leeway=CLOCK_SKEW_LEEWAY_SECONDS,
                 options={"require": ["exp", "sub", "aud"]},

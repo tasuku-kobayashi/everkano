@@ -101,26 +101,29 @@ class RequestContextMiddleware:
                 await response(scope, receive, send_wrapper)
             # レスポンス送信後（BackgroundTask 等）の例外はログのみ
         finally:
+            # ストリーミング（/chat/stream）の途中でクライアントが切断すると最後の本文メッセージが送られず、
+            # 上の send_wrapper ではアクセスログが出ない。ここで 1 行残す（status は送信開始時のもの）
+            if response_started and not logged:
+                logged = True
+                self._log_access(scope, status_code, started, disconnected=True)
             request_id_var.reset(token)
 
     @staticmethod
-    def _log_access(scope: Scope, status_code: int, started: float) -> None:
+    def _log_access(scope: Scope, status_code: int, started: float, *, disconnected: bool = False) -> None:
         state = scope.get("state", {})
         headers = dict(scope.get("headers", []))
-        access_logger.info(
-            "request",
-            extra={
-                "fields": {
-                    "method": scope.get("method"),
-                    "path": scope.get("path"),
-                    "status": status_code,
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-                    "client_ip": state.get("client_ip"),
-                    "user_id": state.get("user_id"),
-                    "user_agent": headers.get(b"user-agent", b"").decode("latin-1")[:200] or None,
-                }
-            },
-        )
+        fields: dict[str, object] = {
+            "method": scope.get("method"),
+            "path": scope.get("path"),
+            "status": status_code,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "client_ip": state.get("client_ip"),
+            "user_id": state.get("user_id"),
+            "user_agent": headers.get(b"user-agent", b"").decode("latin-1")[:200] or None,
+        }
+        if disconnected:
+            fields["disconnected"] = True
+        access_logger.info("request", extra={"fields": fields})
 
 
 class BodySizeLimitMiddleware:

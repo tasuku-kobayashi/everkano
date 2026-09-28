@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 from typing import Any, Final
 
+from app.core.errors import ApiError
 from app.core.logging import get_logger
 from app.core.security import CurrentUser
 from app.engine.pipeline import ChatPipeline, ChatTurn, DoneEvent, ErrorEvent, PipelineEvent
@@ -73,6 +74,10 @@ class ChatService:
                 return event.response
             if isinstance(event, ErrorEvent):
                 raise event.to_api_error()
+        if isinstance(channel.error, Exception):
+            # 生成タスク側（produce）でスタックトレースを記録済み。そのまま送出するとミドルウェアが同じ例外を
+            # もう一度 exception ログ（Sentry のイベント）にするため、500 の ApiError に包む
+            raise ApiError(500, "internal_error") from channel.error
         if channel.error is not None:
             raise channel.error
         raise RuntimeError("chat pipeline ended without a result")  # pragma: no cover

@@ -109,7 +109,7 @@ app/
     safety/            E6 の検出と応答・相談窓口の読込・OutputGuard（E2 / E3）
   services/
     chat.py            POST /chat・/chat/stream の入口（パイプラインを別タスクで動かし、切断されても最後まで保存）
-    memory.py / memory_capacity.py / user_memories.py / reembed.py  互換モジュール（実装は engine/memory/）
+    user_memories.py / reembed.py  互換モジュール（実装は engine/memory/）
     llm.py             OpenAI 互換クライアント（リトライ付き・ストリーミング・用途別のモデル）/ MockLLM
     embedding.py       OpenAI 互換 /embeddings / 文字 n-gram ハッシュ埋め込み
     persona.py         ペルソナ YAML の読込・検証（age >= 20）

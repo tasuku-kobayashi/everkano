@@ -238,8 +238,10 @@ class OpenAICompatibleLLM:
             else:
                 if response.status_code == 200:
                     return self._parse(response, started)
-                if response.status_code == 400 and "response_format" in body:
+                if response.status_code == 400 and "response_format" in body and "response_format" in response.text:
                     # JSON モード非対応のモデル/プロバイダ → response_format なしで再試行
+                    # （エラー本文がそのパラメータ名を挙げている場合だけ。文脈長の超過など別の理由の 400 で
+                    #   プロンプト全体を送り直さない）
                     logger.warning(
                         "LLM rejected response_format; retrying without it",
                         extra={"fields": {"purpose": request.purpose, "body": response.text[:300]}},
@@ -308,16 +310,17 @@ class OpenAICompatibleLLM:
                             yield chunk
                         return
                     text = (await response.aread()).decode("utf-8", errors="replace")
-                    if response.status_code == 400 and ("stream_options" in body or "response_format" in body):
-                        # stream_options / JSON モードに対応していないプロバイダ → 外して再試行（回数に数えない）
+                    rejected = next(
+                        (opt for opt in ("stream_options", "response_format") if opt in body and opt in text), None
+                    )
+                    if response.status_code == 400 and rejected is not None:
+                        # stream_options / JSON モードに対応していないプロバイダ → 外して再試行（回数に数えない）。
+                        # エラー本文がそのパラメータ名を挙げている場合だけ（別の理由の 400 で送り直さない）
                         logger.warning(
                             "LLM rejected stream options; retrying without them",
-                            extra={"fields": {"purpose": request.purpose, "body": text[:300]}},
+                            extra={"fields": {"purpose": request.purpose, "option": rejected, "body": text[:300]}},
                         )
-                        if "stream_options" in body:
-                            body.pop("stream_options")
-                        else:
-                            body.pop("response_format")
+                        body.pop(rejected)
                         continue
                     retryable = response.status_code == 429 or response.status_code >= 500
                     error = LLMError(

@@ -68,6 +68,9 @@ COPY packages/personas/*.yaml /srv/everkano/personas/
 COPY packages/prompts/templates /srv/everkano/prompts
 # E6 の相談窓口と返答文面（起動時に検証される。番号・受付時間は公開前に運用者が再確認する）
 COPY packages/prompts/safety /srv/everkano/safety
+# アプリ本体をあらかじめバイトコンパイルしておく（PYTHONDONTWRITEBYTECODE=1 のため実行時には書けず、
+# 無いと起動のたびに約 130 モジュールをコンパイルする。依存は builder の UV_COMPILE_BYTECODE=1 で済んでいる）
+RUN python -m compileall -q /app/app /app/scripts
 
 USER app
 EXPOSE 8000

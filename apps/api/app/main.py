@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Final
@@ -172,10 +173,12 @@ def start_engine_background(services: Services) -> None:
 
 
 async def stop_engine_background(services: Services) -> None:
-    """停止時: スケジューラ・ワーカーを止め、生成中の返答（切断されたものを含む）の保存を待つ。"""
-    await services.engine.scheduler.stop()
-    await services.engine.worker.stop()
-    await services.chat.drain()
+    """停止時: スケジューラ・ワーカーを止め、生成中の返答（切断されたものを含む）の保存を待つ。
+
+    3 つは互いに独立なので並行して待つ（順に待つと最悪 20 + 20 + 20 秒で、Fly の kill_timeout に収まらない）。
+    ワーカーは新しいジョブを取らなくなるだけで、返答の後に登録されるジョブは DB に残り、次の起動で処理される。
+    """
+    await asyncio.gather(services.engine.scheduler.stop(), services.engine.worker.stop(), services.chat.drain())
 
 
 async def _log_persona_coverage(pool: Pool, personas: PersonaRepository) -> None:

@@ -190,6 +190,11 @@ class Worker:
             except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
                 logger.error("engine worker poll failed", extra={"fields": {"error": repr(exc)}})
                 job = None
+            except Exception:
+                # ハンドラの例外は _execute が受け止める。ここに来るのは取得・完了処理の想定外のエラー。
+                # 常駐ループを黙って終わらせない（止まると記憶・約束・好感度の処理が止まる）
+                logger.exception("engine worker loop failed; continuing", extra={"fields": {"worker": index}})
+                job = None
             if job is not None:
                 continue
             self._wakeup.clear()

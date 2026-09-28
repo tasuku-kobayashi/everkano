@@ -1709,6 +1709,7 @@
     },
     "/health": {
       "get": {
+        "description": "DB に接続できないときは同じ本文（status=degraded, db=error）を **503** で返す。他のすべてのエンドポイントが DB を必要とするため、ロードバランサ・Fly のヘルスチェックがそのマシンへの振り分けを止められるようにする。",
         "operationId": "health_health_get",
         "responses": {
           "200": {

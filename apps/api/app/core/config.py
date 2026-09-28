@@ -253,6 +253,12 @@ class Settings(BaseSettings):
             errors.extend(self._deployed_env_errors())
         if self.engine_job_backoff_base_seconds > self.engine_job_backoff_max_seconds:
             errors.append("ENGINE_JOB_BACKOFF_BASE_SECONDS は ENGINE_JOB_BACKOFF_MAX_SECONDS 以下にしてください")
+        if self.engine_job_lock_timeout_seconds <= self.engine_job_timeout_seconds:
+            # 実行中（running）のジョブを「止まった」とみなして別のワーカーが取り直すと、同じジョブが二重に動く
+            errors.append(
+                "ENGINE_JOB_LOCK_TIMEOUT_SECONDS は ENGINE_JOB_TIMEOUT_SECONDS より大きくしてください"
+                "（実行中のジョブを止まったとみなして二重に実行しないため）"
+            )
         try:
             _ = self.price_table
         except ValueError as exc:

@@ -13,7 +13,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.services.llm import LLMError, LLMRequest, LLMResult, MockLLM
-from tests.conftest import TEST_ISSUER, AppFactory, World, make_settings, make_token
+from tests.conftest import TEST_ISSUER, AppFactory, World, make_settings, make_token, services_of
 
 pytestmark = pytest.mark.integration
 
@@ -72,6 +72,27 @@ async def test_health(client: httpx.AsyncClient) -> None:
     assert res.headers["x-request-id"] == "req-abc_123"
     generated = await client.get("/health")
     assert len(generated.headers["x-request-id"]) == 32
+
+
+async def test_health_reports_503_when_database_is_unreachable(app_factory: AppFactory) -> None:
+    """DB に接続できないときは同じ本文を 503 で返す（ロードバランサ・Fly のヘルスチェックが振り分けを止められる）。"""
+    client = await app_factory()
+    services = services_of(client)
+
+    class BrokenPool:
+        def acquire(self, timeout: float | None = None) -> Any:
+            raise OSError("db down")
+
+    original = services.pool
+    object.__setattr__(services, "pool", BrokenPool())
+    try:
+        res = await client.get("/health")
+    finally:
+        object.__setattr__(services, "pool", original)
+    assert res.status_code == 503
+    body = res.json()
+    assert body["status"] == "degraded"
+    assert body["db"] == "error"
 
 
 async def test_auth_required(client: httpx.AsyncClient, world: World) -> None:

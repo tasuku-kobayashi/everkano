@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 import uuid
@@ -122,6 +123,20 @@ async def test_alg_none_and_garbage_rejected() -> None:
     with pytest.raises(AuthError) as exc:
         await _verifier().verify("garbage")
     assert exc.value.reason == "malformed_token"
+
+
+@pytest.mark.parametrize("alg", [["RS256"], {"alg": "HS256"}, 256, None])
+async def test_non_string_alg_header_rejected(alg: Any) -> None:
+    """alg が文字列以外のヘッダー（PyJWT は検証しない）は 500 ではなく 401（unsupported_algorithm）。"""
+    header = _b64url(json.dumps({"alg": alg, "typ": "JWT", "kid": "kid-1"}).encode())
+    payload = _b64url(json.dumps(_claims(uuid.uuid4())).encode())
+    with pytest.raises(AuthError) as exc:
+        await _verifier().verify(f"{header}.{payload}.c2ln")
+    assert exc.value.reason == "unsupported_algorithm"
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
 # --------------------------------------------------------------------------- ES256 / RS256 (JWKS)

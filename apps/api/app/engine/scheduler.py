@@ -260,5 +260,8 @@ class Scheduler:
                 await self.run_due()
             except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
                 logger.error("scheduler poll failed", extra={"fields": {"error": repr(exc)}})
+            except Exception:
+                # 各タスクの例外は _run_one が受け止める。想定外のエラーで常駐ループを黙って終わらせない
+                logger.exception("scheduler loop failed; continuing")
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=self._poll_interval)

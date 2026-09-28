@@ -246,6 +246,10 @@ def test_price_table_json_is_validated() -> None:
 def test_engine_ranges_are_validated() -> None:
     with pytest.raises(ValidationError, match="ENGINE_JOB_BACKOFF_BASE_SECONDS"):
         make_settings(engine_job_backoff_base_seconds=100, engine_job_backoff_max_seconds=10)
+    # 実行中のジョブを「止まった」とみなす時間は、1 ジョブの実行時間の上限より長くないと二重実行になる
+    with pytest.raises(ValidationError, match="ENGINE_JOB_LOCK_TIMEOUT_SECONDS"):
+        make_settings(engine_job_lock_timeout_seconds=60, engine_job_timeout_seconds=300)
+    assert make_settings(engine_job_lock_timeout_seconds=301, engine_job_timeout_seconds=300)
     with pytest.raises(ValidationError):
         make_settings(engine_affinity_daily_hour_jst=24)
     with pytest.raises(ValidationError):
