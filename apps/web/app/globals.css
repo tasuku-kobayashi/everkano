@@ -23,6 +23,9 @@
   --ig-bg: #ffffff; /* 画面背景 */
   --ig-text: #000000; /* 本文 */
   --ig-secondary: #737373; /* 補助テキスト（時刻・件数など） */
+  /* グレーの面（--ig-elevated）の上の補助テキスト・プレースホルダ。#737373 は #efefef の上で 4.1:1 しかないため
+     （検索欄・DM の入力欄・相談窓口のカード）、面の上では少し濃くして 4.7:1 にする。ダークは --ig-secondary と同じ */
+  --ig-secondary-on-elevated: #6a6a6a;
   --ig-separator: #dbdbdb; /* 区切り線 */
   --ig-elevated: #efefef; /* グレーの面（セカンダリボタン・受信バブル・スケルトン） */
   --ig-elevated-hover: #dbdbdb; /* グレー面の押下時 */
@@ -59,6 +62,7 @@
     --ig-bg: #000000;
     --ig-text: #f5f5f5;
     --ig-secondary: #a8a8a8;
+    --ig-secondary-on-elevated: #a8a8a8; /* #262626 の上で 6.4:1 */
     --ig-separator: #262626;
     --ig-elevated: #262626;
     --ig-elevated-hover: #363636;
@@ -87,6 +91,7 @@
   --color-ig-bg: var(--ig-bg);
   --color-ig-text: var(--ig-text);
   --color-ig-secondary: var(--ig-secondary);
+  --color-ig-secondary-on-elevated: var(--ig-secondary-on-elevated);
   --color-ig-separator: var(--ig-separator);
   --color-ig-elevated: var(--ig-elevated);
   --color-ig-elevated-hover: var(--ig-elevated-hover);

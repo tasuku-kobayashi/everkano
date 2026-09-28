@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppHeader } from "@/components/ui/app-header";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
@@ -214,6 +214,10 @@ function EditDisplayNameSheet({
   const toast = useToast();
   const queryClient = useQueryClient();
   const [value, setValue] = useState(account.displayName ?? "");
+  // シートは閉じても unmount されない。開くたびに保存済みの表示名から始める（閉じたときの途中の入力を残さない）
+  useEffect(() => {
+    if (open) setValue(account.displayName ?? "");
+  }, [open, account.displayName]);
   const trimmed = value.trim();
   // 絵文字 1 つを 1 文字と数える（UTF-16 の length だと 2 になる）
   const length = codePointLength(trimmed);

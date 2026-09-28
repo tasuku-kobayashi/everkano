@@ -375,7 +375,8 @@ export async function fetchMessagesPage(
   if (cursor) {
     // (created_at, id) < (cursor.createdAt, cursor.id) — 同時刻のメッセージを取りこぼさない
     const at = quotePostgrestValue(cursor.createdAt);
-    query = query.or(`created_at.lt.${at},and(created_at.eq.${at},id.lt.${cursor.id})`);
+    const id = quotePostgrestValue(cursor.id);
+    query = query.or(`created_at.lt.${at},and(created_at.eq.${at},id.lt.${id})`);
   }
   if (signal) query = query.abortSignal(signal);
 

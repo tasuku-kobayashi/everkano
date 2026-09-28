@@ -11,8 +11,6 @@
 export type CharacterPostsTab = "free" | "paid";
 
 export const queryKeys = {
-  /** ログイン中ユーザー関連のプレフィックス */
-  me: () => ["me"] as const,
   /** 自分の profiles 行（display_name / deleted_at） */
   profile: () => ["me", "profile"] as const,
 
@@ -30,17 +28,11 @@ export const queryKeys = {
   character: (handle: string) => ["characters", "handle", handle] as const,
   /** キャラクター（id で取得。DM 画面など） */
   characterById: (characterId: string) => ["characters", "id", characterId] as const,
-  /** キャラクターの投稿グリッド（無料/有料タブ） */
-  characterPosts: (characterId: string, tab: CharacterPostsTab) =>
-    ["characters", characterId, "posts", tab] as const,
+  // キャラクターの投稿グリッド（無料/有料タブ）のキーは handle で引くため lib/queries/characters.ts の
+  // characterPostsKey(handle, tab) にある。いいねの状態は投稿の行（liked）に含める（lib/queries/likes.ts）
 
   /** キャラ検索（空文字 = おすすめ一覧） */
   search: (query: string) => ["search", query] as const,
-
-  /** 自分のいいね状態 */
-  likes: () => ["likes"] as const,
-  /** 投稿 1 件に対する自分のいいね状態 */
-  like: (postId: string) => ["likes", postId] as const,
 
   /** DM 関連のプレフィックス */
   dm: () => ["dm"] as const,

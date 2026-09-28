@@ -16,6 +16,7 @@ import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/api/errors";
+import { codePointLength } from "@/lib/text";
 import {
   DEFAULT_MEMORY_KIND,
   DEFAULT_MEMORY_LEVEL,
@@ -391,7 +392,7 @@ function AddMemoryForm({
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
         <span className="mr-auto text-[12px] text-ig-secondary">
-          {content.length}/{MEMORY_CONTENT_MAX}
+          {codePointLength(content)}/{MEMORY_CONTENT_MAX}
         </span>
         <Button variant="secondary" size="sm" onClick={reset}>
           キャンセル

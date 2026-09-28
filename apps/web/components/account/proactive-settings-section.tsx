@@ -1,14 +1,16 @@
 "use client";
 
-import { useId } from "react";
+import { useCallback, useId } from "react";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/toast";
 import { getErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
 import {
   describeQuietHours,
   formatHour,
+  proactiveSaveErrorMessage,
   QUIET_HOURS,
   useProactiveSettings,
   useUpdateProactiveGlobal,
@@ -28,7 +30,15 @@ const PROACTIVE_DESCRIPTION =
  */
 export function ProactiveSettingsSection() {
   const settingsQuery = useProactiveSettings();
-  const update = useUpdateProactiveGlobal();
+  const updateMutation = useUpdateProactiveGlobal();
+  const toast = useToast();
+  const { mutate } = updateMutation;
+  // 失敗の表示はここ（lib/queries は UI 部品に依存しない。値の巻き戻しはミューテーション側）
+  const update = useCallback(
+    (patch: Parameters<typeof mutate>[0]) =>
+      mutate(patch, { onError: (error) => toast.error(proactiveSaveErrorMessage(error)) }),
+    [mutate, toast],
+  );
   const headingId = useId();
   const toggleLabelId = useId();
   const descriptionId = useId();
@@ -52,7 +62,7 @@ export function ProactiveSettingsSection() {
             </span>
             <Switch
               checked={settings.enabled}
-              onChange={(enabled) => update.mutate({ enabled })}
+              onChange={(enabled) => update({ enabled })}
               labelledBy={toggleLabelId}
               describedBy={descriptionId}
               data-testid="proactive-global-switch"
@@ -70,7 +80,7 @@ export function ProactiveSettingsSection() {
                 id={startId}
                 label="開始"
                 value={settings.quiet_start}
-                onChange={(quiet_start) => update.mutate({ quiet_start })}
+                onChange={(quiet_start) => update({ quiet_start })}
               />
               <span aria-hidden="true" className="text-ig-secondary">
                 〜
@@ -79,7 +89,7 @@ export function ProactiveSettingsSection() {
                 id={endId}
                 label="終了"
                 value={settings.quiet_end}
-                onChange={(quiet_end) => update.mutate({ quiet_end })}
+                onChange={(quiet_end) => update({ quiet_end })}
               />
             </div>
           </li>

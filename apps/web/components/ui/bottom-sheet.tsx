@@ -101,7 +101,9 @@ export function BottomSheet({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-center" role="presentation">
+    // touch-none: iOS Safari は body の overflow: hidden ではタッチスクロールを止めないため、背景・シートの
+    // 見出しをドラッグしても後ろのページが動かないようにする（本文のスクロール領域だけ touch-pan-y で許可）
+    <div className="fixed inset-0 z-50 flex touch-none justify-center" role="presentation">
       <div
         aria-hidden="true"
         onClick={onClose}
@@ -161,7 +163,12 @@ export function BottomSheet({
             <CloseIcon size={22} strokeWidth={2} />
           </button>
         ) : null}
-        <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain", bodyClassName)}>
+        <div
+          className={cn(
+            "min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain",
+            bodyClassName,
+          )}
+        >
           {children}
         </div>
         {footer ? <div className="shrink-0 px-4 pt-2">{footer}</div> : null}

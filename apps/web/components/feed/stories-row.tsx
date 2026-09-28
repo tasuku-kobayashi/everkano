@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AI_BADGE_LABEL, AiBadge } from "@/components/ui/ai-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,21 +22,31 @@ function loadSeen(): Set<string> {
   }
 }
 
+function persistSeen(seen: Set<string>): void {
+  try {
+    window.localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...seen].slice(-SEEN_MAX)));
+  } catch (error) {
+    console.warn("[stories] failed to persist seen state:", error);
+  }
+}
+
 function useSeenStories() {
   const [seen, setSeen] = useState<Set<string>>(loadSeen);
+  // 保存は state の更新関数の外で行う（更新関数は純粋にしておく。StrictMode では 2 回呼ばれる）
   const markSeen = useCallback((postId: string) => {
     setSeen((prev) => {
       if (prev.has(postId)) return prev;
       const next = new Set(prev);
       next.add(postId);
-      try {
-        window.localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...next].slice(-SEEN_MAX)));
-      } catch (error) {
-        console.warn("[stories] failed to persist seen state:", error);
-      }
       return next;
     });
   }, []);
+  const persistedRef = useRef(seen);
+  useEffect(() => {
+    if (persistedRef.current === seen) return;
+    persistedRef.current = seen;
+    persistSeen(seen);
+  }, [seen]);
   return { seen, markSeen };
 }
 

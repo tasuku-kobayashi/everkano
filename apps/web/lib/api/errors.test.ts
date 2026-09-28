@@ -93,6 +93,14 @@ describe("toAppError: その他の例外", () => {
 
   it("fetch の TypeError・DOMException の中断/タイムアウト・その他", () => {
     expect(toAppError(new TypeError("Failed to fetch"))).toMatchObject({ code: "network_error" });
+    expect(toAppError(new TypeError("Load failed"))).toMatchObject({ code: "network_error" });
+    expect(
+      toAppError(new TypeError("NetworkError when attempting to fetch resource.")),
+    ).toMatchObject({ code: "network_error" });
+    // プログラムの誤りの TypeError は通信エラーにしない（再試行せず、「通信できませんでした」も出さない）
+    expect(toAppError(new TypeError("Cannot read properties of undefined"))).toMatchObject({
+      code: "unknown",
+    });
     expect(toAppError(new DOMException("t", "TimeoutError"))).toMatchObject({ code: "timeout" });
     expect(toAppError(new DOMException("a", "AbortError"))).toMatchObject({ code: "aborted" });
     expect(toAppError(new Error("boom"))).toMatchObject({ status: 0, code: "unknown" });

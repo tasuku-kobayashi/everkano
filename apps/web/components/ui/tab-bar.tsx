@@ -44,7 +44,8 @@ let lastTab: TabKey = "home";
 /**
  * タブバーの DM 未読バッジ（list_dm_threads の unread_count 合計。取得・集計は lib/queries/dm.ts と共通）。
  * DM 側は invalidateDmSummaries()（lib/queries/dm.ts）で更新する。
- * タブバーを出さない画面（DM 会話・投稿詳細）では取得・ポーリングしない（enabled: false）。
+ * タブバーを出さない画面（DM 会話・投稿詳細）と DM 一覧（useDmThreads が同じ RPC を 30 秒ごとに取り、
+ * 合計をこのキーに書く）では取得・ポーリングしない（enabled: false。同じ RPC を二重に呼ばない）。
  * 表示に戻ったとき、古くなっていれば自動で取り直す。
  */
 function useDmUnreadTotal(enabled: boolean): number {
@@ -68,7 +69,7 @@ export function TabBar() {
   const hidden = isTabBarHiddenPath(pathname);
   const direct = tabForPath(pathname);
   const active: TabKey = direct ?? lastTab;
-  const unread = useDmUnreadTotal(!hidden);
+  const unread = useDmUnreadTotal(!hidden && pathname !== "/dm");
   const { data: account } = useMyAccount();
   const scrollTopOrRefreshFeed = useScrollTopOrRefreshFeed();
   const queryClient = useQueryClient();

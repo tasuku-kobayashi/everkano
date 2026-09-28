@@ -91,7 +91,11 @@ export function Modal({
   if (!isClient || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-8" role="presentation">
+    // touch-none: iOS Safari は body の overflow: hidden ではタッチスクロールを止めない（bottom-sheet.tsx と同じ）
+    <div
+      className="fixed inset-0 z-50 flex touch-none items-center justify-center p-8"
+      role="presentation"
+    >
       <div
         aria-hidden="true"
         onClick={close}

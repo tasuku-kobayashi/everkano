@@ -266,7 +266,10 @@ export function LoginForm({ initialError, nextPath }: LoginFormProps) {
   // 6 桁そろったら自動でログイン（同じコードでは 1 回だけ）。
   // 検証中に別のコードが入力・貼り付けされた場合は、いまの検証が終わってから送る。
   const verifyRef = useRef(verify);
-  verifyRef.current = verify;
+  useEffect(() => {
+    // 描画中に ref を書き換えない（React 19 は描画中の ref の変更を警告する）。effect は宣言順に実行される
+    verifyRef.current = verify;
+  });
   useEffect(() => {
     if (step !== "code" || verifying) return;
     if (code.length === OTP_LENGTH && autoSubmittedRef.current !== code) {

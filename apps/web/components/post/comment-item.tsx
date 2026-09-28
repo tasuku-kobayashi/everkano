@@ -105,15 +105,20 @@ export const CommentItem = memo(function CommentItem({
         <p className="text-[14px] leading-[18px] text-wrap-anywhere whitespace-pre-line">
           <RichText text={comment.body} />
         </p>
-        <div className="mt-1 flex items-center gap-4 text-[12px] leading-4 font-semibold text-ig-secondary">
-          <button type="button" onClick={() => onReply(comment)} className="pressable">
+        {/* 12px のテキストボタン。行の高さは変えずに、上下の余白でタップ領域を 44px にする */}
+        <div className="mt-1 flex items-center gap-2 text-[12px] leading-4 font-semibold text-ig-secondary">
+          <button
+            type="button"
+            onClick={() => onReply(comment)}
+            className="-my-3.5 -ml-2 px-2 py-3.5 pressable"
+          >
             返信する
           </button>
           {isOwn && onDelete ? (
             <button
               type="button"
               onClick={() => onDelete(comment)}
-              className="pressable"
+              className="-my-3.5 px-2 py-3.5 pressable"
               aria-label="このコメントを削除"
             >
               削除

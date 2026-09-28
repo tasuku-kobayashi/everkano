@@ -12,7 +12,12 @@ export const FOCUSABLE_SELECTOR =
 let scrollLockCount = 0;
 let savedOverflow = "";
 
-/** 開いている間 body のスクロールを止める（入れ子に対応） */
+/**
+ * 開いている間 body のスクロールを止める（入れ子に対応）。
+ * iOS Safari は body の overflow: hidden だけではタッチスクロールを止めないため、オーバーレイ側で
+ * `touch-none`（本文のスクロール領域は `touch-pan-y` + `overscroll-contain`）も指定する。
+ * pull-to-refresh.tsx はこの overflow: hidden を「オーバーレイが開いている」印として見る。
+ */
 export function useScrollLock(active: boolean): void {
   useEffect(() => {
     if (!active) return;

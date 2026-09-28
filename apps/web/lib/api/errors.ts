@@ -270,9 +270,17 @@ export function toAppError(error: unknown): ApiError {
   if (name === "TimeoutError" || name === "AbortError") {
     return fromCode(transportErrorCode(name), 0, error);
   }
-  if (error instanceof TypeError) return fromCode("network_error", 0, error);
+  // fetch の失敗は TypeError で届く（"Failed to fetch" / "Load failed" / "NetworkError when attempting to fetch"）。
+  // プログラムの誤り（undefined のプロパティ参照など）も TypeError なので、通信の失敗の文面のものだけを
+  // 通信エラー（再試行あり・「通信できませんでした」）にする
+  if (error instanceof TypeError && FETCH_FAILURE_RE.test(message)) {
+    return fromCode("network_error", 0, error);
+  }
   return fromCode("unknown", 0, error);
 }
+
+/** fetch が通信の失敗で投げる TypeError の文面（Chrome / Safari / Firefox） */
+const FETCH_FAILURE_RE = /fetch|network|load failed|connection/i;
 
 /**
  * 任意の例外を画面表示用の日本語メッセージにする。

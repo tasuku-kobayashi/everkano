@@ -102,4 +102,19 @@ describe("GET /media/[...key]", () => {
     const res = await call("/media/posts/../secret.jpg", ["posts", "..", "secret.jpg"]);
     expect(res.status).toBe(400);
   });
+
+  it("有料投稿の本体（private/ 配下）のキーには署名しない（ログイン済みでも 404）", async () => {
+    for (const key of [
+      ["private", "0f1e2d3c.jpg"],
+      ["", "private", "x.jpg"],
+      ["PRIVATE", "x.jpg"],
+    ]) {
+      const res = await call(`/media/${key.join("/")}`, key);
+      expect(res.status, key.join("/")).toBe(404);
+      expect(res.headers.get("location")).toBeNull();
+    }
+    // それ以外の置き場（プレビュー・アバター）は署名する
+    const ok = await call("/media/previews/0f1e2d3c.jpg", ["previews", "0f1e2d3c.jpg"]);
+    expect(ok.status).toBe(302);
+  });
 });

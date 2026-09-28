@@ -1,7 +1,8 @@
-import { PostCardSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { PostCardSkeleton, Skeleton, StoriesRowSkeleton } from "@/components/ui/skeleton";
 
 /**
  * (main) 配下の画面遷移中に表示するスケルトン（各機能は自分のルートに loading.tsx を置いて上書きできる）。
+ * ホーム（ヘッダー + ストーリーズ行 + 投稿カード）と同じ高さの並びにして、表示後に画面が飛ばないようにする。
  * data-route-loading（ROUTE_LOADING_ATTRIBUTE）: 表示中はホームのスクロール位置を復元しない（lib/home-scroll.ts）。
  */
 export default function MainLoading() {
@@ -12,8 +13,11 @@ export default function MainLoading() {
           <Skeleton shape="text" className="h-4 w-28" />
         </div>
       </div>
-      <PostCardSkeleton />
-      <PostCardSkeleton />
+      <StoriesRowSkeleton />
+      <div className="pt-1">
+        <PostCardSkeleton />
+        <PostCardSkeleton />
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getPublicEnv } from "@/lib/env";
 import { getServerEnv } from "@/lib/env.server";
-import { buildTransformParams, encodeObjectKey } from "@/lib/storage/bunny";
+import { buildTransformParams, encodeObjectKey, isPrivateObjectKey } from "@/lib/storage/bunny";
 import { computeExpires, signBunnyUrl } from "@/lib/storage/bunny-token";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -36,6 +36,12 @@ export async function GET(
   }
 
   const { key } = await params;
+  // 有料投稿の本体画像（post_private_assets。docs/handover/06-operations.md の `private/<uuid>.jpg`）には
+  // 署名しない。キーはクライアントから読めない（RLS）が、ログイン済みなら任意のキーに署名できるこの入口が
+  // 漏れたキーを取得可能な URL に変える口になる。本体の配信は決済時に別の API で行う（ADR-0006）
+  if (isPrivateObjectKey(key)) {
+    return new NextResponse(null, { status: 404 });
+  }
   let path: string;
   try {
     // Next.js はセグメントをデコード済みで渡すため、再エンコードして署名する

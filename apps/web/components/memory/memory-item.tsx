@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { HistoryIcon, TrashIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
 import { formatRelativeTime } from "@/lib/format";
+import { codePointLength } from "@/lib/text";
 import {
   importanceToLevel,
   isSecretMemory,
@@ -53,12 +54,13 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
           {saving ? "保存中…" : formatRelativeTime(memory.created_at)}
         </span>
         {editing ? null : (
+          // 行の高さ（32px）は変えずに、上下の余白でタップ領域を 40px にする
           <div className="-mr-2 ml-auto flex items-center">
             <button
               type="button"
               disabled={saving}
               onClick={() => setEditing(true)}
-              className="h-8 px-2 text-[13px] font-semibold text-ig-text pressable disabled:opacity-40"
+              className="-my-1 h-10 px-2 text-[13px] font-semibold text-ig-text pressable disabled:opacity-40"
             >
               編集
             </button>
@@ -67,7 +69,7 @@ export function MemoryItem({ memory, onUpdate, onDelete }: MemoryItemProps) {
               disabled={saving}
               onClick={() => onDelete(memory)}
               aria-label="この記憶を削除"
-              className="flex size-8 items-center justify-center text-ig-secondary pressable disabled:opacity-40"
+              className="-my-1 flex size-10 items-center justify-center text-ig-secondary pressable disabled:opacity-40"
             >
               <TrashIcon size={18} />
             </button>
@@ -186,7 +188,7 @@ function EditForm({
       ) : null}
       <div className="mt-2 flex items-center justify-end gap-2">
         <span className="mr-auto text-[12px] text-ig-secondary">
-          {value.length}/{MEMORY_CONTENT_MAX}
+          {codePointLength(value)}/{MEMORY_CONTENT_MAX}
         </span>
         <Button variant="secondary" size="sm" onClick={onCancel} disabled={saving}>
           キャンセル

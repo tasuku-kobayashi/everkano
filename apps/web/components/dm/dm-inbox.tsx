@@ -68,14 +68,15 @@ export function DmInbox() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="検索"
             enterKeyHint="search"
-            className="min-w-0 flex-1 bg-transparent text-[16px] leading-5 outline-none placeholder:text-ig-secondary [&::-webkit-search-cancel-button]:hidden"
+            className="min-w-0 flex-1 bg-transparent text-[16px] leading-5 outline-none placeholder:text-ig-secondary-on-elevated [&::-webkit-search-cancel-button]:hidden"
           />
           {query ? (
             <button
               type="button"
               aria-label="検索をクリア"
               onClick={() => setQuery("")}
-              className="shrink-0 text-ig-secondary"
+              // 入力欄の高さ（36px）いっぱいのタップ領域にする（アイコンは 14px）
+              className="-mr-3 flex h-9 w-10 shrink-0 items-center justify-center text-ig-secondary-on-elevated"
             >
               <CloseIcon size={14} strokeWidth={2.6} />
             </button>

@@ -12,7 +12,8 @@ export interface PageUnavailableProps {
 export function PageUnavailable({ headingLevel = 2 }: PageUnavailableProps) {
   const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
-    <div className="flex flex-col items-center px-8 pt-20 pb-14 text-center" role="alert">
+    // role="alert" は付けない（静的なページなので、見出しを読めば分かる。alert だと遷移のたびに割り込んで読み上げる）
+    <div className="flex flex-col items-center px-8 pt-20 pb-14 text-center">
       <Heading className="text-[18px] leading-6 font-bold text-balance [word-break:auto-phrase]">
         このページはご利用いただけません
       </Heading>

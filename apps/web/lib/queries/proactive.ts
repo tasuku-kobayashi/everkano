@@ -16,7 +16,6 @@ import type {
   UpdateProactiveGlobalSettingsRequest,
 } from "@everkano/shared";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { getErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/queries/keys";
@@ -35,6 +34,11 @@ export const DEFAULT_GLOBAL_SETTINGS: ProactiveGlobalSettings = {
 export const QUIET_HOURS: readonly number[] = Array.from({ length: 24 }, (_, hour) => hour);
 
 const SAVE_FAILED_MESSAGE = "設定を保存できませんでした。しばらくしてから再度お試しください。";
+
+/** 設定の保存に失敗したときの表示文（画面側でトーストに出す。lib は UI 部品に依存しない） */
+export function proactiveSaveErrorMessage(error: unknown): string {
+  return getErrorMessage(error, SAVE_FAILED_MESSAGE);
+}
 
 // ---------------------------------------------------------------------------
 // 純粋関数
@@ -134,10 +138,12 @@ interface GlobalContext {
   inverse: UpdateProactiveGlobalSettingsRequest | null;
 }
 
-/** 全体の設定を変更（PUT /proactive/settings）。失敗はトーストで知らせ、変えた項目だけ戻す */
+/**
+ * 全体の設定を変更（PUT /proactive/settings）。失敗したら変えた項目だけ戻す。
+ * 失敗の表示（トースト）は呼び出し側が `mutate(patch, { onError })` + proactiveSaveErrorMessage で行う
+ */
 export function useUpdateProactiveGlobal() {
   const queryClient = useQueryClient();
-  const toast = useToast();
   return useMutation<
     ProactiveSettingsResponse | null,
     unknown,
@@ -155,7 +161,7 @@ export function useUpdateProactiveGlobal() {
       return { inverse: inverseGlobalPatch(current, patch) };
     },
     onSuccess: (response) => acceptResponse(queryClient, response),
-    onError: (error, _patch, context) => {
+    onError: (_error, _patch, context) => {
       const inverse = context?.inverse;
       if (inverse) {
         queryClient.setQueryData<ProactiveSettingsResponse>(
@@ -163,7 +169,6 @@ export function useUpdateProactiveGlobal() {
           (current) => (current ? applyGlobalPatch(current, inverse) : current),
         );
       }
-      toast.error(getErrorMessage(error, SAVE_FAILED_MESSAGE));
     },
     onSettled: () => settle(queryClient),
   });
@@ -173,10 +178,9 @@ interface CharacterContext {
   previous: boolean | null;
 }
 
-/** キャラ別のオン・オフ（PUT /proactive/settings/{character_id}） */
+/** キャラ別のオン・オフ（PUT /proactive/settings/{character_id}）。失敗の表示は呼び出し側（上と同じ） */
 export function useUpdateProactiveCharacter(characterId: string) {
   const queryClient = useQueryClient();
-  const toast = useToast();
   return useMutation<ProactiveSettingsResponse | null, unknown, boolean, CharacterContext>({
     mutationKey: settingsMutationKey(),
     mutationFn: (enabled) => api.updateProactiveCharacterSetting(characterId, { enabled }),
@@ -189,7 +193,7 @@ export function useUpdateProactiveCharacter(characterId: string) {
       return { previous: isCharacterProactiveEnabled(current, characterId) };
     },
     onSuccess: (response) => acceptResponse(queryClient, response),
-    onError: (error, _enabled, context) => {
+    onError: (_error, _enabled, context) => {
       const previous = context?.previous;
       if (previous !== null && previous !== undefined) {
         queryClient.setQueryData<ProactiveSettingsResponse>(
@@ -197,7 +201,6 @@ export function useUpdateProactiveCharacter(characterId: string) {
           (current) => (current ? applyCharacterPatch(current, characterId, previous) : current),
         );
       }
-      toast.error(getErrorMessage(error, SAVE_FAILED_MESSAGE));
     },
     onSettled: () => settle(queryClient),
   });

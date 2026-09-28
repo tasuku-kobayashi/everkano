@@ -1,9 +1,9 @@
 "use client";
 
 import type { MessageDTO, PublicCharacter } from "@everkano/shared";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MemoryPanel } from "@/components/memory/memory-panel";
 import { buttonClassName } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -41,6 +41,15 @@ import { useSendMessage } from "./use-send-message";
 /** 入力欄の高さの初期値（safe-area を除く） */
 const DEFAULT_FOOTER_PX = 56;
 
+/**
+ * メモリパネル（記憶・約束・自発メッセージの設定とそのデータ層）は「i」を押したときだけ使うので、DM 画面の
+ * チャンクに含めず初めて開くときに読み込む（DM 画面の初期表示の JS を減らす）。閉じている間は何も描画しない
+ */
+const MemoryPanel = dynamic(
+  () => import("@/components/memory/memory-panel").then((module) => module.MemoryPanel),
+  { ssr: false },
+);
+
 export interface DmConversationProps {
   characterId: string;
 }
@@ -59,6 +68,12 @@ export function DmConversation({ characterId }: DmConversationProps) {
   const characterQuery = useDmCharacter(characterId, valid);
   const conversationQuery = useConversation(characterId, valid);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  // 一度でも開いたら以後はマウントしたままにする（閉じるアニメーションと入力の下書きの保持のため）
+  const [memoryMounted, setMemoryMounted] = useState(false);
+  const openMemory = useCallback(() => {
+    setMemoryMounted(true);
+    setMemoryOpen(true);
+  }, []);
 
   const notFound =
     !valid ||
@@ -74,7 +89,7 @@ export function DmConversation({ characterId }: DmConversationProps) {
     <>
       <DmHeader
         character={character}
-        onOpenInfo={conversation && character ? () => setMemoryOpen(true) : undefined}
+        onOpenInfo={conversation && character ? openMemory : undefined}
       />
       {notFound ? (
         <EmptyState
@@ -102,10 +117,10 @@ export function DmConversation({ characterId }: DmConversationProps) {
           conversationId={conversation.id}
           characterId={characterId}
           character={character ?? null}
-          onOpenMemory={() => setMemoryOpen(true)}
+          onOpenMemory={openMemory}
         />
       )}
-      {conversation && character ? (
+      {conversation && character && memoryMounted ? (
         <MemoryPanel
           open={memoryOpen}
           onClose={() => setMemoryOpen(false)}

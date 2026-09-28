@@ -64,7 +64,7 @@ export function SafetyResourceCard({
         </div>
       ) : error ? (
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-ig-elevated px-3 py-2.5">
-          <p className="text-[13px] leading-[18px] text-ig-secondary">
+          <p className="text-[13px] leading-[18px] text-ig-secondary-on-elevated">
             相談窓口の一覧を読み込めませんでした。
           </p>
           {onRetry ? (

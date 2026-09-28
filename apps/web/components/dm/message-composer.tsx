@@ -116,7 +116,7 @@ export const MessageComposer = forwardRef<MessageComposerHandle, MessageComposer
               placeholder="メッセージ…"
               enterKeyHint="enter"
               autoComplete="off"
-              className="min-w-0 flex-1 resize-none bg-transparent text-[16px] leading-[22px] text-ig-text outline-none placeholder:text-ig-secondary focus-visible:outline-none"
+              className="min-w-0 flex-1 resize-none bg-transparent text-[16px] leading-[22px] text-ig-text outline-none placeholder:text-ig-secondary-on-elevated focus-visible:outline-none"
               style={{ paddingTop: PADDING_Y, paddingBottom: PADDING_Y }}
             />
             {trimmed ? (

@@ -35,6 +35,18 @@ export function buildTransformParams(options: ImageTransformOptions = {}): Array
   return params.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** 有料投稿の本体画像（post_private_assets）のオブジェクトキーの置き場（先頭のセグメント。docs/handover/06-operations.md） */
+export const PRIVATE_OBJECT_PREFIX = "private";
+
+/**
+ * 先頭の空セグメント（先頭の / の連続）を除いた最初のセグメントが private/ か。
+ * /media（署名 URL の発行）はこのキーに署名しない（有料投稿の本体はクライアントに配信しない。ADR-0006）
+ */
+export function isPrivateObjectKey(segments: readonly string[]): boolean {
+  const first = segments.find((segment) => segment.length > 0);
+  return first !== undefined && first.toLowerCase() === PRIVATE_OBJECT_PREFIX;
+}
+
 /** オブジェクトキーを正規化して、各セグメントを URL エンコードしたパス（先頭 / 付き）にする */
 export function encodeObjectKey(key: string): string {
   const segments = key

@@ -20,6 +20,9 @@ describe("sanitizeNextPath", () => {
     expect(sanitizeNextPath("dm")).toBe("/");
     expect(sanitizeNextPath("/login?next=/x")).toBe("/");
     expect(sanitizeNextPath("/auth/callback")).toBe("/");
+    // 極端に長い値（メールのリンク・Cookie に運ぶ）はホームへ
+    expect(sanitizeNextPath("/" + "a".repeat(2047))).toHaveLength(2048);
+    expect(sanitizeNextPath("/" + "a".repeat(2048))).toBe("/");
   });
 });
 

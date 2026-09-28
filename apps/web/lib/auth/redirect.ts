@@ -3,12 +3,16 @@ import { API_ERROR_MESSAGES, SESSION_EXPIRED_MESSAGE } from "@/lib/api/errors";
 /** 運営によって利用停止（Supabase Auth の ban）されたアカウントの文言 */
 export const ACCOUNT_BANNED_MESSAGE = "このアカウントは利用停止中です。";
 
+/** ?next= の長さの上限（メールのリンク・Cookie に運ぶ。これより長いものはホームに戻す） */
+export const NEXT_PATH_MAX_LENGTH = 2048;
+
 /**
  * ログイン後の遷移先（?next=）の検証。オープンリダイレクトを防ぐため、
  * 同一オリジンの相対パス（"/" で始まり "//" や "/\" で始まらない）のみ許可する。
  */
 export function sanitizeNextPath(next: string | null | undefined, fallback = "/"): string {
   if (!next) return fallback;
+  if (next.length > NEXT_PATH_MAX_LENGTH) return fallback;
   if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
   if (/[\u0000-\u001f]/.test(next)) return fallback;
   // 認証系のページへ戻すとループするため除外

@@ -3,8 +3,10 @@
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/toast";
 import {
   isCharacterProactiveEnabled,
+  proactiveSaveErrorMessage,
   useProactiveSettings,
   useUpdateProactiveCharacter,
 } from "@/lib/queries/proactive";
@@ -22,6 +24,7 @@ export function ProactiveToggleRow({
 }) {
   const settingsQuery = useProactiveSettings();
   const update = useUpdateProactiveCharacter(characterId);
+  const toast = useToast();
   const labelId = useId();
   const descriptionId = useId();
   const settings = settingsQuery.data;
@@ -62,7 +65,11 @@ export function ProactiveToggleRow({
         <Switch
           checked={settings ? enabled && !globalOff : false}
           disabled={!settings || globalOff}
-          onChange={(next) => update.mutate(next)}
+          onChange={(next) =>
+            update.mutate(next, {
+              onError: (error) => toast.error(proactiveSaveErrorMessage(error)),
+            })
+          }
           labelledBy={labelId}
           describedBy={descriptionId}
           data-testid="proactive-character-switch"

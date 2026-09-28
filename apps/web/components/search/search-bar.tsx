@@ -51,7 +51,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
             autoCapitalize="none"
             spellCheck={false}
             maxLength={100}
-            className="h-full w-full min-w-0 bg-transparent pr-9 pl-9 text-[16px] outline-none placeholder:text-ig-secondary [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-full w-full min-w-0 bg-transparent pr-9 pl-9 text-[16px] outline-none placeholder:text-ig-secondary-on-elevated [&::-webkit-search-cancel-button]:appearance-none"
             data-testid="search-input"
           />
           {value ? (
@@ -61,7 +61,8 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onChange("")}
               aria-label="検索語を消去"
-              className="absolute right-1.5 flex size-7 items-center justify-center"
+              // 入力欄の高さ（36px）いっぱいのタップ領域にする（アイコンは 16px）
+              className="absolute right-0 flex h-9 w-10 items-center justify-center"
             >
               <ClearIcon />
             </button>
