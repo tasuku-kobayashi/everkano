@@ -84,6 +84,38 @@ async def test_enqueue_dedupe_and_debounce(pool: Pool, audit: AuditLogger, kind:
     assert len(await _rows(pool, kind)) == 4
 
 
+async def test_debounce_does_not_touch_a_retry_wait(pool: Pool, audit: AuditLogger, kind: str) -> None:
+    """再試行待ち（attempts > 0）のジョブは、新しい登録のデバウンスで run_at を動かさない。
+
+    以前は created_at + 上限で頭打ちにしていたため、最初の登録から上限を過ぎた後は新しい発言のたびに run_at が
+    過去になり、バックオフが効かずに残りの試行を使い切っていた。
+    """
+    clock = ManualClock(T0)
+    queue = _queue(pool, audit, clock, max_attempts=5, backoff=600)
+    registry = JobRegistry()
+
+    async def failing(ctx: JobContext) -> None:
+        raise RuntimeError("llm down")
+
+    registry.register(kind, failing)
+    worker = _worker(queue, registry, clock)
+    await queue.enqueue(kind, {}, run_at=T0, dedupe_key="c", debounce_max_delay=timedelta(minutes=18))
+    assert await worker.run_until_idle(now=T0, kinds=[kind]) == 1
+    retry_at = (await _rows(pool, kind))[0]["run_at"]
+    assert retry_at == T0 + timedelta(seconds=600)
+    # 最初の登録から上限（18 分）を過ぎた後の新しい発言。以前はここで run_at が created_at + 18 分（過去）になった
+    later = T0 + timedelta(minutes=30)
+    clock.set(later)
+    assert (
+        await queue.enqueue(
+            kind, {}, run_at=later + timedelta(minutes=3), dedupe_key="c", debounce_max_delay=timedelta(minutes=18)
+        )
+        is None
+    )
+    row = (await _rows(pool, kind))[0]
+    assert (row["status"], row["attempts"], row["run_at"]) == ("queued", 1, retry_at)
+
+
 async def test_run_until_idle_respects_run_at_and_filters(pool: Pool, audit: AuditLogger, kind: str) -> None:
     clock = ManualClock(T0)
     queue = _queue(pool, audit, clock)

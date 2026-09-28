@@ -107,6 +107,9 @@ select c.id as conversation_id, c.user_id, c.character_id,
      order by m.created_at desc limit 1
   ) lm on true
  where coalesce(gs.enabled, true) and coalesce(cs.enabled, true)
+   -- last_message_at（最後の発言。索引あり）で先に絞り、休眠中の会話では messages を引かない
+   -- （最後のユーザー発言は last_message_at 以前なので、条件は同じ）
+   and c.last_message_at > $1 - make_interval(days => $2)
    and lu.created_at > $1 - make_interval(days => $2)
    and ($3::uuid[] is null or c.user_id = any($3::uuid[]))
  order by c.user_id, c.character_id
@@ -166,9 +169,19 @@ on conflict (user_id, character_id, trigger, trigger_ref) do nothing
 returning id
 """
 
+# created_at は走査の開始時刻（$3）だが、走査には数分かかることがある。その間にユーザーが発言していたら
+# その発言より後の時刻にする（チャットの保存と同じ greatest(...)。会話の行はロック済み）。
+# 走査の時刻のままだと、後から届いたユーザー発言より前に並び、履歴の順序と「返信があった」の判定が崩れる
 _INSERT_MESSAGE_SQL: Final[str] = """
 insert into public.messages (conversation_id, sender_type, body, is_proactive, created_at)
-values ($1, 'character', $2, true, $3)
+values (
+  $1, 'character', $2, true,
+  greatest(
+    $3::timestamptz,
+    coalesce((select max(created_at) from public.messages where conversation_id = $1), '-infinity'::timestamptz)
+      + interval '1 millisecond'
+  )
+)
 returning id
 """
 
@@ -317,7 +330,7 @@ class ProactiveMessenger:
         outcomes = await asyncio.gather(*(run(plan) for plan in best_by_user.values()))
         stats.sent = outcomes.count("sent")
         stats.dropped = outcomes.count("dropped")
-        stats.errors = outcomes.count("error")
+        stats.errors += outcomes.count("error")  # 候補の評価で数えた失敗に足す
         logger.info(
             "proactive scan finished",
             extra={

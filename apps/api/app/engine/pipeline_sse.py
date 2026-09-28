@@ -17,8 +17,7 @@ from typing import Any, Final
 
 from app.core.errors import DEFAULT_MESSAGES
 from app.core.logging import request_id_var
-from app.engine.pipeline import DeltaEvent, DoneEvent, ErrorEvent, PipelineEvent, ReplaceEvent
-from app.services.chat import PipelineChannel
+from app.engine.pipeline import DeltaEvent, DoneEvent, ErrorEvent, PipelineChannel, PipelineEvent, ReplaceEvent
 
 SSE_MEDIA_TYPE: Final[str] = "text/event-stream"
 SSE_HEADERS: Final[dict[str, str]] = {

@@ -65,6 +65,11 @@ select ch.id, ch.handle, ch.name, ch.avatar_url, ch.bio, ch.persona_key, ch.syst
  where c.id = $1 and c.user_id = $2 and c.character_id = $3 and ch.is_active
 """
 
+# 保存の前に会話の行をロックする。同じ会話への同時の送信（二重タップ・再送）が max(created_at) + 1ms を
+# 同じ値に計算して created_at が重なると、履歴の順序・返答後のジョブのターンの対応付け・処理済み位置
+# （analyzed_until との比較）が崩れるため、会話ごとに保存を直列にする（ロックはミリ秒単位の保存の間だけ）
+_LOCK_CONVERSATION_SQL: Final[str] = "select 1 from public.conversations where id = $1 for update"
+
 # 時計の時刻で保存する。同じ会話の直前のメッセージより必ず後にする（時計を止めた評価ハーネスでも順序が崩れない）
 _INSERT_USER_MESSAGE_SQL: Final[str] = f"""
 insert into public.messages (conversation_id, sender_type, body, created_at)
@@ -126,6 +131,41 @@ class ErrorEvent:
 
 PipelineEvent = DeltaEvent | ReplaceEvent | DoneEvent | ErrorEvent
 Emit = Callable[[PipelineEvent], None]
+
+_END: Final = object()
+
+
+class PipelineChannel:
+    """パイプラインのイベントを受け取るチャネル。読み手がいなくなっても書き手（生成タスク）は止まらない。"""
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue[Any] = asyncio.Queue()
+        self.error: BaseException | None = None
+
+    def put(self, event: PipelineEvent) -> None:
+        self._queue.put_nowait(event)
+
+    def close(self, error: BaseException | None = None) -> None:
+        self.error = error
+        self._queue.put_nowait(_END)
+
+    async def next(self) -> PipelineEvent | None:
+        """次のイベント。書き手が終わったら None（想定外の例外で終わった場合は self.error に入る）。"""
+        item = await self._queue.get()
+        if item is _END:
+            self._queue.put_nowait(_END)  # 何度呼んでも None を返す
+            return None
+        event: PipelineEvent = item
+        return event
+
+    def __aiter__(self) -> PipelineChannel:
+        return self
+
+    async def __anext__(self) -> PipelineEvent:
+        event = await self.next()
+        if event is None:
+            raise StopAsyncIteration
+        return event
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,6 +468,9 @@ class ChatPipeline:
     ) -> tuple[MessageDTO, MessageDTO]:
         try:
             async with self._pool.acquire() as conn, conn.transaction():
+                if await conn.fetchval(_LOCK_CONVERSATION_SQL, turn.conversation_id) is None:
+                    # 所有者の確認の後、応答の生成中に会話が削除された（退会・運用者の削除）
+                    raise not_found("会話が見つかりません。")
                 user_row = await conn.fetchrow(_INSERT_USER_MESSAGE_SQL, turn.conversation_id, turn.message, turn.now)
                 if user_row is None:  # pragma: no cover - returning 付き insert
                     raise RuntimeError("message insert returned no row")

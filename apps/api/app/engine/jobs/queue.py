@@ -46,9 +46,16 @@ on conflict (kind, dedupe_key) where dedupe_key is not null and status in ('queu
 returning {_JOB_COLUMNS}
 """  # noqa: S608 - 列名は定数
 
+# デバウンスは、まだ一度も実行していないジョブ（attempts = 0）だけを後ろにずらす。
+# 失敗して再試行待ち（attempts > 0。run_at = 失敗時刻 + バックオフ）のジョブまで created_at + 上限で
+# 頭打ちにすると、最初の登録から上限を過ぎた後は新しい発言のたびに run_at が過去になり、バックオフが
+# 効かずに残りの試行を一気に使い切ってしまう（LLM の障害の間にジョブが dead になる）
 _DEBOUNCE_SQL: Final[str] = """
 update public.engine_jobs
-   set run_at = least(greatest(run_at, $3), created_at + $4::interval)
+   set run_at = case
+                  when attempts = 0 then least(greatest(run_at, $3), created_at + $4::interval)
+                  else run_at
+                end
  where kind = $1 and dedupe_key = $2 and status = 'queued'
 returning id
 """
@@ -160,7 +167,7 @@ def _json_payload(value: Any) -> dict[str, Any]:
 
 
 class PgJobQueue:
-    """JobQueue（app/engine/types.py）の Postgres 実装。"""
+    """Postgres のジョブキュー（engine_jobs）。"""
 
     def __init__(
         self,

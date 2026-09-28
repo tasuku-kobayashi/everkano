@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -142,6 +144,11 @@ _CLAIM_POST_SQL: Final[str] = """
 update public.character_events set meta = meta || jsonb_build_object('post_state', 'generating')
  where id = $1 and post_id is null and meta->>'post_state' = 'pending'
 returning id
+"""
+
+_RESET_POST_CLAIM_SQL: Final[str] = """
+update public.character_events set meta = meta || jsonb_build_object('post_state', 'pending')
+ where id = $1 and post_id is null and meta->>'post_state' = 'generating'
 """
 
 _PENDING_POSTS_SQL: Final[str] = f"""
@@ -692,15 +699,27 @@ class CalendarEngine:
                     continue
                 if await conn.fetchval(_CLAIM_POST_SQL, event.id) is None:
                     continue  # 別のプロセスが処理中
-            caption, reason = await self._generate_caption(character, persona, event, world, now)
-            if caption is None:
-                async with self._pool.acquire() as conn:
-                    await conn.execute(_SET_POST_STATE_SQL, [event.id], reason)
-                report.skip(reason)
-                continue
-            await self._insert_post(
-                character, event=event, caption=caption, published_at=published_at, now=now, report=report
-            )
+            try:
+                caption, reason = await self._generate_caption(character, persona, event, world, now)
+                if caption is None:
+                    async with self._pool.acquire() as conn:
+                        await conn.execute(_SET_POST_STATE_SQL, [event.id], reason)
+                    report.skip(reason)
+                    continue
+                await self._insert_post(
+                    character, event=event, caption=caption, published_at=published_at, now=now, report=report
+                )
+            except BaseException:
+                # LLM 以外の想定外の失敗・停止時の取り消し: 'generating' のまま残すと二度と投稿の対象にならない
+                # （_PENDING_POSTS_SQL は 'pending' だけを見る）ので、次の tick でやり直せるように戻す
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(self._reset_post_claim(event.id))
+                raise
+
+    async def _reset_post_claim(self, event_id: UUID) -> None:
+        """'generating' の印を 'pending' に戻す（投稿済み・別の状態になっていれば何もしない）。"""
+        async with self._pool.acquire() as conn:
+            await conn.execute(_RESET_POST_CLAIM_SQL, event_id)
 
     async def _generate_caption(
         self, character: CharacterRecord, persona: Persona, event: EventView, world: WorldState, now: datetime

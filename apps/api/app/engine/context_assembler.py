@@ -30,8 +30,8 @@ from uuid import UUID
 
 from app.core.db import Pool
 from app.core.logging import get_logger
+from app.engine.calendar.world import build_world_state
 from app.engine.types import (
-    STAGE_LABELS_JA,
     AffinityService,
     CalendarService,
     CharacterMemoryItem,
@@ -43,7 +43,6 @@ from app.engine.types import (
     PromiseItem,
     RelationshipGuidance,
     WorldState,
-    to_jst,
 )
 from app.services.audit import AuditLogger
 from app.services.moderation import Moderator
@@ -72,6 +71,9 @@ SECTION_HISTORY: Final[str] = "history"
 SECTION_MEMORY: Final[str] = "memory"
 SECTION_CALENDAR: Final[str] = "calendar"
 SECTION_AFFINITY: Final[str] = "affinity"
+
+# 記憶のセクションの締め切りのうち、検索用の埋め込み（外部 API）に使ってよい割合
+EMBED_SHARE_OF_TIMEOUT: Final[float] = 0.6
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,44 +121,16 @@ class AssembledContext:
 # 世界の時間（カレンダーが無効・失敗したときの最小限のもの）
 # ---------------------------------------------------------------------------
 
-_WEEKDAYS: Final[str] = "月火水木金土日"
-_SEASONS: Final[dict[int, tuple[str, str]]] = {
-    **dict.fromkeys((3, 4, 5), ("spring", "春")),
-    **dict.fromkeys((6, 7, 8), ("summer", "夏")),
-    **dict.fromkeys((9, 10, 11), ("autumn", "秋")),
-    **dict.fromkeys((12, 1, 2), ("winter", "冬")),
-}
-
-
-def time_of_day_ja(hour: int) -> str:
-    if 4 <= hour < 7:
-        return "早朝"
-    if 7 <= hour < 11:
-        return "朝"
-    if 11 <= hour < 16:
-        return "昼"
-    if 16 <= hour < 19:
-        return "夕方"
-    if 19 <= hour < 24:
-        return "夜"
-    return "深夜"
-
 
 def basic_world_state(now: datetime) -> WorldState:
-    local = to_jst(now)
-    season, season_ja = _SEASONS[local.month]
-    return WorldState(
-        now=now,
-        now_jst=local,
-        weekday_ja=_WEEKDAYS[local.weekday()],
-        season=season,  # type: ignore[arg-type]
-        season_ja=season_ja,
-        time_of_day_ja=time_of_day_ja(local.hour),
-        holiday_name=None,
-        is_day_off=local.weekday() >= 5,
-        seasonal_keys=(),
-        seasonal_labels_ja=(),
-    )
+    """カレンダーが無い・間に合わないときの世界の時間。
+
+    曜日・季節・時間帯・祝日はカレンダーの世界の時計（純粋関数。DB なし）と同じ計算にする。以前は時間帯の
+    境界が別に定義されていて（朝 7〜11 / 昼 11〜16 など）、カレンダーのセクションが省かれたターンだけモデルに
+    見える時間帯の呼び方が変わっていた。季節の行事だけは省く（会話に出す価値より一貫性を優先する）。
+    """
+    full = build_world_state(now)
+    return replace(full, seasonal_keys=(), seasonal_labels_ja=())
 
 
 # ---------------------------------------------------------------------------
@@ -393,10 +367,10 @@ select id, sender_type, body, created_at from (
   select id, sender_type, body, created_at
     from public.messages
    where conversation_id = $1
-   order by created_at desc
+   order by created_at desc, id desc
    limit $2
 ) recent
-order by created_at asc
+order by created_at asc, id asc
 """
 
 
@@ -595,8 +569,8 @@ class ContextAssembler:
         ]
         return sanitize_history(items, self._moderator)
 
-    @staticmethod
     async def _memory_context(
+        self,
         memory: MemoryService,
         *,
         user_id: UUID,
@@ -605,9 +579,20 @@ class ContextAssembler:
         user_message: str,
         now: datetime,
     ) -> MemoryContext:
-        embedding = await memory.embed_query(
+        # 埋め込み（外部 API。EMBEDDING_TIMEOUT_SECONDS は締め切りより長い）の待ちは、締め切りの一部までにする。
+        # 間に合わなければ意味検索だけを省き（retrieval_skipped）、関係性の記憶・要約・期日の近い約束は
+        # 残りの時間で取る（以前は埋め込みが遅いと記憶のセクション全体が締め切りで消えていた）
+        embed = memory.embed_query(
             user_message, user_id=user_id, character_id=character_id, conversation_id=conversation_id
         )
+        try:
+            embedding = await asyncio.wait_for(embed, timeout=self._timeout * EMBED_SHARE_OF_TIMEOUT)
+        except TimeoutError:
+            logger.warning(
+                "query embedding exceeded its share of the context deadline; retrieving without it",
+                extra={"fields": {"conversation_id": str(conversation_id), "timeout_s": self._timeout}},
+            )
+            embedding = None
         return await memory.retrieve_context(
             user_id=user_id,
             character_id=character_id,
@@ -644,10 +629,6 @@ class ContextAssembler:
             payload={"conversation_id": conversation_id, "sections": sorted(errors), "errors": errors},
             at=now,
         )
-
-
-def stage_label(stage: str) -> str:
-    return STAGE_LABELS_JA.get(stage, stage)
 
 
 __all__ = [

@@ -5,7 +5,8 @@
 - `MemoryEngineUnavailableError`: process_turns が一時的な障害で分析できなかったときの例外（ジョブを再実行する）
 - `MemoryConfig`: 設定（`MemoryConfig.from_settings(settings)`）
 - `UserMemoryService`: メモリパネル / 約束の API（routers/memories.py・routers/promises.py）
-- `extract_call_name`: 関係性の記憶からユーザーの呼ばれたい名前を取り出す（Context Assembler 用）
+- `extract_call_name`: 関係性の記憶からユーザーの呼ばれたい名前を取り出す（MVP の互換。Context Assembler は
+  `app.engine.context_assembler.extract_user_name` を使う）
 
 import 時に MockLLM の `memory_analysis` / `memory_summary` を登録する（mock.py）。
 """

@@ -54,7 +54,7 @@ select id, sender_type, body, created_at, is_proactive, safety_triggered
  where conversation_id = $1
    and created_at > coalesce($2::timestamptz, '-infinity'::timestamptz)
    and ($3::timestamptz is null or created_at <= $3::timestamptz)
- order by created_at asc
+ order by created_at asc, id asc
  limit $4
 """
 

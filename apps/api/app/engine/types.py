@@ -471,16 +471,3 @@ class SafetyService(Protocol):
 
 class OutputGuard(Protocol):
     def check(self, text: str) -> GuardResult: ...
-
-
-class JobQueue(Protocol):
-    async def enqueue(
-        self,
-        kind: str,
-        payload: dict[str, object],
-        *,
-        run_at: datetime,
-        dedupe_key: str | None = None,
-    ) -> int | None:
-        """ジョブを登録する。同じ kind + dedupe_key の未処理ジョブがあれば登録せず None。"""
-        ...

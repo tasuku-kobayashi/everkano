@@ -11,50 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, Final
 
 from app.core.errors import ApiError
 from app.core.logging import get_logger
 from app.core.security import CurrentUser
-from app.engine.pipeline import ChatPipeline, ChatTurn, DoneEvent, ErrorEvent, PipelineEvent
+from app.engine.pipeline import ChatPipeline, ChatTurn, DoneEvent, ErrorEvent, PipelineChannel
 from app.models.dm import ChatRequest, ChatResponse
 
 logger = get_logger("chat")
 
-_END: Final = object()
-
-
-class PipelineChannel:
-    """パイプラインのイベントを受け取るチャネル。読み手がいなくなっても書き手（生成タスク）は止まらない。"""
-
-    def __init__(self) -> None:
-        self._queue: asyncio.Queue[Any] = asyncio.Queue()
-        self.error: BaseException | None = None
-
-    def put(self, event: PipelineEvent) -> None:
-        self._queue.put_nowait(event)
-
-    def close(self, error: BaseException | None = None) -> None:
-        self.error = error
-        self._queue.put_nowait(_END)
-
-    async def next(self) -> PipelineEvent | None:
-        """次のイベント。書き手が終わったら None（想定外の例外で終わった場合は self.error に入る）。"""
-        item = await self._queue.get()
-        if item is _END:
-            self._queue.put_nowait(_END)  # 何度呼んでも None を返す
-            return None
-        event: PipelineEvent = item
-        return event
-
-    def __aiter__(self) -> PipelineChannel:
-        return self
-
-    async def __anext__(self) -> PipelineEvent:
-        event = await self.next()
-        if event is None:
-            raise StopAsyncIteration
-        return event
+# PipelineChannel は app.engine.pipeline に定義する（SSE 変換 app/engine/pipeline_sse.py が services 層を
+# 参照しないため）。ここからも使えるようにしておく
+__all__ = ["ChatService", "PipelineChannel"]
 
 
 class ChatService:

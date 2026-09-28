@@ -25,7 +25,6 @@ from app.engine.memory.text import (
     sanitize_history,
 )
 from app.services import embedding as embedding_compat
-from app.services import memory as memory_compat
 from app.services import user_memories as user_memories_compat
 from app.services.audit import AuditLogger
 from app.services.llm import LLMError, MockLLM
@@ -76,11 +75,13 @@ def test_sanitize_history_keeps_character_messages() -> None:
 
 
 def test_compat_modules_reexport_the_engine() -> None:
-    """旧パス（app.services.*）は engine/memory の実装を指す（コンテナ・スクリプト・旧テストの互換）。"""
+    """旧パス（app.services.*）は engine/memory の実装を指す（コンテナ・スクリプトの互換）。
+
+    どこからも参照されなくなった app.services.memory / memory_capacity は削除した（engine/memory を直接使う）。
+    """
     assert user_memories_compat.UserMemoryService is UserMemoryService
     assert embedding_compat.EmbeddingError is EmbeddingError
-    assert memory_compat.sanitize_history is sanitize_history
-    assert memory_compat.parse_summary is parse_summary
+    assert parse_summary is not None
 
 
 def test_content_hash_normalizes_width_case_and_punctuation() -> None:

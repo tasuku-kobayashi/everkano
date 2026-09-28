@@ -5,7 +5,8 @@
 - 削除した記憶は内容を持たない「墓標」（memory_tombstones: 本文のハッシュと埋め込み）を残して行を消す。
   自動抽出は墓標と同じ・よく似た記憶を作らない（E5）。ユーザー自身が追加し直すのは可。
   削除した記憶から作られた未達の約束は取り消す（キャラが消した話題を持ち出さない）。
-- 記憶の本文はプロンプトに入るため Gate #1（入力）を通す。
+- 記憶の本文はプロンプトに入るため Gate #1（入力）を通す。指示の上書き・運営のなりすましなど注入の形のもの
+  （memory/guard.py。誤検知の少ない種類だけ）も保存しない（422 moderation_blocked。audit memory.injection_skipped）。
 - ユーザー × キャラの記憶は `MEMORY_MAX_PER_CHARACTER` 件まで（超える追加は 422。capacity.py）。
 - `summary`（自動要約専用）のタグ・種類は新たに付けられない。
 - 埋め込みは `USER_MEMORY_EMBED_DEADLINE_SECONDS` で打ち切り 503（Web の 15 秒のタイムアウトより前に返し、
@@ -26,6 +27,7 @@ from app.core.logging import get_logger
 from app.core.security import CurrentUser
 from app.engine.memory.capacity import count_pair, lock_pair
 from app.engine.memory.embedding import EmbeddingClient, EmbeddingError, embedding_failure_payload
+from app.engine.memory.guard import injection_labels
 from app.engine.memory.promises import OPEN_STATUSES, PROMISE_COLUMNS, change_status
 from app.engine.memory.text import content_hash
 from app.engine.types import Clock, SystemClock
@@ -51,6 +53,13 @@ USER_MEMORY_EMBED_DEADLINE_SECONDS: Final[float] = 10.0
 PROMISES_LIST_LIMIT: Final[int] = 200
 _EMBEDDING_FAILED_MESSAGE: Final[str] = "記憶を保存できませんでした。しばらくしてから再度お試しください。"
 _MEMORY_BLOCKED_MESSAGE: Final[str] = "この内容は記憶として保存できません。表現を変えて再度お試しください。"
+_MEMORY_INJECTION_MESSAGE: Final[str] = (
+    "キャラクターへの指示や設定の書き換えにあたる内容は記憶として保存できません。あなた自身のことや出来事を書いてください。"
+)
+# ユーザーが直接書く記憶で保存を断る注入の種類（memory/guard.py の injection_labels のうち、誤検知の少ないもの）
+_PANEL_INJECTION_LABELS: Final[frozenset[str]] = frozenset(
+    {"prompt_injection", "fake_authority", "humanity_request", "forced_affection", "commerce_bargain"}
+)
 _SUMMARY_KIND_LOCKED_MESSAGE: Final[str] = "会話の要約の種類は変更できません"
 
 
@@ -357,22 +366,35 @@ class UserMemoryService:
     # ================================================================== 内部
     async def _moderate(self, user: CurrentUser, character_id: UUID, text: str) -> None:
         result = self._moderator.check(text)
-        if not result.flagged:
-            return
-        await self._audit.log(
-            "moderation.flag",
-            user_id=user.id,
-            character_id=character_id,
-            payload={
-                "stage": "input",
-                "context": "memory",
-                "categories": result.categories,
-                "matched_terms": result.matched_terms,
-                "text": text,
-            },
-            at=self._clock.now(),
-        )
-        raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
+        if result.flagged:
+            await self._audit.log(
+                "moderation.flag",
+                user_id=user.id,
+                character_id=character_id,
+                payload={
+                    "stage": "input",
+                    "context": "memory",
+                    "categories": result.categories,
+                    "matched_terms": result.matched_terms,
+                    "text": text,
+                },
+                at=self._clock.now(),
+            )
+            raise ApiError(422, "moderation_blocked", _MEMORY_BLOCKED_MESSAGE)
+        # 記憶経由のプロンプトインジェクション（memory/guard.py）: 自動抽出は止めているが、ユーザーが直接書く
+        # 記憶も毎回プロンプトに入る（関係性の記憶は常に注入される）ので、同じ形のものは保存しない。
+        # 誤検知でユーザーの覚え書きを弾かないよう、指示の上書き・運営のなりすまし・E3 を破らせる依頼・
+        # 感情の命令・お金と関係の取引の形だけを対象にする（設定・好感度の言及は本文のままでは注入にならない）
+        labels = tuple(label for label in injection_labels(text) if label in _PANEL_INJECTION_LABELS)
+        if labels:
+            await self._audit.log(
+                "memory.injection_skipped",
+                user_id=user.id,
+                character_id=character_id,
+                payload={"source": "user", "labels": list(labels), "content_hash": content_hash(text)},
+                at=self._clock.now(),
+            )
+            raise ApiError(422, "moderation_blocked", _MEMORY_INJECTION_MESSAGE)
 
     async def _embed(
         self,
