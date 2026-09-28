@@ -8,8 +8,9 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from app.engine.calendar.generator import plan_range
-from app.engine.calendar.life import DefaultSpec, life_spec_from_persona
+from app.engine.calendar.life import DefaultSpec
 from app.engine.calendar.models import EventView
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.calendar.state import (
     build_snapshot,
     day_label,

@@ -15,7 +15,8 @@ from app.engine.calendar.consistency import (
     lint_life_spec,
 )
 from app.engine.calendar.generator import PlannedEvent, plan_day, plan_range
-from app.engine.calendar.life import LifeSpec, life_spec_from_persona
+from app.engine.calendar.life import LifeSpec
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.calendar.service import CalendarConfig, CalendarEngine, TickReport
 from app.engine.calendar.world import build_world_state, seasonal_keys_on, seasonal_window
 

@@ -50,8 +50,9 @@ from app.engine.calendar.generator import (
     plan_day,
     seeded_random,
 )
-from app.engine.calendar.life import LifeSpec, life_spec_from_persona
+from app.engine.calendar.life import LifeSpec
 from app.engine.calendar.models import EVENT_COLUMNS, EventView
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.calendar.state import build_snapshot
 from app.engine.calendar.world import WEEKDAYS_JA, build_world_state
 from app.engine.types import CalendarService, CharacterStateSnapshot, OutputGuard, WorldState, jst_date, to_jst

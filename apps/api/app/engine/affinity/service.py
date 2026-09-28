@@ -11,8 +11,8 @@ affinity_states / affinity_history / characters（ペルソナの特定）だけ
   3. 残りのターンを隔離された LLM 呼び出し（affinity_eval）で採点（-2〜+2）→ 感度でスケール → 1 ターンの上限
   4. 行ロックの中で 1 日の上限（A5）→ 0〜100 → 段階のヒステリシス（A7）→ 状態・履歴を保存
   5. 監査: affinity.update / affinity.stage_change / affinity.manipulation_detected / affinity.skipped / llm.error
-  LLM の一時的な障害（再試行できるエラー・通信の失敗）は AffinityEngineUnavailableError で失敗させ、ジョブの再実行で採点し直す。
-  拒否（4xx）・不正な出力（1 回の再試行の後）は変化 0 で評価済みにしない。
+  LLM の一時的な障害（再試行できるエラー・通信の失敗）は AffinityEngineUnavailableError で失敗させ、
+  ジョブの再実行で採点し直す。拒否（4xx）・不正な出力（1 回の再試行の後）は変化 0 で評価済みにしない。
 """
 
 from __future__ import annotations

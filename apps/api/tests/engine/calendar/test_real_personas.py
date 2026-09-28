@@ -15,8 +15,8 @@ import pytest
 
 from app.engine.calendar.consistency import check_character, lint_life_spec
 from app.engine.calendar.generator import plan_range
-from app.engine.calendar.life import life_spec_from_persona
 from app.engine.calendar.models import EventView
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.types import JST
 from app.services.persona import Persona, PersonaLoadError, PersonaRepository
 from tests.conftest import REPO_ROOT

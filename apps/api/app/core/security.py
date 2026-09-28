@@ -17,7 +17,8 @@ import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from datetime import datetime
+from typing import Annotated, Any, Final, Protocol
 from uuid import UUID
 
 import httpx
@@ -26,11 +27,9 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import Settings
+from app.core.db import Pool
 from app.core.errors import AUTH_UNAVAILABLE_MESSAGE, ApiError
 from app.core.logging import get_logger
-
-if TYPE_CHECKING:
-    from app.container import Services
 
 logger = get_logger("auth")
 
@@ -254,8 +253,38 @@ class TokenVerifier:
 bearer_scheme = HTTPBearer(auto_error=False, description="Supabase Auth のアクセストークン（JWT）")
 
 
-def _services(request: Request) -> Services:
-    services: Services = request.app.state.services
+class _AuditSink(Protocol):
+    """認証の失敗（403）を監査ログに残すための最小のインターフェース（app.services.audit.AuditLogger が満たす）。"""
+
+    async def log(
+        self,
+        event_type: Any,
+        *,
+        user_id: UUID | None = ...,
+        character_id: UUID | None = ...,
+        payload: dict[str, Any] | None = ...,
+        at: datetime | None = ...,
+    ) -> None: ...
+
+
+class AuthServices(Protocol):
+    """`app.state.services` のうち認証が使う部分（app.container.Services が満たす）。
+
+    core 層が container / services 層を import しない（循環参照を作らない）ための Protocol。
+    """
+
+    @property
+    def token_verifier(self) -> TokenVerifier: ...
+
+    @property
+    def pool(self) -> Pool: ...
+
+    @property
+    def audit(self) -> _AuditSink: ...
+
+
+def _services(request: Request) -> AuthServices:
+    services: AuthServices = request.app.state.services
     return services
 
 

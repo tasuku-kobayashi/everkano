@@ -19,10 +19,12 @@ from app.engine.calendar.generator import (
     plan_day,
     plan_range,
     resolve,
+    routine_candidates,
     subtract_intervals,
 )
-from app.engine.calendar.life import is_sleep_like, life_spec_from_persona, span_minutes
+from app.engine.calendar.life import is_sleep_like, span_minutes
 from app.engine.calendar.models import EventView
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.types import JST
 from app.services.persona import Persona
 from app.services.types import CharacterRecord
@@ -229,11 +231,16 @@ def test_birthday_event_and_leap_day() -> None:
 def test_weekday_worker_is_off_on_public_holidays() -> None:
     spec = life_spec_from_persona(office_persona())
     assert spec.holiday_as_sunday
-    holiday = plan_day(spec, uuid.uuid4(), date(2026, 9, 21))  # 敬老の日（月）
-    assert not any(e.title == "仕事" for e in holiday)
-    assert any(e.title == "カフェで読書" for e in holiday)
-    workday = plan_day(spec, uuid.uuid4(), date(2026, 9, 24))
-    assert any(e.title == "仕事" for e in workday)
+    holiday = date(2026, 9, 21)  # 敬老の日（月）
+    workday = date(2026, 9, 24)
+    # 祝日は日曜のルーティン（カフェで読書）が候補になり、仕事は候補にならない
+    # （単発の出来事に切り取られる前の候補で見る。切り取りはキャラごとの抽選に依存する）
+    assert not any(e.title == "仕事" for e in routine_candidates(spec, holiday))
+    assert any(e.title == "カフェで読書" for e in routine_candidates(spec, holiday))
+    assert any(e.title == "仕事" for e in routine_candidates(spec, workday))
+    # 単発の出来事（キャラごとの抽選。例: 風邪で寝込む）がどう入っても、祝日に仕事の予定は生成されない
+    for n in range(20):
+        assert not any(e.title == "仕事" for e in plan_day(spec, uuid.UUID(int=n), holiday))
     # 土日に働く人は祝日でも曜日どおり
     night = life_spec_from_persona(night_persona())
     assert not night.holiday_as_sunday

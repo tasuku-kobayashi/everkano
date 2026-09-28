@@ -15,7 +15,8 @@ import pytest
 
 from app.engine.calendar.consistency import check_overlaps
 from app.engine.calendar.generator import PlanContext, plan_range
-from app.engine.calendar.life import is_sleep_like, life_spec_from_persona
+from app.engine.calendar.life import is_sleep_like
+from app.engine.calendar.persona_life import life_spec_from_persona
 from app.engine.calendar.service import CalendarConfig
 from app.engine.types import JST, GuardResult, jst_date
 from app.services.llm import LLMError, LLMRequest, LLMResult
