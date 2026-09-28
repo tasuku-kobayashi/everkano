@@ -10,6 +10,7 @@
 | `20260926120000_affinity.sql` | `affinity_states` の段階のヒステリシス・減衰・久しぶりの会話の列 |
 | `20260926140000_safety_flag.sql` | `messages.safety_triggered`（E6） |
 | `20260926140100_proactive_quiet_pair.sql` | 送らない時間帯は「両方 null か両方が値」の制約 |
+| `20260928000000_posts_conversations_indexes.sql` | キャラ別の投稿一覧（`posts (character_id, published_at desc, id desc)`）と自発メッセージの走査（`conversations (last_message_at desc)`）の索引 |
 
 Web 用の型は `packages/shared/src/database.types.ts`（`pnpm db:types` で生成、CI でずれを検出）。仕様書 §6 との差分と理由は [ADR-0004](../adr/0004-schema-changes-from-spec.md)、
 エンジンのテーブルの設計は [ADR-0035](../adr/0035-character-engine-architecture.md)〜[ADR-0042](../adr/0042-proactive-messenger.md)。

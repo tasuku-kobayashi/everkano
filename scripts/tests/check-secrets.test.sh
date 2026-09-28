@@ -125,11 +125,23 @@ expect_rc "不明な引数は実行エラー" 2
 
 # secret_name の除外で、同じ行でない通常の代入まで見逃さない（未追跡のファイルも作業ツリーの検査対象）
 printf 'api_secret = "%s"\n' "$KEY_BODY" >"$REPO/app/settings.py"
+# プレースホルダの判定は単語の先頭で区切る（`Latest` の test に反応して本物の値を見逃さない）
+printf 'api_key = "Latest%s"\n' "$KEY_BODY" >>"$REPO/app/settings.py"
+# env / YAML: 記号入りの値も検出する。変数の参照（$VAR / ${VAR} / ${{ secrets.X }}）は値ではない
+printf 'LLM_API_KEY=Latest%s\n' "$KEY_BODY" >"$REPO/app/deploy.env"
+printf 'DB_PASSWORD=%s\n' 'Str0ng!Pa?ss%w0rd#1' >>"$REPO/app/deploy.env"
+# shellcheck disable=SC2016 # 変数の参照をそのまま（展開せずに）書き出す
+printf 'DB_PASSWORD=${DB_PASSWORD}\nAPI_KEY: ${{ secrets.API_KEY }}\nexport SECRET_KEY="$SECRET_KEY"\n' >>"$REPO/app/deploy.env"
 run "$REPO"
 expect_rc "作業ツリーの検査: シークレット名の変数への文字列代入を検出する" 1
 expect_out "作業ツリーの検査: secret-literal として報告する" "app/settings\\.py:1  \\[secret-literal\\]"
+expect_out "作業ツリーの検査: 値に test を含む単語（Latest）があっても secret-literal として報告する" "app/settings\\.py:2  \\[secret-literal\\]"
+expect_out "作業ツリーの検査: env の値に test を含む単語（Latest）があっても secret-assignment として報告する" "app/deploy\\.env:1  \\[secret-assignment\\]"
+expect_out "作業ツリーの検査: 記号入りのパスワードも secret-assignment として報告する" "app/deploy\\.env:2  \\[secret-assignment\\]"
+expect_no_out "作業ツリーの検査: 変数の参照（\${VAR} / \${{ secrets.X }} / \$VAR）は報告しない" "app/deploy\\.env:[345]"
 expect_no_out "作業ツリーの検査: secret_name の指定は報告しない" "app/fly\\.toml"
-rm "$REPO/app/settings.py"
+expect_no_out "作業ツリーの検査: 出力にシークレットの値を含めない" "$KEY_BODY"
+rm "$REPO/app/settings.py" "$REPO/app/deploy.env"
 
 git clone -q --depth 1 "file://$REPO" "$TMP/shallow"
 run "$TMP/shallow" --history

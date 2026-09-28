@@ -163,8 +163,12 @@ is_test_path() {
 
 ALLOW_MARKER='check-secrets:[[:space:]]*allow'
 
-# プレースホルダ・参照とみなす値（汎用ルールのみに適用）
-PLACEHOLDER_RE='dummy|example|placeholder|changeme|change-me|your[-_]|xxxxxx|\*\*\*\*|<[A-Za-z_ -]+>|redacted|not-a-real|fake|test|sample|env\(|process\.env|os\.environ|os\.getenv|import\.meta\.env|settings\.|secrets\.'
+# プレースホルダ・参照とみなす値（汎用ルールのみに適用。行全体に対して大文字小文字を無視して照合する）
+#   単語は先頭を区切る（`latest` の test、`contest`・`resample` のような一部に反応して本物の値を見逃さないため）
+PLACEHOLDER_RE='(^|[^[:alnum:]])(dummy|example|placeholder|changeme|change-me|your[-_]|redacted|not-a-real|fake|test|sample)|xxxxxx|\*\*\*\*|<[A-Za-z_ -]+>|env\(|process\.env|os\.environ|os\.getenv|import\.meta\.env|settings\.|secrets\.'
+
+# 値が変数の参照（$VAR / ${VAR} / ${{ secrets.X }}）の代入（env / YAML / shell のルールのみに適用）
+VAR_REF_VALUE_RE='[:=][[:space:]]*["'"'"']?\$'
 
 # ローカル既定値とみなす DB ホスト
 LOCAL_DB_HOST_RE='@(127\.0\.0\.1|localhost|\[::1\]|0\.0\.0\.0|host\.docker\.internal|db|postgres|supabase_db_[A-Za-z0-9_-]*)([:/"'"'"'[:space:]]|$)'
@@ -313,16 +317,19 @@ scan "sentry-dsn" "Sentry DSN（env で設定すること）" \
 scan "bunny-b2-key" "Bunny.net / Backblaze B2 のキー・トークンに文字列リテラルが代入されています" \
   '(bunny|b2|backblaze)[A-Za-z0-9_]*(key|token|secret|password|pass)[A-Za-z0-9_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'[:space:]]{8,}["'"'"']' \
   "$PLACEHOLDER_RE" -i skip-tests
+# 値は英数と、キー・パスワードに使われる記号（/+_=.@:-!#$%^&*?~）。コードの構文（( [ < , ; { 等）は含めない
+# （TS の `KEY: z.string()` や Python の `KEY: Final[str] = ...` に反応しないため）。変数の参照は VAR_REF_VALUE_RE で除く
+ENV_VALUE_RE='[A-Za-z0-9/+_=.@:!#$%^&*?~-]{8,}'
 scan "bunny-b2-key" "Bunny.net / Backblaze B2 のキー・トークンに値が設定されています（env / YAML / shell）" \
-  '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?(BUNNY|B2|BACKBLAZE)[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_=-]{8,}(["'"'"'[:space:]]|$)' \
-  "$PLACEHOLDER_RE" "" skip-tests
+  '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?(BUNNY|B2|BACKBLAZE)[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?'"${ENV_VALUE_RE}"'(["'"'"'[:space:]]|$)' \
+  "${PLACEHOLDER_RE}|${VAR_REF_VALUE_RE}" "" skip-tests
 # secret_name（Fly.io の [[files]] 等）はシークレットの「名前」を指定するキーなので対象外
 scan "secret-literal" "シークレット名の変数に文字列リテラルが代入されています" \
   '(secret|password|passwd|private_?key|api_?key|auth_?key|access_?key|service_?role_?key|access_?token|auth_?token)[A-Za-z0-9_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"'[:space:]]{16,}["'"'"']' \
   "${PLACEHOLDER_RE}|(^|[^A-Za-z0-9_])secret_?name[\"']?[[:space:]]*[:=]" -i skip-tests
 scan "secret-assignment" "シークレット名の環境変数に値が設定されています（env / YAML / shell）" \
-  '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?[A-Z0-9_]*(SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_KEY|ACCESS_KEY|SERVICE_ROLE_KEY|ACCESS_TOKEN|AUTH_TOKEN|_DSN)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_=.@:-]{8,}(["'"'"'[:space:]]|$)' \
-  "$PLACEHOLDER_RE" "" skip-tests
+  '^[[:space:]]*(export[[:space:]]+|-[[:space:]]+)?[A-Z0-9_]*(SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_KEY|ACCESS_KEY|SERVICE_ROLE_KEY|ACCESS_TOKEN|AUTH_TOKEN|_DSN)[A-Z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"']?'"${ENV_VALUE_RE}"'(["'"'"'[:space:]]|$)' \
+  "${PLACEHOLDER_RE}|${VAR_REF_VALUE_RE}" "" skip-tests
 scan "db-url-credentials" "ローカル以外を指すパスワード付き接続文字列" \
   '(postgres(ql)?|mysql|mongodb(\+srv)?|redis|rediss|amqp)://[^:/@[:space:]"'"'"']+:[^@/[:space:]"'"'"']+@' \
   "${LOCAL_DB_HOST_RE}|\\[YOUR-PASSWORD\\]|:password@|:pass@|<password>|\\\$\\{|\\\$[A-Z_]+@"

@@ -127,7 +127,7 @@ select throws_ok(
 select throws_ok(
   $$ select * from public.memories $$,
   '42501', 'permission denied for table memories',
-  'memories の select * は失敗する（PUBLIC_MEMORY_COLUMNS を明示する必要がある）'
+  'memories の select * は失敗する（記憶はクライアントから直接読まず API 経由。embedding は列権限で非公開）'
 );
 
 -- ---- 書き込み不可（API 経由のみ）

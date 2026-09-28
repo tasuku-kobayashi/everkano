@@ -24,10 +24,6 @@ export type PublicCharacter = Pick<
 export const PUBLIC_CHARACTER_COLUMNS =
   "id, handle, name, avatar_url, bio, follower_count, is_active, created_at" as const;
 
-/** クライアントが参照可能なメモリ列（embedding は非公開）。 */
-export const PUBLIC_MEMORY_COLUMNS =
-  "id, user_id, character_id, content, importance, tags, source_message_id, is_user_edited, created_at, updated_at" as const;
-
 type DmThreadRow = Database["public"]["Functions"]["list_dm_threads"]["Returns"][number];
 
 /**

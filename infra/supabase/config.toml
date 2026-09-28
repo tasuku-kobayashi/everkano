@@ -10,7 +10,10 @@ enabled = true
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
-schemas = ["public", "graphql_public"]
+# graphql_public（/graphql/v1）はこのアプリでは使わない（Web は PostgREST と Python API のみ）ため公開しない。
+# 使わない入口を減らす。RLS は GraphQL でも効くが、公開する面は必要なものだけにする。
+# 本番（ホスト版）は Dashboard → Settings → API → Exposed schemas で同じにそろえる。
+schemas = ["public"]
 # Extra schemas to add to the search_path of every request.
 extra_search_path = ["public", "extensions"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size

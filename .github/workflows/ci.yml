@@ -5,7 +5,7 @@
 #            ペルソナ / seed.sql の整合性と未成年表現の検査・docker compose の API 設定の検査
 #   web    : Next.js の lint / typecheck / test / build（ダミーの公開 env でビルド）
 #   api-db : ローカル Supabase を起動し、RLS の pgTAP テスト（A13）・DB 型のずれ検出・
-#            Python API の ruff / mypy / pytest（統合テストは同じ DB を使用）
+#            Python API の ruff / mypy / pytest（統合テストは同じ DB を使用）・pip-audit
 #   e2e    : 受け入れ基準の Playwright E2E（apps/web/e2e）。所要時間が長いため PR では動かさず、
 #            main への push・毎晩の定期実行・手動実行（Actions タブ → CI → Run workflow）で動く
 #
@@ -17,7 +17,8 @@
 #   - checkout は認証情報を残さない（persist-credentials: false。push するステップは無い）
 #   - uv はバージョンを固定（apps/api/Dockerfile の UV_IMAGE = ghcr.io/astral-sh/uv:0.8.17@sha256:… と同じ版）。
 #     Python の依存は uv.lock から --frozen で入れ、実行時に PyPI からロック外のパッケージを取らない
-#   - pnpm audit（high 以上）で npm 依存の既知の脆弱性を検出する
+#   - pnpm audit（high 以上）で npm 依存、pip-audit（apps/api のロック済みの開発依存）で Python の本番依存の
+#     既知の脆弱性を検出する
 # =============================================================================
 name: CI
 
@@ -234,6 +235,16 @@ jobs:
       - name: uv sync
         working-directory: apps/api
         run: uv sync --frozen
+
+      # Python の本番依存（uv.lock の非 dev）の既知の脆弱性。pip-audit 自体は apps/api のロック済みの開発依存
+      # （uvx で入れるとロック外の PyPI 取得になる）。--no-deps: 書き出した固定版をそのまま照会する（再解決しない）。
+      # pnpm audit と同じく、新しいアドバイザリの公開でコード変更なしに失敗し得る。その場合は
+      # `uv lock --upgrade-package <name>` で修正版に上げる（Dependabot の PR も参照）
+      - name: 依存パッケージの脆弱性（pip-audit）
+        working-directory: apps/api
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
+          uv run --frozen pip-audit --no-deps --progress-spinner off -r "$RUNNER_TEMP/requirements.txt"
 
       - name: ruff check
         working-directory: apps/api

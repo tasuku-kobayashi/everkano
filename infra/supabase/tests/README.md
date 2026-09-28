@@ -20,6 +20,7 @@ supabase test db --workdir infra             # pg_prove コンテナで実行（
 | `07_triggers.test.sql`                | profiles 自動作成、`like_count` / `comment_count`、`last_message_at`、`memories.updated_at`、ユーザー削除の cascade |
 | `08_auth_password_hardening.test.sql` | パスワードを使った乗っ取りの防止: (1) 事前乗っ取り対策 — メールのトークン（確認メール / マジックリンク）で確認済みになるとき、確認前に設定されたパスワードを破棄する（管理 API の `email_confirm: true` で作ったユーザーは対象外）。(2) 盗まれたアクセストークンからの恒久的な乗っ取り対策 — 既存ユーザーの `encrypted_password` を空でない別の値にする UPDATE（`PUT /auth/v1/user {password}`）は元の値に戻る。消去と INSERT は対象外 |
 | `09_foreign_key_indexes.test.sql`     | 外部キーの参照側の索引: `memories.source_message_id` / `comments.author_user_id` の索引、索引の無い外部キーが許可リスト（キャラクターの参照のみ）と一致、外部キーのトリガーと同じ形のクエリで索引が使われる（ユーザーの物理削除が「メッセージ数 × memories 全件」の走査にならない） |
+| `10_query_indexes.test.sql`           | 読み取りの多いクエリの索引: キャラ別の投稿一覧（`posts (character_id, published_at desc, id desc)`）と自発メッセージの走査（`conversations (last_message_at desc)`）が、同じ形のクエリで索引を使う |
 
 ## 書き方の約束
 

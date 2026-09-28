@@ -145,6 +145,12 @@ select sender_type, body, created_at from public.messages
  limit $3
 """
 
+# 1 日の上限（ユーザー単位）の判定と保存を、同じユーザーへの送信同士で直列にする。会話の行ロックはペア単位なので、
+# 別のキャラへの送信（別の会話）が同時に走ると、どちらも上限の手前に見えて 1 件超えることがある
+# （同じ走査ではユーザーごとに 1 件しか送らないが、走査の重なり・複数プロセスに備える）。
+# ロックの順序は ユーザー → 会話。会話の行ロックだけを取るチャットの保存とは競合しない
+_USER_LOCK_SQL: Final[str] = "select pg_advisory_xact_lock(hashtextextended('proactive-user:' || $1::uuid::text, 0))"
+
 _LOCK_CONVERSATION_SQL: Final[str] = """
 select id from public.conversations where id = $1 and user_id = $2 and character_id = $3 for update
 """
@@ -678,6 +684,7 @@ class ProactiveMessenger:
             "context": {k: v for k, v in candidate.context.items() if isinstance(v, str | int | float | bool)},
         }
         async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(_USER_LOCK_SQL, pair.user_id)
             locked = await conn.fetchval(_LOCK_CONVERSATION_SQL, pair.conversation_id, pair.user_id, pair.character_id)
             if locked is None:
                 return "skipped"

@@ -38,7 +38,7 @@ export async function GET(
   const { key } = await params;
   // 有料投稿の本体画像（post_private_assets。docs/handover/06-operations.md の `private/<uuid>.jpg`）には
   // 署名しない。キーはクライアントから読めない（RLS）が、ログイン済みなら任意のキーに署名できるこの入口が
-  // 漏れたキーを取得可能な URL に変える口になる。本体の配信は決済時に別の API で行う（ADR-0006）
+  // 漏れたキーを取得可能な URL に変える口になる。本体の配信は次フェーズで別の API が担う（ADR-0006）
   if (isPrivateObjectKey(key)) {
     return new NextResponse(null, { status: 404 });
   }

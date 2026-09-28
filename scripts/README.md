@@ -88,7 +88,9 @@ scripts/check-secrets.sh --history origin/main..HEAD  # このブランチのコ
 - 出力にはシークレットの値を表示しない（CI ログへの二次漏洩防止）。
 - 誤検知の抑制:
   - 名前ベースのヒューリスティックなルールは、テストコード（`tests/`, `__tests__/`, `fixtures/`, `*.test.*`,
-    `*.spec.*`, `test_*.py`, `conftest.py`）と、`example` / `dummy` / `test` / `env(...)` / `process.env` 等を含む行を対象外にする。
+    `*.spec.*`, `test_*.py`, `conftest.py`）と、`example` / `dummy` / `test` / `env(...)` / `process.env` 等を含む行を対象外にする
+    （単語は先頭で区切る。`latest` の `test` のような一部には反応しない）。env / YAML の代入は、値が変数の参照
+    （`$VAR` / `${VAR}` / `${{ secrets.X }}`）なら対象外。値は英数と記号（`!` `#` `$` `%` `?` 等。記号入りのパスワードも検出する）。
   - 既知形式のキー（`sk-`・JWT・秘密鍵など）はテストコードでも検出する。テスト用のダミー値であれば、
     テストファイルの該当行に `check-secrets: allow` と理由を書く（テスト以外のファイルでは無効）。
 - 回帰テスト: `bash scripts/tests/check-secrets.test.sh`（使い捨ての git リポジトリで `--history` 等を検証する）。

@@ -124,7 +124,7 @@ Auth の設定は [supabase-auth.md](supabase-auth.md)。DB について、ダ�
 
 | スイート                                                   | 内容                                                                                                   | 実行                                      |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
-| pgTAP（`infra/supabase/tests/database/`、14 ファイル / 286 件） | 権限マトリクスの許可リスト、テーブルごとの RLS、DM の分離（A13）、anon、トリガー、パスワード破棄、外部キーの索引、表示名の長さ、エンジンのテーブルの RLS・grant（`10_engine_memory`・`11_engine_calendar_affinity`・`12_engine_proactive_jobs`・`13_safety_flag_quiet_pair`） | `pnpm db:test`（CI の api-db ジョブ）     |
+| pgTAP（`infra/supabase/tests/database/`、15 ファイル / 290 件） | 権限マトリクスの許可リスト、テーブルごとの RLS、DM の分離（A13）、anon、トリガー、パスワード破棄、外部キー・読み取りの多いクエリの索引、表示名の長さ、エンジンのテーブルの RLS・grant（`10_engine_memory`・`11_engine_calendar_affinity`・`12_engine_proactive_jobs`・`13_safety_flag_quiet_pair`） | `pnpm db:test`（CI の api-db ジョブ）     |
 | Auth の設定テスト（`infra/supabase/tests/auth/signup_hardening.py`） | Confirm email・パスワード付き signup でセッションが出ない・事前乗っ取りのシナリオ。`--static-only` は config.toml とメールテンプレートの静的検査 | 手動（起動中のローカル Supabase が必要）。`--static-only` は CI の api-db ジョブ |
 | API の統合テスト（`apps/api/tests/integration/`）           | 所有者チェック（他人の会話・記憶は 404）、退会・プロフィール無し、レート制限、モデレーション              | `pnpm test`（CI）                          |
 | E2E（`apps/web/e2e/rls.spec.ts`）                          | 2 アカウント: supabase-js で他人の会話・メッセージ・記憶・約束・プロフィール・DM 一覧が 0 件、直接 INSERT 拒否、API（`/chat/stream` を含む）で 404、トークン無しで 401、画面にも出ない | 手動（[08-dev-guide.md](08-dev-guide.md#テスト)） |
