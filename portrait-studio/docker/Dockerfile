@@ -59,8 +59,8 @@ RUN pip uninstall -y onnxruntime-gpu onnxruntime || true && pip install "onnxrun
 # image's own default user collides with uid/gid 1000) by renaming it instead of failing on "already exists".
 ARG COMFY_UID=1000
 ARG COMFY_GID=1000
-COPY docker/setup_comfy_user.sh /tmp/setup_comfy_user.sh
-RUN bash /tmp/setup_comfy_user.sh ${COMFY_UID} ${COMFY_GID} ${COMFYUI_DIR} \
+COPY docker/setup_user.sh /tmp/setup_user.sh
+RUN bash /tmp/setup_user.sh comfy ${COMFY_UID} ${COMFY_GID} ${COMFYUI_DIR} \
     && mkdir -p ${COMFYUI_DIR}/models ${COMFYUI_DIR}/input ${COMFYUI_DIR}/output ${COMFYUI_DIR}/temp ${COMFYUI_DIR}/user \
     && chown -R ${COMFY_UID}:${COMFY_GID} ${COMFYUI_DIR}
 USER comfy

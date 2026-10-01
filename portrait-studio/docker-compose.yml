@@ -13,8 +13,9 @@ services:
       dockerfile: docker/Dockerfile
       args:
         PYTORCH_IMAGE: ${PYTORCH_IMAGE:-pytorch/pytorch:2.11.0-cuda12.8-cudnn9-devel}
-        COMFYUI_REF: ${COMFYUI_REF:-master}
-        # uid/gid of the WSL2 user that owns ${MODELS_DIR} / ${DATA_DIR} (id -u / id -g); ComfyUI runs as this user
+        COMFYUI_REF: ${COMFYUI_REF:-651ca296a73cd21c12a57eb8741d52e40dc6528f}
+        # uid/gid of the WSL2 user that owns ${MODELS_DIR} / ${DATA_DIR} (id -u / id -g); ComfyUI and the API
+        # (below) both run as this user so the bind-mounted volumes stay writable
         COMFY_UID: ${COMFY_UID:-1000}
         COMFY_GID: ${COMFY_GID:-1000}
     image: portrait-studio-comfyui:local
@@ -29,7 +30,10 @@ services:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     # insightface / dataloaders need more shared memory than Docker's 64 MB default
     shm_size: "8gb"
-    command: ["--preview-method", "none", "${COMFY_EXTRA_ARGS:---normalvram}"]
+    # String form (not a YAML array): COMFY_EXTRA_ARGS can hold zero, one or several flags (e.g. "--lowvram
+    # --reserve-vram 512") and compose word-splits the whole line, so an empty/unset value contributes no stray
+    # argv token — an array element would always be passed literally, even empty, and main.py rejects that.
+    command: "--preview-method none ${COMFY_EXTRA_ARGS:-}"
     deploy:
       resources:
         reservations:
@@ -43,6 +47,10 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+      args:
+        # same host uid/gid as the comfyui service (see above) — /data is bind-mounted the same way
+        API_UID: ${COMFY_UID:-1000}
+        API_GID: ${COMFY_GID:-1000}
     image: portrait-studio-api:local
     depends_on:
       - comfyui

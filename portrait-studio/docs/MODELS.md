@@ -70,7 +70,7 @@ civitai.com の API から実際のフラグと版ごとのファイル一覧を
 
 これらのコミットが提供するノード名（ApplyPulid / IPAdapterFaceID / ApplyInstantID / FaceDetailer / UltralyticsDetectorProvider）が
 `GET /object_info` に登録されることは、この環境では確認できていない（G1、`scripts/verify_env.sh` で実機確認する）。固定を進めるときは意図的に行い、ここに記録する。
-ComfyUI コンテナは root ではなく `COMFY_UID` / `COMFY_GID`（既定 1000 = WSL2 の最初のユーザー）で動くため、`MODELS_DIR` / `DATA_DIR` の所有者と合わせる（`.env`）。
+ComfyUI・API の両コンテナは root ではなく `COMFY_UID` / `COMFY_GID`（既定 1000 = WSL2 の最初のユーザー）で動くため、`MODELS_DIR` / `DATA_DIR` の所有者と合わせる（`.env`）。ベースイメージに同じ uid/gid の既存アカウントがあっても `docker/setup_user.sh` が改名して対応する（2026-09-30 に実機で確認）。
 
 ### 手法の選定と類似度（G3）
 

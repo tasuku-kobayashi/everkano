@@ -7,7 +7,9 @@
 | `docker compose up` で `could not select device driver "nvidia"` | Docker Desktop の GPU サポート（WSL2 バックエンド）が無効。Docker Desktop を更新し、WSL integration を確認 |
 | `docker compose build comfyui` で `error: externally-managed-environment`（`pip install` が拒否される） | ベースイメージの Debian が Python を PEP 668 で保護している。`docker/Dockerfile` に `PIP_BREAK_SYSTEM_PACKAGES=1` を設定済み（2026-09-30 に実機で発生・修正）。古いコミットの場合は `git pull` してから再ビルド |
 | `error while interpolating services.api.environment.API_KEY` | `.env` の `API_KEY` が空のまま。`openssl rand -hex 24` の出力を実際に `.env` の `API_KEY=` に書き込む（出力を見るだけでは設定されない） |
-| `docker compose build comfyui` で `groupadd: GID '1000' already exists` | ベースイメージに既に uid/gid 1000 のアカウントがある。`docker/setup_comfy_user.sh` がそれを comfy へ改名する方式に修正済み（2026-09-30 に実機で発生・修正）。`git pull` してから再ビルド |
+| `docker compose build comfyui` で `groupadd: GID '1000' already exists` | ベースイメージに既に uid/gid 1000 のアカウントがある。`docker/setup_user.sh` がそれを comfy / app へ改名する方式に修正済み（2026-09-30 に実機で発生・修正）。`git pull` してから再ビルド |
+| API が起動しない: `PermissionError: [Errno 13] Permission denied: '/data/images'` | API コンテナの `app` ユーザーの uid/gid が `DATA_DIR` の所有者と違う。`api/Dockerfile` の `app` を `COMFY_UID`/`COMFY_GID`（既定 1000）に合わせる方式に修正済み（2026-09-30 に実機で発生・修正）。`git pull` してから再ビルド |
+| `comfyui` が再起動を繰り返す: `main.py: error: unrecognized arguments: --normalvram` | 現在の ComfyUI（`master`）に `--normalvram` が無い（自動検出が既定になり廃止された）。`.env.example` の既定値を空に変更し `COMFYUI_REF` を固定コミットに変更済み（2026-09-30 に実機で発生・修正）。既存の `.env` に `COMFY_EXTRA_ARGS=--normalvram` と書いていたら削除するか空にする |
 | API が起動しない: `api_key Field required` | `.env` に `API_KEY` が無い。設定漏れで無防備に公開される事故を防ぐため、意図的に起動を拒否する |
 | API が起動しない: `必須の title がありません` | ワークフロー JSON のノードに `_meta.title` が無い / 名前が違う。`workflows/WORKFLOW_NOTES.md` の表に合わせる |
 | `GET /api/health` が 503 | ComfyUI に接続できない。`docker compose logs comfyui`、`COMFY_URL`（コンテナ内は `http://comfyui:8188`） |
