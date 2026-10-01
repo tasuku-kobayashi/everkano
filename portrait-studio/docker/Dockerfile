@@ -55,12 +55,14 @@ RUN pip uninstall -y onnxruntime-gpu onnxruntime || true && pip install "onnxrun
 
 # Run as an unprivileged user (ComfyUI's /prompt executes arbitrary workflows; a node bug must not own the container).
 # The uid/gid default to 1000 = the first WSL2 user, so the bind-mounted models / input / output stay writable.
+# setup_comfy_user.sh handles the base image already having an account at that id (seen in practice: the PyTorch
+# image's own default user collides with uid/gid 1000) by renaming it instead of failing on "already exists".
 ARG COMFY_UID=1000
 ARG COMFY_GID=1000
-RUN groupadd --gid ${COMFY_GID} comfy \
-    && useradd --uid ${COMFY_UID} --gid ${COMFY_GID} --home-dir ${COMFYUI_DIR} --no-create-home --shell /usr/sbin/nologin comfy \
+COPY docker/setup_comfy_user.sh /tmp/setup_comfy_user.sh
+RUN bash /tmp/setup_comfy_user.sh ${COMFY_UID} ${COMFY_GID} ${COMFYUI_DIR} \
     && mkdir -p ${COMFYUI_DIR}/models ${COMFYUI_DIR}/input ${COMFYUI_DIR}/output ${COMFYUI_DIR}/temp ${COMFYUI_DIR}/user \
-    && chown -R comfy:comfy ${COMFYUI_DIR}
+    && chown -R ${COMFY_UID}:${COMFY_GID} ${COMFYUI_DIR}
 USER comfy
 ENV HOME=${COMFYUI_DIR}
 
