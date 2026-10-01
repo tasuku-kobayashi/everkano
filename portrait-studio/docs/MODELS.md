@@ -18,12 +18,25 @@
 
 ### ベースチェックポイント（G2）
 
-要件: フォトリアル / 成人向け表現が可能 / アジア人・日本人の顔が自然に出る SDXL 系。候補系統（名前を鵜呑みにせず生成して目視で選ぶ）:
-RealVisXL 系 / Juggernaut XL 系 / CyberRealistic XL 系 / アジア人女性の写実に特化した SDXL 系（例: XXMix_9realisticSDXL）/ Pony 系の写実寄り派生。
+要件: フォトリアル / 成人向け表現が可能 / アジア人・日本人の顔が自然に出る SDXL 系（FLUX は不使用。§12 / A16）。
 
-手順: Civitai でモデルの **version id** を決め、`.env` の `CIVITAI_CHECKPOINT_VERSION_ID` と `CIVITAI_TOKEN` を設定 → `scripts/install_models.sh --checkpoint`
-（メタデータの名前・サイズ・sha256 を表示し、ダウンロード後に sha256 を照合）→ 同一 seed・同一プロンプト（固定プレフィックス + `portrait_closeup`）で
-候補ごとに 4 枚生成し、目視比較 → 採用したものを `.env` の `DEFAULT_CHECKPOINT` に設定。
+**ライセンスは Civitai の `allowCommercialUse` フラグで決まり、ライセンス名（CreativeML Open RAIL++-M 等）だけでは分からない。**
+Project P は自前でホストする有料の生成サービスなので、`"Image"`（生成画像の商用利用）に加えて **`"Rent"`（自前の有料生成サービスでの利用）が
+無いモデルは使えない**（`"RentCivit"` は Civitai 自身の有料生成機能向けで別枠）。`scripts/check_civitai_license.sh <モデル ID>` が
+civitai.com の API から実際のフラグと版ごとのファイル一覧を取得する（この文書を書いた環境は civitai.com に到達できないため、
+2026-09-29〜30 に利用者の GPU 機で取得した実データを記録する）。
+
+| 候補 | Civitai モデル ID | allowCommercialUse（実データ） | 商用可否 | 備考 |
+| --- | --- | --- | --- | --- |
+| RealVisXL V5.0 | [139562](https://civitai.com/models/139562) | `Image, RentCivit, Rent` | **採用可**（要クレジット表示。`allowNoCredit: false`） | 版 789646「V5.0 (BakedVAE)」は fp32 13233.0 MB と fp16 6616.7 MB の 2 ファイルを含み、fp16 が `primary: true`。12 GB VRAM には fp16 を使う（`scripts/install_models.sh` は `primary` を見て自動選択する） |
+| CyberRealistic Pony | [443821](https://civitai.com/models/443821) | `Image, RentCivit, Rent, Sell, SellMerge` | **採用可**（クレジット不要。`allowNoCredit: true`） | Pony アーキテクチャ（SDXL 派生）。プロンプトに `score_9, score_8_up` 等の品質タグが必要 — ワークフロー JSON の既定プロンプトはそのままでは最適化されていないため、採用時は別途調整する |
+| Juggernaut XL | [133005](https://civitai.com/models/133005) | `Image, RentCivit` | **除外**（`Rent` 無し。自前の有料サービスでの利用は RunDiffusion との別途商用契約が必要） | — |
+| Pony Realism | [372465](https://civitai.com/models/372465) | `Image, RentCivit` | **除外**（理由同上） | — |
+
+手順（採用可の候補で）: `.env` の `CIVITAI_CHECKPOINT_VERSION_ID` と `CIVITAI_TOKEN` を設定 → `scripts/install_models.sh --checkpoint`
+（版 JSON の `primary` フラグでファイルを選び、メタデータの名前・サイズ・sha256 を表示してからダウンロード後に sha256 を照合）→
+同一 seed・同一プロンプト（固定プレフィックス + `portrait_closeup`）で候補ごとに 4 枚生成し、目視比較 → 採用したものを `.env` の
+`DEFAULT_CHECKPOINT` に設定。
 
 | 候補 | Civitai モデル ID / バージョン ID | 実ファイルサイズ | ライセンス / 商用可否 | 比較結果（何と比較して何が良かったか） | 採用 |
 | --- | --- | --- | --- | --- | --- |

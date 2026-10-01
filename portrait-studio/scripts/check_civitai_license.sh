@@ -43,14 +43,18 @@ print(f"  name: {data.get('name')!r}  type: {data.get('type')}  nsfw: {data.get(
 print(f"  allowCommercialUse: {data.get('allowCommercialUse')}")
 print(f"  allowNoCredit: {data.get('allowNoCredit')}  allowDerivatives: {data.get('allowDerivatives')}  "
       f"allowDifferentLicense: {data.get('allowDifferentLicense')}")
-print("  versions (id, name, baseModel, file, size, sha256):")
+print("  versions (id, name, baseModel, file, size, primary, fp/size, sha256):")
 for v in data.get("modelVersions", []):
     files = [f for f in v.get("files", []) if f.get("type") == "Model"] or v.get("files", [])
     for f in files or [{}]:
         size_mb = round(f.get("sizeKB", 0) / 1024, 1) if f.get("sizeKB") else "?"
         sha256 = (f.get("hashes") or {}).get("SHA256", "?")
+        meta = f.get("metadata") or {}
+        fp_size = f"{meta.get('fp', '?')}/{meta.get('size', '?')}"
+        # when a version ships more than one Model file (fp32 "full" + fp16 "pruned" is common), `primary` is the
+        # one Civitai itself recommends as the default download — pick that one, never just the first in the list
         print(f"    {v.get('id'):>9}  {v.get('name')!r:30s}  {v.get('baseModel')!r:12s}  "
-              f"{f.get('name')}  {size_mb} MB  sha256={sha256}")
+              f"{f.get('name')}  {size_mb} MB  primary={f.get('primary')}  {fp_size}  sha256={sha256}")
 PY
   rm -f "/tmp/civitai-$id.json"
   echo

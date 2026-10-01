@@ -109,26 +109,66 @@ install_face() {
 install_checkpoint() {
   echo "== SDXL checkpoint from Civitai"
   if [[ -z "$CIVITAI_CHECKPOINT_VERSION_ID" ]]; then
-    echo "  CIVITAI_CHECKPOINT_VERSION_ID is empty. Pick a model version on civitai.com (G2: compare RealVisXL / Juggernaut XL /"
-    echo "  CyberRealistic XL / an Asian-photoreal SDXL such as XXMix_9realisticSDXL), put its *version id* in .env, re-run."
+    echo "  CIVITAI_CHECKPOINT_VERSION_ID is empty. scripts/check_civitai_license.sh <civitai model id> tells you which"
+    echo "  candidates actually allow running your own paid generation service (allowCommercialUse must include \"Rent\","
+    echo "  not just \"RentCivit\"/\"Image\") — verified so far: RealVisXL V5.0 (139562) and CyberRealistic Pony (443821)"
+    echo "  qualify; Juggernaut XL (133005) and Pony Realism (372465) do not (see docs/MODELS.md). Put the chosen"
+    echo "  *version id* in .env and re-run."
     return 0
   fi
   if [[ ! "$CIVITAI_CHECKPOINT_VERSION_ID" =~ ^[0-9]+$ ]]; then
     echo "  ERROR: CIVITAI_CHECKPOINT_VERSION_ID must be numeric (got '$CIVITAI_CHECKPOINT_VERSION_ID')" >&2; return 1
   fi
   write_bearer_header "$CIVITAI_TOKEN"
-  local meta name
+  local meta name query
   meta="$(curl -fsS -H "@$HEADER_FILE" "https://civitai.com/api/v1/model-versions/$CIVITAI_CHECKPOINT_VERSION_ID")"
-  name="$(python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print(f["name"])' <<<"$meta")"
+  # a version can ship more than one Model file (e.g. fp32 "full" + fp16 "pruned" — confirmed on RealVisXL V5.0,
+  # where fp32 happens to be files[0]): always take the one Civitai marks `primary`, never just the first entry.
+  # Falls back to the first Model file when none is marked (older uploads sometimes omit the flag).
+  name="$(python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+models = [x for x in d["files"] if x.get("type") == "Model"]
+f = next((x for x in models if x.get("primary")), models[0])
+print(f["name"])
+' <<<"$meta")"
   # the file name comes from a remote API: keep the basename only and allow a conservative character set
   name="$(basename -- "$name")"
   if [[ ! "$name" =~ ^[A-Za-z0-9._-]+\.safetensors$ || "$name" == .* ]]; then
     echo "  ERROR: refusing unexpected checkpoint file name from Civitai: '$name'" >&2; return 1
   fi
-  python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print("  model:",d["model"]["name"],"| version:",d["name"],"| file:",f["name"],"| size_kb:",f.get("sizeKB"),"| sha256:",f.get("hashes",{}).get("SHA256"))' <<<"$meta"
-  fetch "https://civitai.com/api/download/models/$CIVITAI_CHECKPOINT_VERSION_ID?type=Model&format=SafeTensor" "$MODELS_DIR/checkpoints/$name" --auth
+  python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+models = [x for x in d["files"] if x.get("type") == "Model"]
+f = next((x for x in models if x.get("primary")), models[0])
+print("  model:", d["model"]["name"], "| version:", d["name"], "| file:", f["name"],
+      "| size_kb:", f.get("sizeKB"), "| sha256:", f.get("hashes", {}).get("SHA256"))
+' <<<"$meta"
+  # pin the download to the exact file just picked (its own fp/size metadata) instead of a bare type=Model&format=
+  # SafeTensor request, whose server-side default is unverified and may not match the file picked above
+  query="$(python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+models = [x for x in d["files"] if x.get("type") == "Model"]
+f = next((x for x in models if x.get("primary")), models[0])
+m = f.get("metadata") or {}
+parts = ["type=Model", "format=SafeTensor"]
+if m.get("fp"):
+    parts.append("fp=" + str(m["fp"]))
+if m.get("size"):
+    parts.append("size=" + str(m["size"]))
+print("&".join(parts))
+' <<<"$meta")"
+  fetch "https://civitai.com/api/download/models/$CIVITAI_CHECKPOINT_VERSION_ID?$query" "$MODELS_DIR/checkpoints/$name" --auth
   local expected
-  expected="$(python3 -c 'import json,sys;d=json.load(sys.stdin);f=[x for x in d["files"] if x.get("type")=="Model"][0];print((f.get("hashes",{}).get("SHA256") or "").lower())' <<<"$meta")"
+  expected="$(python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+models = [x for x in d["files"] if x.get("type") == "Model"]
+f = next((x for x in models if x.get("primary")), models[0])
+print((f.get("hashes", {}).get("SHA256") or "").lower())
+' <<<"$meta")"
   if [[ -n "$expected" ]]; then sha256_check "$MODELS_DIR/checkpoints/$name" "$expected"; fi
   echo "  → record model / version / file / license in docs/MODELS.md and set DEFAULT_CHECKPOINT=$name in .env"
 }
