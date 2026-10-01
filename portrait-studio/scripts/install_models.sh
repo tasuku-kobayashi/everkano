@@ -56,8 +56,15 @@ fetch() { # fetch <url> <dest> [--auth]
     code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' "$url")"
   fi
   if [[ "$code" != "200" ]]; then
+    # the error body (usually small JSON, e.g. {"error":"..."}) says *why* — show it instead of discarding it
+    if [[ -s "$dest.part" ]]; then
+      echo "  ERROR: HTTP $code for $url — response body:" >&2
+      head -c 2000 "$dest.part" >&2
+      echo >&2
+    else
+      echo "  ERROR: HTTP $code for $url (no response body)" >&2
+    fi
     rm -f "$dest.part"
-    echo "  ERROR: HTTP $code for $url" >&2
     return 1
   fi
   mv "$dest.part" "$dest"
