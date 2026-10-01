@@ -5,6 +5,8 @@
 | `UserWarning: ... sm_120 is not compatible with the current PyTorch installation` | cu124 以前の PyTorch。`.env` の `PYTORCH_IMAGE` を cuda12.8 タグ（torch ≥ 2.7）にして `docker compose build comfyui`。`scripts/verify_env.sh` の項目 2 で検出 |
 | `Torch not compiled with CUDA` / `torch.cuda.is_available()` が False | Windows 側の NVIDIA ドライバが古い、`wsl --update` 未実施、Docker Desktop の WSL integration が無効、`docker run --gpus all` が通らない |
 | `docker compose up` で `could not select device driver "nvidia"` | Docker Desktop の GPU サポート（WSL2 バックエンド）が無効。Docker Desktop を更新し、WSL integration を確認 |
+| `docker compose build comfyui` で `error: externally-managed-environment`（`pip install` が拒否される） | ベースイメージの Debian が Python を PEP 668 で保護している。`docker/Dockerfile` に `PIP_BREAK_SYSTEM_PACKAGES=1` を設定済み（2026-09-30 に実機で発生・修正）。古いコミットの場合は `git pull` してから再ビルド |
+| `error while interpolating services.api.environment.API_KEY` | `.env` の `API_KEY` が空のまま。`openssl rand -hex 24` の出力を実際に `.env` の `API_KEY=` に書き込む（出力を見るだけでは設定されない） |
 | API が起動しない: `api_key Field required` | `.env` に `API_KEY` が無い。設定漏れで無防備に公開される事故を防ぐため、意図的に起動を拒否する |
 | API が起動しない: `必須の title がありません` | ワークフロー JSON のノードに `_meta.title` が無い / 名前が違う。`workflows/WORKFLOW_NOTES.md` の表に合わせる |
 | `GET /api/health` が 503 | ComfyUI に接続できない。`docker compose logs comfyui`、`COMFY_URL`（コンテナ内は `http://comfyui:8188`） |

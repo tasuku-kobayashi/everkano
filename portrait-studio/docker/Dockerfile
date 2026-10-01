@@ -21,8 +21,13 @@ FROM ${PYTORCH_IMAGE}
 
 ARG COMFYUI_REF=master
 ARG DEBIAN_FRONTEND=noninteractive
+# The base image's Debian marks its system Python as PEP 668 "externally managed" (bare `pip install` refuses with
+# "error: externally-managed-environment"). This is a single-purpose container, not a shared system, so overriding
+# it is correct here. PIP_BREAK_SYSTEM_PACKAGES=1 covers every pip call below: the main requirements.txt install,
+# install_custom_nodes.sh's per-node installs, and whatever a cloned custom node's own install.py runs internally.
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     COMFYUI_DIR=/opt/ComfyUI
 
