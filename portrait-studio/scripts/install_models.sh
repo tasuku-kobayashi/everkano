@@ -49,26 +49,43 @@ fetch() { # fetch <url> <dest> [--auth]
   local url="$1" dest="$2" auth="${3:-}"
   if [[ -s "$dest" ]]; then echo "  exists: $dest"; return 0; fi
   echo "  GET $url"
+  local auth_args=()
+  [[ -n "$auth" ]] && auth_args=(-H "@$HEADER_FILE")
+  # -C - resumes "$dest.part" from a previous attempt (checkpoints are multi-GB; a dropped connection should not
+  # mean starting over). --retry absorbs a transient drop inside this one curl call; the `|| code=...` after the
+  # assignment keeps a harder failure (curl's own nonzero exit — e.g. a mid-transfer timeout, not just a bad
+  # %{http_code}) from silently killing the whole script under `set -e` (an assignment's command substitution
+  # failing is not itself guarded by -e unless something handles its exit status, which this now does).
   local code
-  if [[ -n "$auth" ]]; then
-    code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' -H "@$HEADER_FILE" "$url")"
-  else
-    code="$(curl -L -sS -o "$dest.part" -w '%{http_code}' "$url")"
-  fi
-  if [[ "$code" != "200" ]]; then
-    # the error body (usually small JSON, e.g. {"error":"..."}) says *why* — show it instead of discarding it
-    if [[ -s "$dest.part" ]]; then
-      echo "  ERROR: HTTP $code for $url — response body:" >&2
-      head -c 2000 "$dest.part" >&2
-      echo >&2
-    else
-      echo "  ERROR: HTTP $code for $url (no response body)" >&2
-    fi
+  code="$(curl -L -sS -C - --connect-timeout 20 --retry 5 --retry-delay 3 --retry-connrefused \
+    -o "$dest.part" -w '%{http_code}' "${auth_args[@]}" "$url")" || code="curl_exit_$?"
+  if [[ "$code" == "curl_exit_33" ]]; then
+    # curl refuses to resume when the server doesn't support byte ranges (plain dev servers; real CDNs almost
+    # always do) rather than risk silently corrupting the file — retrying with the same .part would just repeat
+    # this error forever, so drop it and download once from scratch instead
+    echo "  server does not support resuming a partial download; restarting it from scratch" >&2
     rm -f "$dest.part"
-    return 1
+    code="$(curl -L -sS --connect-timeout 20 --retry 5 --retry-delay 3 --retry-connrefused \
+      -o "$dest.part" -w '%{http_code}' "${auth_args[@]}" "$url")" || code="curl_exit_$?"
   fi
-  mv "$dest.part" "$dest"
-  echo "  saved: $dest ($(du -h "$dest" | cut -f1))"
+  if [[ "$code" == "200" || "$code" == "206" ]]; then
+    mv "$dest.part" "$dest"
+    echo "  saved: $dest ($(du -h "$dest" | cut -f1))"
+    return 0
+  fi
+  local part_size
+  part_size="$(stat -c%s "$dest.part" 2>/dev/null || echo 0)"
+  if [[ "$part_size" -gt 0 && "$part_size" -le 4096 ]]; then
+    # a few bytes is an error page (e.g. {"error":"..."}), not real partial content — show it, then clear it so a
+    # retry does not try to "resume" a download from a baseline that was never real file bytes
+    echo "  ERROR: $code for $url — response body:" >&2
+    cat "$dest.part" >&2
+    echo >&2
+    rm -f "$dest.part"
+  else
+    echo "  ERROR: $code for $url ($part_size bytes received so far — kept as $dest.part; re-run to resume)" >&2
+  fi
+  return 1
 }
 
 sha256_check() { # sha256_check <file> <expected>
