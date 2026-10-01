@@ -1,6 +1,6 @@
 # セットアップ（Windows 11 + WSL2 + Docker Desktop + RTX 5070）
 
-前提: Windows 11 Pro / WSL2（Ubuntu 22.04 or 24.04）/ Docker Desktop / NVIDIA GeForce RTX 5070（Blackwell, `sm_120`, 12 GB）。
+前提: Windows 11 Pro / WSL2（Ubuntu 22.04 or 24.04）/ Docker Desktop / NVIDIA GeForce RTX 5070（Blackwell, `sm_120`, 12 GB）/ WSL2 側に `uv`（後述）。
 **ComfyUI と API は `127.0.0.1` にしか公開しません。LAN や外部に公開しないでください**（ComfyUI の `/prompt` は無認証）。
 
 ## 1. Windows 側
@@ -44,7 +44,11 @@ scripts/install_models.sh --list
 
 ## 5. 起動
 
+`scripts/verify_env.sh` はワークフロー検証（手順4）をコンテナの中ではなくホスト側で `api/` の Python コードを直接動かして行うため、
+WSL2 側（コンテナの外）に `uv` が必要（未インストールだとこの項目だけ `uv: command not found` で失敗する）。
+
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh && source "$HOME/.local/bin/env"   # 未インストールなら（初回のみ）
 docker compose up --build            # 初回は 10〜30 分（ComfyUI + カスタムノード + web の build）
 scripts/verify_env.sh                # cu128 / sm_120 / ノード登録 / ワークフロー検証 / API 認証
 ```

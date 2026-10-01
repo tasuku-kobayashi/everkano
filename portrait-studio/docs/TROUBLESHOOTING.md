@@ -10,6 +10,8 @@
 | `docker compose build comfyui` で `groupadd: GID '1000' already exists` | ベースイメージに既に uid/gid 1000 のアカウントがある。`docker/setup_user.sh` がそれを comfy / app へ改名する方式に修正済み（2026-09-30 に実機で発生・修正）。`git pull` してから再ビルド |
 | API が起動しない: `PermissionError: [Errno 13] Permission denied: '/data/images'` | API コンテナの `app` ユーザーの uid/gid が `DATA_DIR` の所有者と違う。`api/Dockerfile` の `app` を `COMFY_UID`/`COMFY_GID`（既定 1000）に合わせる方式に修正済み（2026-09-30 に実機で発生・修正）。`git pull` してから再ビルド |
 | `comfyui` が再起動を繰り返す: `main.py: error: unrecognized arguments: --normalvram` | 現在の ComfyUI（`master`）に `--normalvram` が無い（自動検出が既定になり廃止された）。`.env.example` の既定値を空に変更し `COMFYUI_REF` を固定コミットに変更済み（2026-09-30 に実機で発生・修正）。既存の `.env` に `COMFY_EXTRA_ARGS=--normalvram` と書いていたら削除するか空にする |
+| `scripts/verify_env.sh` の「4. Workflow files」が `uv: command not found` で失敗 | ワークフロー検証はコンテナの中ではなくホスト側で `api/` の Python コードを直接実行して照合するため、WSL2 側に `uv` が必要（Docker イメージの中には入っているが、ホストには別途インストールが要る）。`curl -LsSf https://astral.sh/uv/install.sh \| sh` → 新しいターミナルで再実行（2026-10-01 に実機で発生・判明。他の 1〜3・5 は無関係に成功する） |
+| `face_engine_ready: false`（`GET /api/health`） | 不具合ではない。顔認識モデルは初回の顔関連処理（生成 / 類似度計算）で遅延ロードされる仕様（`ready()` は `load()` 後に true）。設定画面にも「初回使用時にロード」と表示される |
 | API が起動しない: `api_key Field required` | `.env` に `API_KEY` が無い。設定漏れで無防備に公開される事故を防ぐため、意図的に起動を拒否する |
 | API が起動しない: `必須の title がありません` | ワークフロー JSON のノードに `_meta.title` が無い / 名前が違う。`workflows/WORKFLOW_NOTES.md` の表に合わせる |
 | `GET /api/health` が 503 | ComfyUI に接続できない。`docker compose logs comfyui`、`COMFY_URL`（コンテナ内は `http://comfyui:8188`） |
